@@ -1,0 +1,53 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors and local workspace state
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Python cache and tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Local secrets and device-specific overrides
+secrets.py
+*.secret.py
+*.local.py
+*.local.json
+.env
+.env.*
+/certs/
+
+# MicroPython / device tooling
+.mpremote/
+.micropico-logs/
+*.uf2
+*.mpy
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
