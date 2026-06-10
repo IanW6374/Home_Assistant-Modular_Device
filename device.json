@@ -1,0 +1,60 @@
+{
+    "devices": [
+        {
+            "name": "WHES",
+            "uuid": "0001",
+            "type": {
+                "class": "sensor",
+                "subclass": "Pico-2CH-RS485"
+            },
+            "pollinterval": 60,
+            "rs485": {
+                "timeout_ms": 500,
+                "ports": {
+                    "ch0": {
+                        "uart": 0,
+                        "tx": 0,
+                        "rx": 1,
+                        "baudrate": 115200
+                    },
+                    "ch1": {
+                        "uart": 1,
+                        "tx": 4,
+                        "rx": 5,
+                        "baudrate": 115200
+                    }
+                }
+            },
+            "entities": {
+                "0": {
+                    "class": "power",
+                    "key": "PV Power",
+                    "unit": "W",
+                    "state_class": "measurement",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 3000,
+                    "count": 2,
+                    "data_type": "uint32",
+                    "scale": 0.1
+                },
+                "1": {
+                    "class": "energy",
+                    "key": "PV Energy",
+                    "unit": "kWh",
+                    "state_class": "total_increasing",
+                    "value": 0,
+                    "port": "ch1",
+                    "slave": 2,
+                    "function": 4,
+                    "address": 3006,
+                    "count": 2,
+                    "data_type": "uint32",
+                    "scale": 0.01
+                }
+            }
+        }
+    ]
+}
