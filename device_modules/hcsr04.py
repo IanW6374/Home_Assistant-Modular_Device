@@ -63,9 +63,6 @@ class HCSR04Driver(DeviceDriver):
 
         return payload_discovery, payload_entities
 
-    def handle_set(self, payload):
-        return
-
     def get_state_payload(self):
         payload = {}
         for e in self.device['entities']:

@@ -56,3 +56,35 @@ class DeviceDriver:
 
     def start(self, publish_callable, deviceid):
         return
+
+
+def handle_local_input(input_device, device_objects, device_config, publish_message):
+    import asyncio
+
+    inputdevice = next(device for device in device_objects if device['uuid'] == input_device[1])
+
+    for i in inputdevice['output_uuid']:
+        outputdevice = next(device for device in device_objects if device['uuid'] == inputdevice['output_uuid'][str(i)])
+        payload = None
+        log_only = False
+
+        if outputdevice['type']['class'] == 'light' and input_device[0] == 'onoff':
+            payload = {
+                'state': 'OFF' if outputdevice['entities']['0']['state'] == 'ON' else 'ON'
+            }
+
+        elif outputdevice['type']['class'] == 'light' and input_device[0] == 'dimmer':
+            brightness = int(outputdevice['entities']['0']['brightness'] +
+                             input_device[2] * (255 * inputdevice['entities']['0']['step'] / 100))
+            brightness = max(0, min(255, brightness))
+            log_only = brightness == outputdevice['entities']['0']['brightness']
+            payload = {
+                'state': 'ON',
+                'brightness': brightness
+            }
+
+        if payload is None:
+            continue
+
+        data = device_config(outputdevice['type']['class'], outputdevice['uuid'], 'set', payload)
+        asyncio.create_task(publish_message(data, 0, log_only))

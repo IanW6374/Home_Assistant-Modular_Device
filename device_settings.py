@@ -15,3 +15,5 @@ ha_device_info = {
     "sw": "1.0",
     "hw": "1.0"
 }
+
+mqtt_debug = False # Set to True to print MQTT messages to the console e.g. WiFi connection status, MQTT connection status, MQTT messages received etc.

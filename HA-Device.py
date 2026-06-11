@@ -4,15 +4,13 @@ from binascii import hexlify
 import json
 import secrets
 import device_settings
-import re as RegExp
 from machine import Pin, unique_id
 from primitives import Encoder
 from mqtt_as import MQTTClient, config
 import asyncio
 from device_modules import setup_device
 from device_modules.loader import get_device_types
-from device_modules.base import homeassistant_device_info
-from device_modules.switch_onoff import handle_local_input
+from device_modules.base import handle_local_input, homeassistant_device_info
 
 try:
     import ntptime
@@ -47,6 +45,7 @@ ntp_servers = getattr(device_settings, 'ntp_servers', ('pool.ntp.org',))
 
 loglevels = ['ERROR', 'INFO', 'DEBUG']
 loglevel = 'INFO'
+mqtt_debug = getattr(device_settings, 'mqtt_debug', True)
 
 # Device types will be loaded from device modules
 deviceTypes = []
@@ -54,29 +53,36 @@ deviceTypes = []
 deviceObjects = [
     # System LED
     {'name': 'S1', 'uuid': '0000', 'type': {'class': 'light', 'subclass': 'onoff'}, 'entities': {'0': {'state': 'OFF'}}, 'gpio': {'activeHigh': True, 'output': {'0': 'LED'}}},
-];
+]
 
 outputDevices = [
     # System LED
     {'uuid': '0000', 'index': 0, 'output': {'0': Pin('LED', Pin.OUT)}}    
-];
+]
 
-inputDevices = [];
+inputDevices = []
 
 
 
 # Function:  Validate UUID
 def validUUID(uuid):
-
-    i = 0
-  
-    for device in deviceObjects:
-        if device['uuid'] == uuid:
-            i+=1
-    if i==0 and RegExp.match('(^[a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9]$)', uuid):
-        return True
-    else:
+    if any(device['uuid'] == uuid for device in deviceObjects):
         return False
+
+    if len(uuid) != 4:
+        return False
+
+    try:
+        int(uuid, 16)
+        return True
+    except ValueError:
+        return False
+
+
+def find_device_type(device):
+    return next((t for t in deviceTypes
+                 if t['class'] == device['type']['class']
+                 and device['type']['subclass'] in t['subclass']), None)
 
 
 
@@ -91,30 +97,22 @@ def deviceValidation (device):
         validationError = True    
 
 
-    try:
-        type_entry = next((t for t in deviceTypes
-                           if t['class'] == device['type']['class']
-                           and device['type']['subclass'] in t['subclass']))
-
-        if not any(device['type']['subclass'] in t['subclass'] and device['type']['class'] == t['class'] for t in deviceTypes):
-            
+    type_entry = find_device_type(device)
+    if type_entry is None:
+        class_supported = any(t['class'] == device['type']['class'] for t in deviceTypes)
+        if class_supported:
             logOutput ('Local', 'Add device', {'log':'Failed to create device - ' + device['name'] + ' - Device subclass "' + device['type']['subclass'] + '" not Supported'}, 'ERROR')
-            validationError = True
-            
-        elif device['type']['class'] == 'sensor':
-            
-            for e in device['entities']:
-                if not device['entities'][str(e)]['class'] in type_entry['subclass'][device['type']['subclass']]['entities']:
-                    
-                    logOutput ('Local', 'Add device', {'log':'Failed to create device - ' + device['name'] + ' - Device entity "' + device['entities'][e]['class'] + '" not Supported'}, 'ERROR')
-                    validationError = True
-            
-            
-            
-    except StopIteration:
-            
-        logOutput ('Local', 'Add device', {'log':'Failed to create device - ' + device['name'] + ' - Device class "' + device['type']['class'] +'" not Supported'}, 'ERROR')
-        validationError = True
+        else:
+            logOutput ('Local', 'Add device', {'log':'Failed to create device - ' + device['name'] + ' - Device class "' + device['type']['class'] +'" not Supported'}, 'ERROR')
+        return False
+
+    if device['type']['class'] == 'sensor':
+        supported_entities = type_entry['subclass'][device['type']['subclass']]['entities']
+        for e in device['entities']:
+            entity_class = device['entities'][str(e)]['class']
+            if entity_class not in supported_entities:
+                logOutput ('Local', 'Add device', {'log':'Failed to create device - ' + device['name'] + ' - Device entity "' + entity_class + '" not Supported'}, 'ERROR')
+                validationError = True
 
                 
     return not validationError
@@ -130,9 +128,6 @@ class Style():
 
 # Function:  Log Output       
 def logOutput(mode, action, data, logtype):
-    global loglevels
-    global loglevel
-
     current_time = time.localtime()
     
     timestamp = "{:04}{:02}{:02} {:02}{:02}{:02}".format(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5])
@@ -197,9 +192,6 @@ def local_input(inputDevice):
 
 
 async def homeassistant_discovery():
-    global deviceObjects
-    global deviceTypes
-
     if not ha_discovery:
         return
 
@@ -215,9 +207,9 @@ async def homeassistant_discovery():
         return None
 
     for device in deviceObjects:
-        devicetype = next(devicetype for devicetype in deviceTypes if devicetype['class'] == device['type']['class'])
+        devicetype = find_device_type(device)
 
-        if device['uuid'] != '0000' and devicetype['ha_discovery']:
+        if device['uuid'] != '0000' and devicetype and devicetype['ha_discovery']:
             payload_discovery = {}
             payload_entities = {}
 
@@ -228,8 +220,6 @@ async def homeassistant_discovery():
                 except Exception:
                     payload_discovery = {}
                     payload_entities = {}
-
-            # If no driver-provided payloads, skip (fallback could be implemented)
 
             if not device_info_added and payload_discovery:
                 payload_discovery[0].update({
@@ -283,10 +273,7 @@ def device_config(devicetype, uuid, command, payload):
 
 async def messages(client):  # Respond to incoming messages
     async for topic, payload, retained in client.queue:
-        global deviceid
-
         msg_topic = topic.decode('utf-8')
-        #msg_payload_json = json.loads(payload.decode('utf-8'))['state']
         
         if msg_topic == 'homeassistant/status':
             
@@ -333,8 +320,6 @@ async def messages(client):  # Respond to incoming messages
 
 
 async def up(client):  # Respond to connectivity being (re)established
-    
-    global deviceid
        
     while True:
     
@@ -349,9 +334,9 @@ async def up(client):  # Respond to connectivity being (re)established
     
         for device in deviceObjects:
             
-            devicetype = next(devicetype for devicetype in deviceTypes if devicetype['class'] == device['type']['class'])
+            devicetype = find_device_type(device)
 
-            if device['uuid'] != '0000' and devicetype['ha_subscribe']:
+            if device['uuid'] != '0000' and devicetype and devicetype['ha_subscribe']:
             
                 await client.subscribe('homeassistant/' + device['type']['class'] + '/' + deviceid + device['uuid'] + '/set', 1)
             
@@ -362,12 +347,34 @@ async def up(client):  # Respond to connectivity being (re)established
         await asyncio.sleep(0)
 
 
+def ssl_error_message(exc):
+    detail = str(exc).strip()
+    if not detail and getattr(exc, 'args', None):
+        detail = ' '.join(str(arg) for arg in exc.args if arg)
+
+    if not detail:
+        detail = 'certificate validation failed'
+
+    if 'validity has expired' in detail:
+        detail += ' - renew the broker certificate or check the device clock/NTP.'
+
+    if 'Common Name' in detail or 'expected CN' in detail:
+        detail += ' - connect using the hostname covered by the certificate, or update the certificate SAN/CN.'
+
+    return detail
+
+
 
 async def main(client):
-    global deviceid
-    global deviceObjects
-    
-    await client.connect()
+    try:
+        await client.connect()
+    except ValueError as exc:
+        logOutput('MQTT', 'Connect', {'log': 'SSL error: ' + ssl_error_message(exc)}, 'ERROR')
+        return
+    except OSError as exc:
+        logOutput('MQTT', 'Connect', {'log': 'Connection error: ' + str(exc)}, 'ERROR')
+        return
+
     for coroutine in (up, messages):
         asyncio.create_task(coroutine(client))
     
@@ -390,10 +397,10 @@ logOutput ('MQTT', 'Connect', {'log':'Loaded CA Trust Certificate'}, 'INFO')
 deviceTypes = get_device_types()
 
 config['client_id'] = deviceid
-config['sslparams'] = {'server_side':False, 'key':None, 'cert':None, 'cadata':cacert, 'cert_reqs':ssl.CERT_REQUIRED, 'server_hostname': config['server']}
+config['ssl_params'] = {'server_side':False, 'key':None, 'cert':None, 'cadata':cacert, 'cert_reqs':ssl.CERT_REQUIRED, 'server_hostname': config['server']}
 config["queue_len"] = 1  # Use event interface with default queue size
 
-MQTTClient.DEBUG = True  # Optional: print diagnostic messages
+MQTTClient.DEBUG = mqtt_debug
 
 client = MQTTClient(config)
 
@@ -446,11 +453,11 @@ for device in deviceConfig['devices']:
         i += 1
 
         # Initialise local devices
-        deviceType = next(deviceType for deviceType in deviceTypes if deviceType['class'] == device['type']['class'])
+        deviceType = find_device_type(device)
 
         payload = {}
 
-        if device['uuid'] != '0000' and deviceType['local_init']:
+        if device['uuid'] != '0000' and deviceType and deviceType['local_init']:
             for e in device['entities']:
                 if device['type']['class'] == 'light':
                     payload = device['entities'][str(e)]

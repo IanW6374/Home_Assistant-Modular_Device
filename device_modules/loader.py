@@ -1,6 +1,6 @@
 import uos
 
-EXCLUDE_FILES = {"__init__.py", "loader.py", "base.py", "sensor.py"}
+EXCLUDE_FILES = {"__init__.py", "loader.py", "base.py", "sensor.py", "template.py"}
 
 # Registry for device types
 _DEVICE_TYPES = {}

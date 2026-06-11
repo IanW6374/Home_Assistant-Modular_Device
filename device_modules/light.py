@@ -145,8 +145,5 @@ class LightDriver(DeviceDriver):
             self.devchar['output']['g'].duty_u16(g)
             self.devchar['output']['b'].duty_u16(b)
 
-    def handle_set(self, payload):
-        self.set(payload)
-
     def get_state_payload(self):
         return self.device['entities']['0']
