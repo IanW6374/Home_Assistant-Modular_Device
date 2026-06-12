@@ -69,16 +69,30 @@
                 },
                 "3": {
                     "class": "power",
-                    "key": "Power_PV_Meter",
+                    "key": "Power_Meter",
                     "unit": "W",
                     "state_class": "measurement",
                     "value": 0,
                     "port": "ch0",
                     "slave": 1,
                     "function": 4,
-                    "address": 36205,
+                    "address": 36131,
                     "count": 2,
                     "data_type": "int32",
+                    "pollinterval": 60
+                },
+                "4": {
+                    "class": "battery",
+                    "key": "BatSOC",
+                    "unit": "%",
+                    "state_class": "measurement",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36155,
+                    "count": 1,
+                    "data_type": "uint16",
                     "pollinterval": 60
                 }
             }
