@@ -173,10 +173,10 @@ class Pico2CHRS485Driver(DeviceDriver):
             "request_id": "optional-correlation-id",
             "port": "ch0",
             "slave": 1,
-            "address": 3000,
-            "count": 2,
+            "address": 36155,
+            "count": 1,
             "function": 4,
-            "data_type": "uint32",
+            "data_type": "uint16",
             "scale": 0.1
         }
         """
