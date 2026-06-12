@@ -7,7 +7,6 @@
                 "class": "sensor",
                 "subclass": "Pico-2CH-RS485"
             },
-            "pollinterval": 60,
             "rs485": {
                 "timeout_ms": 500,
                 "ports": {
@@ -28,31 +27,44 @@
             "entities": {
                 "0": {
                     "class": "power",
-                    "key": "PV Power",
+                    "key": "Power_PV_Meter",
                     "unit": "W",
                     "state_class": "measurement",
                     "value": 0,
                     "port": "ch0",
                     "slave": 1,
                     "function": 4,
-                    "address": 3000,
+                    "address": 36205,
                     "count": 2,
-                    "data_type": "uint32",
-                    "scale": 0.1
+                    "data_type": "int32",
+                    "pollinterval": 60
                 },
                 "1": {
-                    "class": "energy",
-                    "key": "PV Energy",
-                    "unit": "kWh",
-                    "state_class": "total_increasing",
+                    "class": "battery",
+                    "key": "BatSOC",
+                    "unit": "%",
+                    "state_class": "measurement",
                     "value": 0,
-                    "port": "ch1",
-                    "slave": 2,
+                    "port": "ch0",
+                    "slave": 1,
                     "function": 4,
-                    "address": 3006,
-                    "count": 2,
-                    "data_type": "uint32",
-                    "scale": 0.01
+                    "address": 36155,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60
+                },
+                "2": {
+                    "class": "memory_value",
+                    "key": "SerialNumber_INV",
+                    "entity_category": "diagnostic",
+                    "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36010,
+                    "count": 10,
+                    "data_type": "ascii",
+                    "pollinterval": 0
                 }
             }
         }

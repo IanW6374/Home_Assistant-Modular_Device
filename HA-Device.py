@@ -358,6 +358,9 @@ def ssl_error_message(exc):
     if 'validity has expired' in detail:
         detail += ' - renew the broker certificate or check the device clock/NTP.'
 
+    if 'validity starts in the future' in detail:
+        detail += ' - sync NTP before connecting or check the device clock.'
+
     if 'Common Name' in detail or 'expected CN' in detail:
         detail += ' - connect using the hostname covered by the certificate, or update the certificate SAN/CN.'
 
@@ -367,6 +370,9 @@ def ssl_error_message(exc):
 
 async def main(client):
     try:
+        logOutput('MQTT', 'Connect', {'log': 'Connect WiFi before NTP sync'}, 'INFO')
+        await client.wifi_connect(quick=True)
+        await sync_ntp_time()
         await client.connect()
     except ValueError as exc:
         logOutput('MQTT', 'Connect', {'log': 'SSL error: ' + ssl_error_message(exc)}, 'ERROR')

@@ -24,6 +24,8 @@ DEVICE_TYPE = {
     'subclass': {
         'Pico-2CH-RS485': {
             'entities': {
+                'battery',
+                'memory_value',
                 'power',
                 'energy'
             }
@@ -37,6 +39,19 @@ DEVICE_TYPE = {
 
 DEFAULT_PORT = 'ch0'
 DEFAULT_TIMEOUT_MS = 500
+DEFAULT_POLL_INTERVAL = 60
+
+
+def _timestamp():
+    current_time = time.localtime()
+    return "{:04}{:02}{:02} {:02}{:02}{:02}".format(
+        current_time[0],
+        current_time[1],
+        current_time[2],
+        current_time[3],
+        current_time[4],
+        current_time[5]
+    )
 
 
 def supports(device):
@@ -135,6 +150,8 @@ class Pico2CHRS485Driver(DeviceDriver):
                 payload_discovery[i]['unit_of_measurement'] = entity['unit']
             if 'state_class' in entity:
                 payload_discovery[i]['state_class'] = entity['state_class']
+            if 'entity_category' in entity:
+                payload_discovery[i]['entity_category'] = entity['entity_category']
 
             payload_entities[key] = entity.get('value', 0)
             i += 1
@@ -176,20 +193,38 @@ class Pico2CHRS485Driver(DeviceDriver):
         if self._running:
             return
         self._running = True
+        entities = self._poll_entities()
 
         async def poll_loop():
+            first_poll = True
+
             while True:
                 try:
                     await self._handle_pending()
                     changed = False
+                    now = time.ticks_ms()
+                    next_delay = None
 
-                    for e in self.device['entities']:
-                        entity = self.device['entities'][str(e)]
-                        if entity.get('poll', True):
+                    for entity in entities:
+                        pollinterval = self._entity_pollinterval(entity)
+                        due = first_poll or (
+                            pollinterval > 0 and
+                            time.ticks_diff(now, entity.get('_next_poll', 0)) >= 0
+                        )
+
+                        if due:
                             value = await self._read_entity(entity)
                             if value is not None:
                                 entity['value'] = value
                                 changed = True
+
+                            if pollinterval > 0:
+                                entity['_next_poll'] = time.ticks_add(time.ticks_ms(), int(pollinterval * 1000))
+
+                        if pollinterval > 0:
+                            delay = max(0, time.ticks_diff(entity.get('_next_poll', now), time.ticks_ms()))
+                            if next_delay is None or delay < next_delay:
+                                next_delay = delay
 
                     if changed:
                         self.publish_state(publish_callable, deviceid)
@@ -198,7 +233,8 @@ class Pico2CHRS485Driver(DeviceDriver):
                 except Exception as exc:
                     print('Pico-2CH-RS485 poll error', exc)
 
-                await asyncio.sleep(self.device.get('pollinterval', 60))
+                first_poll = False
+                await asyncio.sleep_ms(next_delay if next_delay is not None else 1000)
 
         try:
             asyncio.create_task(poll_loop())
@@ -211,11 +247,24 @@ class Pico2CHRS485Driver(DeviceDriver):
             await self._read_and_publish(request)
             await asyncio.sleep(0)
 
+    def _poll_entities(self):
+        entities = []
+        for e in self.device['entities']:
+            entity = self.device['entities'][str(e)]
+            if entity.get('poll', True):
+                entity['_next_poll'] = time.ticks_ms()
+                entities.append(entity)
+        return entities
+
+    def _entity_pollinterval(self, entity):
+        return entity.get('pollinterval', self.device.get('pollinterval', DEFAULT_POLL_INTERVAL))
+
     async def _read_and_publish(self, request):
         response = await self._read_request(request)
         self._publish_response(response)
 
     async def _read_entity(self, entity):
+        key = entity.get('key', entity['class'])
         request = {
             'port': entity.get('port', DEFAULT_PORT),
             'slave': entity.get('slave', self.device.get('slave', 1)),
@@ -231,7 +280,9 @@ class Pico2CHRS485Driver(DeviceDriver):
         response = await self._read_request(request)
         if response.get('ok'):
             return response['value']
-        print('Pico-2CH-RS485 read failed', response.get('error'))
+        print(_timestamp(), ' Local: Pico-2CH-RS485 - Read failed',
+              key, 'port', request['port'], 'slave', request['slave'],
+              'address', request['address'], response.get('error'))
         if response.get('error') == 'timeout':
             return 0
         return None
@@ -269,7 +320,8 @@ class Pico2CHRS485Driver(DeviceDriver):
                 request.get('byte_order', 'big'),
                 request.get('word_order', 'big')
             )
-            value = (value * request.get('scale', 1)) + request.get('offset', 0)
+            if not isinstance(value, str):
+                value = (value * request.get('scale', 1)) + request.get('offset', 0)
 
             response.update({
                 'ok': True,
@@ -370,6 +422,9 @@ class Pico2CHRS485Driver(DeviceDriver):
         self._publish_callable(data, 0, False)
 
     def _decode_registers(self, raw, data_type, byte_order, word_order):
+        if data_type == 'ascii':
+            return ''.join(chr(byte) for byte in raw if 32 <= byte <= 126).rstrip()
+
         if byte_order == 'little':
             words = []
             for i in range(0, len(raw), 2):
