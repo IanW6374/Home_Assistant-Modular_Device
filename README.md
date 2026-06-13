@@ -16,7 +16,6 @@ entities.
 - GPIO light and switch modules.
 - Generic Pico 2-channel RS485 Modbus sensor module.
 - WHES-specific RS485 module with calculated MQTT presentation entities.
-- Standalone RS485 memory test script with no WiFi or MQTT dependency.
 
 ## Repository Layout
 
