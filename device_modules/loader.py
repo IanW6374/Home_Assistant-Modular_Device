@@ -1,6 +1,13 @@
 import uos
 
-EXCLUDE_FILES = {"__init__.py", "loader.py", "base.py", "sensor.py", "template.py"}
+EXCLUDE_FILES = {
+    "__init__.py",
+    "loader.py",
+    "base.py",
+    "sensor.py",
+    "template.py",
+    "validation.py"
+}
 
 # Registry for device types
 _DEVICE_TYPES = {}
@@ -29,10 +36,12 @@ def _discover_modules():
         try:
             module = __import__(package + "." + module_name, None, None, [module_name])
         except Exception as exc:
+            primary_error = exc
             try:
                 module = __import__(module_name)
-            except Exception:
-                print('device_modules.loader: failed to import', module_name, exc)
+            except Exception as fallback_exc:
+                print('device_modules.loader: failed to import', module_name,
+                      'primary:', primary_error, 'fallback:', fallback_exc)
                 continue
 
         if hasattr(module, 'supports') and callable(module.supports):
@@ -57,7 +66,10 @@ def _find_module_for_device(device):
         try:
             if module.supports(device):
                 return module
-        except Exception:
+        except Exception as exc:
+            print('device_modules.loader: supports failed',
+                  getattr(module, '__name__', 'unknown'),
+                  device.get('uuid'), device.get('name'), exc)
             continue
     return None
 
@@ -70,13 +82,20 @@ def get_device_types():
 def setup_device(device, index):
     module = _find_module_for_device(device)
     if not module:
-        print('device_modules.loader: no module found for device', device.get('uuid'))
+        print('device_modules.loader: no module found for device',
+              device.get('uuid'), device.get('name'), device.get('type'))
         return None
 
-    device_char = module.setup(device, index)
-    if hasattr(module, 'create_driver') and callable(module.create_driver):
-        device_char['driver'] = module.create_driver(device, device_char)
-    elif hasattr(module, 'Driver'):
-        device_char['driver'] = module.Driver(device, device_char)
+    try:
+        device_char = module.setup(device, index)
+        if hasattr(module, 'create_driver') and callable(module.create_driver):
+            device_char['driver'] = module.create_driver(device, device_char)
+        elif hasattr(module, 'Driver'):
+            device_char['driver'] = module.Driver(device, device_char)
+    except Exception as exc:
+        print('device_modules.loader: setup failed',
+              getattr(module, '__name__', 'unknown'),
+              device.get('uuid'), device.get('name'), exc)
+        return None
 
     return device_char

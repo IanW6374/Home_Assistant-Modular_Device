@@ -15,6 +15,49 @@ def homeassistant_device_info(deviceid, ha_devicename):
     return info
 
 
+def ha_device_topic(device_type, deviceid, uuid):
+    return 'homeassistant/' + device_type + '/' + deviceid + uuid
+
+
+def ha_state_topic(device_type, deviceid, uuid):
+    return ha_device_topic(device_type, deviceid, uuid) + '/state'
+
+
+def ha_config_topic(device_type, deviceid, uuid, index):
+    return ha_device_topic(device_type, deviceid, uuid) + '_' + str(index) + '/config'
+
+
+def ha_set_topic(device_type, deviceid, uuid):
+    return ha_device_topic(device_type, deviceid, uuid) + '/set'
+
+
+def ha_response_topic(device_type, deviceid, uuid):
+    return ha_device_topic(device_type, deviceid, uuid) + '/response'
+
+
+def sensor_discovery_payload(device, entity, key, index, deviceid, ha_devicename):
+    payload = {
+        "~": ha_device_topic(device['type']['class'], deviceid, device['uuid']),
+        "stat_t": "~/state",
+        "uniq_id": deviceid + device['uuid'] + '_' + str(index),
+        "name": device['name'] + ' ' + key,
+        "value_template": "{{ value_json[" + repr(key) + "] }}",
+        "dev": homeassistant_device_info(deviceid, ha_devicename)
+    }
+
+    entity_class = entity.get('class')
+    if entity_class and entity_class != 'memory_value':
+        payload['device_class'] = entity_class
+    if entity.get('unit', ''):
+        payload['unit_of_measurement'] = entity['unit']
+    if 'state_class' in entity:
+        payload['state_class'] = entity['state_class']
+    if 'entity_category' in entity:
+        payload['entity_category'] = entity['entity_category']
+
+    return payload
+
+
 class DeviceDriver:
     def __init__(self, device, device_char):
         self.device = device
@@ -33,7 +76,7 @@ class DeviceDriver:
         payload = self.get_state_payload()
         data = {
             'payload': payload,
-            'topic': 'homeassistant/' + self.device['type']['class'] + '/' + deviceid + self.device['uuid'] + '/state',
+            'topic': ha_state_topic(self.device['type']['class'], deviceid, self.device['uuid']),
             'log': 'HA Update: ' + self.device['name']
         }
         publish_callable(data, 0, False)
@@ -43,7 +86,7 @@ class DeviceDriver:
         for i in payloads:
             data = {
                 'payload': payloads[i],
-                'topic': 'homeassistant/' + self.device['type']['class'] + '/' + deviceid + self.device['uuid'] + '_' + str(i) + '/config',
+                'topic': ha_config_topic(self.device['type']['class'], deviceid, self.device['uuid'], i),
                 'log': 'HA Discovery: ' + self.device['name']
             }
             publish_callable(data, 0, False)

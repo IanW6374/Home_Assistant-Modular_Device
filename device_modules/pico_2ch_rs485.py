@@ -13,8 +13,12 @@ except ImportError:
 from machine import UART, Pin
 try:
     from .base import DeviceDriver
+    from .base import ha_response_topic
+    from .base import sensor_discovery_payload
 except ImportError:
     from base import DeviceDriver
+    from base import ha_response_topic
+    from base import sensor_discovery_payload
 import asyncio
 import time
 
@@ -135,24 +139,14 @@ class Pico2CHRS485Driver(DeviceDriver):
             entity = self.device['entities'][str(e)]
             key = entity.get('key', entity['class'])
 
-            payload_discovery[i] = {
-                "~": "homeassistant/sensor/" + deviceid + self.device['uuid'],
-                "stat_t": "~/state",
-                "uniq_id": deviceid + self.device['uuid'] + '_' + str(i),
-                "name": self.device['name'] + ' ' + key,
-                "value_template": "{{ value_json[" + repr(key) + "] }}",
-                "dev": self.discovery_device_info(deviceid, ha_devicename)
-            }
-
-            if entity['class'] != 'memory_value':
-                payload_discovery[i]['device_class'] = entity['class']
-            if entity.get('unit', ''):
-                payload_discovery[i]['unit_of_measurement'] = entity['unit']
-            if 'state_class' in entity:
-                payload_discovery[i]['state_class'] = entity['state_class']
-            if 'entity_category' in entity:
-                payload_discovery[i]['entity_category'] = entity['entity_category']
-
+            payload_discovery[i] = sensor_discovery_payload(
+                self.device,
+                entity,
+                key,
+                i,
+                deviceid,
+                ha_devicename
+            )
             payload_entities[key] = entity.get('value', 0)
             i += 1
 
@@ -416,7 +410,7 @@ class Pico2CHRS485Driver(DeviceDriver):
 
         data = {
             'payload': payload,
-            'topic': 'homeassistant/sensor/' + self._deviceid + self.device['uuid'] + '/response',
+            'topic': ha_response_topic('sensor', self._deviceid, self.device['uuid']),
             'log': 'RS485 response: ' + self.device['name']
         }
         self._publish_callable(data, 0, False)

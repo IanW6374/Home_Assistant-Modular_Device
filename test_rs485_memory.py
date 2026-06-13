@@ -236,9 +236,9 @@ def find_device(config):
         if device.get("name") == DEVICE_NAME:
             return device
     for device in config.get("devices", []):
-        if device.get("type", {}).get("subclass") == "Pico-2CH-RS485":
+        if device.get("type", {}).get("subclass") in ("WHES", "Pico-2CH-RS485"):
             return device
-    raise ValueError("no Pico-2CH-RS485 device found in " + DEVICE_CONFIG_FILE)
+    raise ValueError("no WHES or Pico-2CH-RS485 device found in " + DEVICE_CONFIG_FILE)
 
 
 def main():

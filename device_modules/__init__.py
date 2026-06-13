@@ -1,6 +1,10 @@
 try:
     from .loader import setup_device
 except ImportError:
-    from loader import setup_device
+    try:
+        from loader import setup_device
+    except ImportError:
+        def setup_device(device, index):
+            return None
 
 __all__ = ["setup_device"]

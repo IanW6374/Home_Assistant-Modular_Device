@@ -5,12 +5,23 @@ import json
 import secrets
 import device_settings
 from machine import Pin, unique_id
+try:
+    from machine import WDT
+except ImportError:
+    WDT = None
 from primitives import Encoder
 from mqtt_as import MQTTClient, config
 import asyncio
 from device_modules import setup_device
 from device_modules.loader import get_device_types
-from device_modules.base import handle_local_input, homeassistant_device_info
+from device_modules.base import (
+    ha_config_topic,
+    ha_set_topic,
+    ha_state_topic,
+    handle_local_input,
+    homeassistant_device_info
+)
+from device_modules.validation import validate_device_config
 
 try:
     import ntptime
@@ -46,6 +57,8 @@ ntp_servers = getattr(device_settings, 'ntp_servers', ('pool.ntp.org',))
 loglevels = ['ERROR', 'INFO', 'DEBUG']
 loglevel = 'INFO'
 mqtt_debug = getattr(device_settings, 'mqtt_debug', True)
+watchdog_timeout_ms = getattr(device_settings, 'watchdog_timeout_ms', 0)
+watchdog = None
 
 # Device types will be loaded from device modules
 deviceTypes = []
@@ -230,7 +243,7 @@ async def homeassistant_discovery():
             for i in payload_discovery:
                 data = {
                     'payload': payload_discovery[i],
-                    'topic': 'homeassistant/' + device['type']['class'] + '/' + deviceid + device['uuid'] + '_' + str(i) + '/config',
+                    'topic': ha_config_topic(device['type']['class'], deviceid, device['uuid'], i),
                     'log': 'HA Discovery: ' + device['name']
                 }
                 asyncio.create_task(publish_message(data, 0, False, True))
@@ -239,7 +252,7 @@ async def homeassistant_discovery():
 
             data = {
                 'payload': payload_entities,
-                'topic': 'homeassistant/' + device['type']['class'] + '/' + deviceid + device['uuid'] + '/state',
+                'topic': ha_state_topic(device['type']['class'], deviceid, device['uuid']),
                 'log': 'HA Update: ' + device['name']
             }
             asyncio.create_task(publish_message(data, 0, False))
@@ -263,7 +276,7 @@ def device_config(devicetype, uuid, command, payload):
 
     data = {
         'payload': msg_payload,
-        'topic': 'homeassistant/' + devicetype + '/' + deviceid + uuid + '/state',
+        'topic': ha_state_topic(devicetype, deviceid, uuid),
         'log': 'HA Update: ' + deviceObjects[device['index']]['name']
     }
 
@@ -338,9 +351,10 @@ async def up(client):  # Respond to connectivity being (re)established
 
             if device['uuid'] != '0000' and devicetype and devicetype['ha_subscribe']:
             
-                await client.subscribe('homeassistant/' + device['type']['class'] + '/' + deviceid + device['uuid'] + '/set', 1)
+                topic = ha_set_topic(device['type']['class'], deviceid, device['uuid'])
+                await client.subscribe(topic, 1)
             
-                logOutput ('MQTT', 'Subscribe', {'log':'Topic: homeassistant/' + device['type']['class'] + '/' + deviceid + device['uuid'] + '/set', 'topic': 'homeassistant/' + device['type']['class'] + '/' + deviceid + device['uuid'] + '/set', 'payload': None}, 'INFO')   
+                logOutput ('MQTT', 'Subscribe', {'log':'Topic: ' + topic, 'topic': topic, 'payload': None}, 'INFO')   
             
         asyncio.create_task(homeassistant_discovery())
 
@@ -369,6 +383,8 @@ def ssl_error_message(exc):
 
 
 async def main(client):
+    global watchdog
+
     try:
         logOutput('MQTT', 'Connect', {'log': 'Connect WiFi before NTP sync'}, 'INFO')
         await client.wifi_connect(quick=True)
@@ -383,13 +399,21 @@ async def main(client):
 
     for coroutine in (up, messages):
         asyncio.create_task(coroutine(client))
+
+    if watchdog_timeout_ms and WDT:
+        watchdog = WDT(timeout=watchdog_timeout_ms)
+        logOutput('Local', 'Watchdog', {'log': 'Enabled: ' + str(watchdog_timeout_ms) + ' ms'}, 'INFO')
     
     while True:
+        if watchdog:
+            watchdog.feed()
         await asyncio.sleep(5)
         # If WiFi is down the following will pause for the duration.
         outputDevices[0]['output']['0'](1)
         await asyncio.sleep(1)
         outputDevices[0]['output']['0'](0)
+        if watchdog:
+            watchdog.feed()
 
 
 logOutput ('MQTT', 'Connect', {'log':'Load CA Trust Certificate'}, 'INFO')
@@ -428,6 +452,9 @@ with open(deviceConfigFile, 'rb') as f:
     deviceConfig = json.loads(f.read())
     
 logOutput ('Local', 'Device', {'log':'Imported device configuration file: ' + deviceConfigFile}, 'INFO')
+
+for validation_error in validate_device_config(deviceConfig, deviceTypes):
+    logOutput('Local', 'Device validation', {'log': validation_error}, 'ERROR')
         
 for device in deviceConfig['devices']:
     if deviceValidation(device):

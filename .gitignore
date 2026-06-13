@@ -40,6 +40,8 @@ secrets.py
 .env
 .env.*
 /certs/
+*.der
+*.pem
 
 # MicroPython / device tooling
 .mpremote/

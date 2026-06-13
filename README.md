@@ -26,10 +26,12 @@ HA-Device.py                    WiFi, MQTT, discovery, and device orchestration
 device.json                     Device and register configuration
 device_settings.py              Local firmware settings
 secrets.py                      WiFi and MQTT credentials, not suitable for commits
+secrets.example.py              Template for local credentials
 device_modules/                 Device driver modules
 device_modules/whes.py          WHES inverter presentation/calculation driver
-device_modules/Pico-2CH-RS485.py Generic RS485 Modbus driver
+device_modules/pico_2ch_rs485.py Generic RS485 Modbus driver
 test_rs485_memory.py            Direct RS485 register test script
+tests/                          Host-side unit tests
 lib/                            MicroPython support libraries
 ```
 
@@ -59,10 +61,12 @@ deviceConfigFile = "device.json"
 ca_cert_path = "/certs/home-ca.der"
 ha_discovery = True
 ha_devicename = "Test1"
+watchdog_timeout_ms = 0
 ```
 
 If MQTT TLS is enabled, copy your CA certificate to the configured path on the
-Pico.
+Pico. Set `watchdog_timeout_ms` to a positive value to enable the Pico hardware
+watchdog after MQTT connects. Leave it as `0` while developing over USB/REPL.
 
 ### `device.json`
 
@@ -80,6 +84,10 @@ sensor subclass and reads these Modbus registers:
 The configured RS485 parameters are 115200 baud, 8 data bits, no parity, 1 stop
 bit, slave address `1`, and Modbus function `4`.
 
+`device_modules/validation.py` validates the loaded device config at boot and
+logs issues such as missing fields, unsupported entity classes, duplicate keys,
+invalid RS485 counts, and unsupported data types.
+
 ## WHES Home Assistant Entities
 
 The WHES module reads the raw Modbus values above and publishes a cleaner
@@ -89,17 +97,22 @@ presentation payload to Home Assistant.
 
 | Published key | Unit | Source/calculation |
 | --- | --- | --- |
-| `PPV1` | W | Raw `PPV1` |
-| `PPV2` | W | Raw `PPV2` |
 | `PV_p` | W | `PPV1 + PPV2` |
-| `BatPower_BMS` | W | Raw signed battery power |
-| `battery_charge` | W | `BatPower_BMS` when positive, otherwise `0` |
-| `battery_discharge` | W | `-BatPower_BMS` when negative, otherwise `0` |
+| `battery_p` | W | Raw signed `BatPower_BMS` |
+| `battery_charge_p` | W | `BatPower_BMS` when positive, otherwise `0` |
+| `battery_discharge_p` | W | `-BatPower_BMS` when negative, otherwise `0` |
 | `grid_p` | W | Raw `Power_Meter` |
-| `grid_import` | W | `Power_Meter` when positive, otherwise `0` |
-| `grid_export` | W | `-Power_Meter` when negative, otherwise `0` |
+| `grid_import_p` | W | `Power_Meter` when positive, otherwise `0` |
+| `grid_export_p` | W | `-Power_Meter` when negative, otherwise `0` |
 | `home_p` | W | `PV_p - BatPower_BMS` |
 | `battery_soc` | % | Raw `BatSOC` |
+
+Sign conventions:
+
+- `BatPower_BMS > 0` means battery charge.
+- `BatPower_BMS < 0` means battery discharge.
+- `Power_Meter > 0` means grid import.
+- `Power_Meter < 0` means grid export.
 
 ### Daily Energy Entities
 
@@ -108,12 +121,12 @@ as Home Assistant `energy` sensors with `state_class: total_increasing`.
 
 | Published key | Unit | Based on |
 | --- | --- | --- |
-| `pv_energy` | kWh | `PV_p` |
-| `home_energy` | kWh | `home_p` |
-| `battery_charge_energy` | kWh | `battery_charge` |
-| `battery_discharge_energy` | kWh | `battery_discharge` |
-| `grid_import_energy` | kWh | `grid_import` |
-| `grid_export_energy` | kWh | `grid_export` |
+| `pv_e` | kWh | `PV_p` |
+| `home_e` | kWh | `home_p` |
+| `battery_charge_e` | kWh | `battery_charge_p` |
+| `battery_discharge_e` | kWh | `battery_discharge_p` |
+| `grid_import_e` | kWh | `grid_import_p` |
+| `grid_export_e` | kWh | `grid_export_p` |
 
 Energy is accumulated from elapsed runtime between publishes:
 
@@ -121,9 +134,10 @@ Energy is accumulated from elapsed runtime between publishes:
 kWh += power_W * elapsed_ms / 3600000000
 ```
 
-All daily energy totals reset to `0` when the Pico local date changes at
-midnight. NTP sync is enabled in `HA-Device.py`, so make sure the Pico can reach
-one of the configured NTP servers.
+Published daily energy values are rounded to 4 decimal places. All daily energy
+totals reset to `0` when the Pico local date changes at midnight. NTP sync is
+enabled in `HA-Device.py`, so make sure the Pico can reach one of the configured
+NTP servers.
 
 ## MQTT Topics
 
@@ -190,6 +204,18 @@ Failed reads are printed as:
 key,address,ERROR: reason
 ```
 
+## Host-Side Tests
+
+The `tests/` directory contains a small `unittest` suite for logic that can run
+without Pico hardware:
+
+```sh
+python3 -m unittest discover -s tests
+```
+
+The tests cover WHES presentation calculations, rounded daily energy values,
+Home Assistant topic helpers, and config validation.
+
 ## Adding a Device Module
 
 Device modules live in `device_modules/` and are discovered automatically by
@@ -203,9 +229,14 @@ Device modules live in `device_modules/` and are discovered automatically by
 Drivers normally inherit from `device_modules.base.DeviceDriver` or reuse an
 existing driver, as `device_modules/whes.py` does with the generic RS485 driver.
 
+Shared helpers in `device_modules/base.py` build Home Assistant MQTT topics and
+common sensor discovery payloads.
+
 ## Notes
 
 - The code targets MicroPython on Raspberry Pi Pico W.
 - MQTT discovery uses the `homeassistant/` topic prefix.
 - Generated bytecode/cache files are not needed on the Pico.
 - Keep credentials and certificates out of public repositories.
+- `.gitignore` excludes local secrets, certificates, bytecode, and macOS cache
+  files.

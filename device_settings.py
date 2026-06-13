@@ -17,3 +17,11 @@ ha_device_info = {
 }
 
 mqtt_debug = False # Set to True to print MQTT messages to the console e.g. WiFi connection status, MQTT connection status, MQTT messages received etc.
+
+# Watchdog timeout in milliseconds.
+#
+# Recommended deployed value: 30000 (30 seconds). This is comfortably longer
+# than the normal 5-6 second main loop heartbeat and gives WiFi/MQTT/NTP calls
+# some room to pause without causing unnecessary resets. Set to 0 while
+# developing over USB/REPL so the Pico does not reboot while paused at a prompt.
+watchdog_timeout_ms = 0
