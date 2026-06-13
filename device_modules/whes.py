@@ -68,6 +68,10 @@ PRESENTATION_ENTITY_INDEXES = {
 }
 
 REMOVED_PRESENTATION_ENTITY_INDEXES = (2, 3)
+LEGACY_STATE_KEYS = (
+    'battery_charge_p',
+    'battery_discharge_p'
+)
 
 ENERGY_SOURCES = (
     ('pv_e', 'PV_p'),
@@ -191,6 +195,8 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
     def _presentation_payload(self, values):
         payload = {}
         for key in PRESENTATION_KEYS:
+            payload[key] = values.get(key, 0)
+        for key in LEGACY_STATE_KEYS:
             payload[key] = values.get(key, 0)
         return payload
 
