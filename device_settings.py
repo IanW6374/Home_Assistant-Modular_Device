@@ -2,7 +2,7 @@ deviceConfigFile = 'device.json'
 ca_cert_path = '/certs/home-ca.der'
 
 ha_discovery = True
-ha_devicename = 'Test1'
+ha_devicename = 'Test2'
 
 ntp_servers = (
     'pool.ntp.org',

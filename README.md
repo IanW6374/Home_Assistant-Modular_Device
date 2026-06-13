@@ -30,7 +30,6 @@ secrets.example.py              Template for local credentials
 device_modules/                 Device driver modules
 device_modules/whes.py          WHES inverter presentation/calculation driver
 device_modules/pico_2ch_rs485.py Generic RS485 Modbus driver
-test_rs485_memory.py            Direct RS485 register test script
 tests/                          Host-side unit tests
 lib/                            MicroPython support libraries
 ```
@@ -185,24 +184,6 @@ Copy the project files to the Pico filesystem, including:
 On boot, `main.py` runs `HA-Device.py`, connects WiFi/MQTT, loads device modules,
 subscribes to relevant topics, publishes Home Assistant discovery payloads, and
 starts each sensor driver.
-
-## RS485 Test Script
-
-Use `test_rs485_memory.py` when you want to test Modbus reads directly from the
-terminal without WiFi, MQTT, TLS, or Home Assistant.
-
-Run it on the Pico instead of `main.py`. It reads the entities in `device.json`
-and prints:
-
-```text
-key,address,value
-```
-
-Failed reads are printed as:
-
-```text
-key,address,ERROR: reason
-```
 
 ## Host-Side Tests
 
