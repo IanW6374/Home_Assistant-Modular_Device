@@ -58,6 +58,7 @@ loglevels = ['ERROR', 'INFO', 'DEBUG']
 loglevel = 'INFO'
 mqtt_debug = getattr(device_settings, 'mqtt_debug', True)
 watchdog_timeout_ms = getattr(device_settings, 'watchdog_timeout_ms', 0)
+watchdog_max_timeout_ms = 8000
 watchdog = None
 
 # Device types will be loaded from device modules
@@ -405,8 +406,16 @@ async def main(client):
         asyncio.create_task(coroutine(client))
 
     if watchdog_timeout_ms and WDT:
-        watchdog = WDT(timeout=watchdog_timeout_ms)
-        logOutput('Local', 'Watchdog', {'log': 'Enabled: ' + str(watchdog_timeout_ms) + ' ms'}, 'INFO')
+        watchdog_timeout = min(watchdog_timeout_ms, watchdog_max_timeout_ms)
+        if watchdog_timeout != watchdog_timeout_ms:
+            logOutput(
+                'Local',
+                'Watchdog',
+                {'log': 'Requested ' + str(watchdog_timeout_ms) + ' ms, using max ' + str(watchdog_timeout) + ' ms'},
+                'INFO'
+            )
+        watchdog = WDT(timeout=watchdog_timeout)
+        logOutput('Local', 'Watchdog', {'log': 'Enabled: ' + str(watchdog_timeout) + ' ms'}, 'INFO')
     
     while True:
         if watchdog:

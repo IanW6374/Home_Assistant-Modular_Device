@@ -63,8 +63,9 @@ watchdog_timeout_ms = 0
 ```
 
 If MQTT TLS is enabled, copy your CA certificate to the configured path on the
-Pico. Set `watchdog_timeout_ms` to a positive value (30000 is recommended) to enable the Pico hardware
-watchdog after MQTT connects. Leave it as `0` while developing over USB/REPL.
+Pico. Set `watchdog_timeout_ms` to a positive value up to `8000` to enable the
+Pico hardware watchdog after MQTT connects. Leave it as `0` while developing
+over USB/REPL.
 
 ### `device.json`
 
@@ -98,8 +99,6 @@ presentation payload to Home Assistant.
 | `PV_p` | W | `PPV1 + PPV2` |
 | `battery_p` | W | `BatPower_BMS * -1` |
 | `grid_p` | W | Raw `Power_Meter` |
-| `grid_import_p` | W | `Power_Meter` when positive, otherwise `0` |
-| `grid_export_p` | W | `-Power_Meter` when negative, otherwise `0` |
 | `home_p` | W | `PV_p + battery_p` |
 | `battery_soc` | % | Raw `BatSOC` |
 
@@ -121,8 +120,8 @@ as Home Assistant `energy` sensors with `state_class: total_increasing`.
 | `home_e` | kWh | `home_p` |
 | `battery_charge_e` | kWh | Presented `battery_p` when negative |
 | `battery_discharge_e` | kWh | Presented `battery_p` when positive |
-| `grid_import_e` | kWh | `grid_import_p` |
-| `grid_export_e` | kWh | `grid_export_p` |
+| `grid_import_e` | kWh | `Power_Meter` when positive |
+| `grid_export_e` | kWh | `Power_Meter` when negative |
 
 Energy is accumulated from elapsed runtime between publishes:
 

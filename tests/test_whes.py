@@ -78,6 +78,8 @@ class WhesTests(unittest.TestCase):
 
         self.assertIsNone(discovery[2])
         self.assertIsNone(discovery[3])
+        self.assertIsNone(discovery[5])
+        self.assertIsNone(discovery[6])
         self.assertEqual(discovery[13]['name'], 'WHES grid_import_e')
         self.assertEqual(discovery[13]['uniq_id'], 'abc0001_13')
         self.assertEqual(discovery[14]['name'], 'WHES grid_export_e')

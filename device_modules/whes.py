@@ -36,8 +36,6 @@ PRESENTATION_ENTITIES = (
     ('PV_p', 'power', 'W', 'measurement'),
     ('battery_p', 'power', 'W', 'measurement'),
     ('grid_p', 'power', 'W', 'measurement'),
-    ('grid_import_p', 'power', 'W', 'measurement'),
-    ('grid_export_p', 'power', 'W', 'measurement'),
     ('home_p', 'power', 'W', 'measurement'),
     ('battery_soc', 'battery', '%', 'measurement'),
     ('pv_e', 'energy', 'kWh', 'total_increasing'),
@@ -55,8 +53,6 @@ PRESENTATION_ENTITY_INDEXES = {
     'PV_p': 0,
     'battery_p': 1,
     'grid_p': 4,
-    'grid_import_p': 5,
-    'grid_export_p': 6,
     'home_p': 7,
     'battery_soc': 8,
     'pv_e': 9,
@@ -67,10 +63,12 @@ PRESENTATION_ENTITY_INDEXES = {
     'grid_export_e': 14
 }
 
-REMOVED_PRESENTATION_ENTITY_INDEXES = (2, 3)
+REMOVED_PRESENTATION_ENTITY_INDEXES = (2, 3, 5, 6)
 LEGACY_STATE_KEYS = (
     'battery_charge_p',
-    'battery_discharge_p'
+    'battery_discharge_p',
+    'grid_import_p',
+    'grid_export_p'
 )
 
 ENERGY_SOURCES = (
