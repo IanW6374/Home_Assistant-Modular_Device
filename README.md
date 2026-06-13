@@ -63,7 +63,7 @@ watchdog_timeout_ms = 0
 ```
 
 If MQTT TLS is enabled, copy your CA certificate to the configured path on the
-Pico. Set `watchdog_timeout_ms` to a positive value to enable the Pico hardware
+Pico. Set `watchdog_timeout_ms` to a positive value (30000 is recommended) to enable the Pico hardware
 watchdog after MQTT connects. Leave it as `0` while developing over USB/REPL.
 
 ### `device.json`
