@@ -35,8 +35,6 @@ DEVICE_TYPE = {
 PRESENTATION_ENTITIES = (
     ('PV_p', 'power', 'W', 'measurement'),
     ('battery_p', 'power', 'W', 'measurement'),
-    ('battery_charge_p', 'power', 'W', 'measurement'),
-    ('battery_discharge_p', 'power', 'W', 'measurement'),
     ('grid_p', 'power', 'W', 'measurement'),
     ('grid_import_p', 'power', 'W', 'measurement'),
     ('grid_export_p', 'power', 'W', 'measurement'),
@@ -148,20 +146,20 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
         source = self._source_values()
         ppv1 = self._number(source.get(RAW_KEYS['ppv1'], source.get('Ppv1', 0)))
         ppv2 = self._number(source.get(RAW_KEYS['ppv2'], source.get('Ppv2', 0)))
-        battery_p = self._number(source.get(RAW_KEYS['battery_p'], 0))
+        battery_p = self._number(source.get(RAW_KEYS['battery_p'], 0)) * -1
         grid_p = self._number(source.get(RAW_KEYS['grid_p'], 0))
 
         values = {
             'PV_p': ppv1 + ppv2,
             'battery_p': battery_p,
-            'battery_charge_p': battery_p if battery_p > 0 else 0,
-            'battery_discharge_p': -battery_p if battery_p < 0 else 0,
+            'battery_charge_p': -battery_p if battery_p < 0 else 0,
+            'battery_discharge_p': battery_p if battery_p > 0 else 0,
             'grid_p': grid_p,
             'grid_import_p': grid_p if grid_p > 0 else 0,
             'grid_export_p': -grid_p if grid_p < 0 else 0,
             'battery_soc': self._number(source.get(RAW_KEYS['battery_soc'], 0))
         }
-        values['home_p'] = values['PV_p'] - battery_p
+        values['home_p'] = values['PV_p'] + battery_p
         return values
 
     def _add_energy_values(self, values):

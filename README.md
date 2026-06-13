@@ -96,19 +96,17 @@ presentation payload to Home Assistant.
 | Published key | Unit | Source/calculation |
 | --- | --- | --- |
 | `PV_p` | W | `PPV1 + PPV2` |
-| `battery_p` | W | Raw signed `BatPower_BMS` |
-| `battery_charge_p` | W | `BatPower_BMS` when positive, otherwise `0` |
-| `battery_discharge_p` | W | `-BatPower_BMS` when negative, otherwise `0` |
+| `battery_p` | W | `BatPower_BMS * -1` |
 | `grid_p` | W | Raw `Power_Meter` |
 | `grid_import_p` | W | `Power_Meter` when positive, otherwise `0` |
 | `grid_export_p` | W | `-Power_Meter` when negative, otherwise `0` |
-| `home_p` | W | `PV_p - BatPower_BMS` |
+| `home_p` | W | `PV_p + battery_p` |
 | `battery_soc` | % | Raw `BatSOC` |
 
 Sign conventions:
 
-- `BatPower_BMS > 0` means battery charge.
-- `BatPower_BMS < 0` means battery discharge.
+- Presented `battery_p > 0` means battery discharge.
+- Presented `battery_p < 0` means battery charge.
 - `Power_Meter > 0` means grid import.
 - `Power_Meter < 0` means grid export.
 
@@ -121,8 +119,8 @@ as Home Assistant `energy` sensors with `state_class: total_increasing`.
 | --- | --- | --- |
 | `pv_e` | kWh | `PV_p` |
 | `home_e` | kWh | `home_p` |
-| `battery_charge_e` | kWh | `battery_charge_p` |
-| `battery_discharge_e` | kWh | `battery_discharge_p` |
+| `battery_charge_e` | kWh | Presented `battery_p` when negative |
+| `battery_discharge_e` | kWh | Presented `battery_p` when positive |
 | `grid_import_e` | kWh | `grid_import_p` |
 | `grid_export_e` | kWh | `grid_export_p` |
 

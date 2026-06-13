@@ -53,14 +53,15 @@ class WhesTests(unittest.TestCase):
         self.assertNotIn('PPV1', payload)
         self.assertNotIn('PPV2', payload)
         self.assertEqual(payload['PV_p'], 1500)
-        self.assertEqual(payload['battery_p'], -300)
-        self.assertEqual(payload['battery_charge_p'], 0)
-        self.assertEqual(payload['battery_discharge_p'], 300)
+        self.assertEqual(payload['battery_p'], 300)
+        self.assertNotIn('battery_charge_p', payload)
+        self.assertNotIn('battery_discharge_p', payload)
         self.assertEqual(payload['grid_p'], -200)
         self.assertEqual(payload['grid_import_p'], 0)
         self.assertEqual(payload['grid_export_p'], 200)
         self.assertEqual(payload['home_p'], 1800)
         self.assertEqual(payload['battery_soc'], 64)
+        self.assertEqual(payload['battery_discharge_e'], 0.005)
         self.assertEqual(payload['grid_export_e'], 0.0033)
 
 
