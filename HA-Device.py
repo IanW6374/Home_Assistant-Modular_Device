@@ -167,7 +167,11 @@ async def publish_message(msg, qosValue, logOnly, retain=False):
     
     if not logOnly:
         outputDevices[0]['output']['0'].toggle()
-        await client.publish(msg['topic'], json.dumps(msg['payload']).encode(), retain=retain, qos=qosValue)
+        if msg['payload'] is None:
+            payload = b''
+        else:
+            payload = json.dumps(msg['payload']).encode()
+        await client.publish(msg['topic'], payload, retain=retain, qos=qosValue)
         logOutput ('MQTT', 'Publish', msg, 'INFO')
         outputDevices[0]['output']['0'].toggle()
 

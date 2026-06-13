@@ -51,6 +51,24 @@ PRESENTATION_ENTITIES = (
 
 PRESENTATION_KEYS = tuple(entity[0] for entity in PRESENTATION_ENTITIES)
 
+PRESENTATION_ENTITY_INDEXES = {
+    'PV_p': 0,
+    'battery_p': 1,
+    'grid_p': 4,
+    'grid_import_p': 5,
+    'grid_export_p': 6,
+    'home_p': 7,
+    'battery_soc': 8,
+    'pv_e': 9,
+    'home_e': 10,
+    'battery_charge_e': 11,
+    'battery_discharge_e': 12,
+    'grid_import_e': 13,
+    'grid_export_e': 14
+}
+
+REMOVED_PRESENTATION_ENTITY_INDEXES = (2, 3)
+
 ENERGY_SOURCES = (
     ('pv_e', 'PV_p'),
     ('home_e', 'home_p'),
@@ -98,12 +116,13 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
         self._energy_day = None
 
     def get_discovery_payloads(self, deviceid, ha_devicename):
-        payload_discovery = {}
+        payload_discovery = {index: None for index in REMOVED_PRESENTATION_ENTITY_INDEXES}
         payload_entities = self.get_state_payload()
 
-        for i, entity in enumerate(PRESENTATION_ENTITIES):
+        for entity in PRESENTATION_ENTITIES:
             key, entity_class, unit, state_class = entity
-            payload_discovery[i] = sensor_discovery_payload(
+            index = PRESENTATION_ENTITY_INDEXES[key]
+            payload_discovery[index] = sensor_discovery_payload(
                 self.device,
                 {
                     'class': entity_class,
@@ -111,7 +130,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
                     'state_class': state_class
                 },
                 key,
-                i,
+                index,
                 deviceid,
                 ha_devicename
             )

@@ -64,6 +64,25 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(payload['battery_discharge_e'], 0.005)
         self.assertEqual(payload['grid_export_e'], 0.0033)
 
+    def test_discovery_uses_stable_legacy_indexes(self):
+        whes = load_whes_module()
+        device = {
+            'name': 'WHES',
+            'uuid': '0001',
+            'type': {'class': 'sensor', 'subclass': 'WHES'},
+            'entities': {}
+        }
+        driver = whes.WHESDriver(device, {})
+
+        discovery, _ = driver.get_discovery_payloads('abc', 'WHES Device')
+
+        self.assertIsNone(discovery[2])
+        self.assertIsNone(discovery[3])
+        self.assertEqual(discovery[13]['name'], 'WHES grid_import_e')
+        self.assertEqual(discovery[13]['uniq_id'], 'abc0001_13')
+        self.assertEqual(discovery[14]['name'], 'WHES grid_export_e')
+        self.assertEqual(discovery[14]['uniq_id'], 'abc0001_14')
+
 
 if __name__ == '__main__':
     unittest.main()
