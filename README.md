@@ -1,0 +1,211 @@
+# Home Assistant Modular Device
+
+MicroPython firmware for a Raspberry Pi Pico W that exposes modular devices to
+Home Assistant over MQTT. Devices are described in `device.json`, discovered at
+boot, and handled by small driver modules in `device_modules/`.
+
+The current configuration includes a WHES single-phase inverter driver over
+RS485/Modbus RTU. The WHES driver reads a small set of inverter registers and
+publishes Home Assistant-friendly power, battery, grid, and daily energy
+entities.
+
+## Features
+
+- MQTT state publishing and Home Assistant MQTT discovery.
+- Modular device drivers loaded from `device_modules/`.
+- GPIO light and switch modules.
+- Generic Pico 2-channel RS485 Modbus sensor module.
+- WHES-specific RS485 module with calculated MQTT presentation entities.
+- Standalone RS485 memory test script with no WiFi or MQTT dependency.
+
+## Repository Layout
+
+```text
+main.py                         Boot entry point, executes HA-Device.py
+HA-Device.py                    WiFi, MQTT, discovery, and device orchestration
+device.json                     Device and register configuration
+device_settings.py              Local firmware settings
+secrets.py                      WiFi and MQTT credentials, not suitable for commits
+device_modules/                 Device driver modules
+device_modules/whes.py          WHES inverter presentation/calculation driver
+device_modules/Pico-2CH-RS485.py Generic RS485 Modbus driver
+test_rs485_memory.py            Direct RS485 register test script
+lib/                            MicroPython support libraries
+```
+
+## Configuration
+
+### `secrets.py`
+
+Create/update `secrets.py` on the Pico with your WiFi and MQTT credentials:
+
+```python
+wifi_ssid = "your-ssid"
+wifi_password = "your-wifi-password"
+
+mqtt_server = "mqtt.example.local"
+mqtt_username = "mqtt-user"
+mqtt_password = "mqtt-password"
+mqtt_ssl = True
+```
+
+### `device_settings.py`
+
+`device_settings.py` selects the device config file, certificate path, Home
+Assistant discovery behavior, and NTP servers:
+
+```python
+deviceConfigFile = "device.json"
+ca_cert_path = "/certs/home-ca.der"
+ha_discovery = True
+ha_devicename = "Test1"
+```
+
+If MQTT TLS is enabled, copy your CA certificate to the configured path on the
+Pico.
+
+### `device.json`
+
+Devices are declared in `device.json`. The current WHES config uses the `WHES`
+sensor subclass and reads these Modbus registers:
+
+| Key | Address | Type | Purpose |
+| --- | ---: | --- | --- |
+| `PPV1` | `36112` | `uint16` | PV string 1 power |
+| `PPV2` | `36113` | `uint16` | PV string 2 power |
+| `BatPower_BMS` | `36153` | `int32` | Signed battery power |
+| `Power_Meter` | `36131` | `int32` | Signed grid meter power |
+| `BatSOC` | `36155` | `uint16` | Battery state of charge |
+
+The configured RS485 parameters are 115200 baud, 8 data bits, no parity, 1 stop
+bit, slave address `1`, and Modbus function `4`.
+
+## WHES Home Assistant Entities
+
+The WHES module reads the raw Modbus values above and publishes a cleaner
+presentation payload to Home Assistant.
+
+### Power and Battery Entities
+
+| Published key | Unit | Source/calculation |
+| --- | --- | --- |
+| `PPV1` | W | Raw `PPV1` |
+| `PPV2` | W | Raw `PPV2` |
+| `PV_p` | W | `PPV1 + PPV2` |
+| `BatPower_BMS` | W | Raw signed battery power |
+| `battery_charge` | W | `BatPower_BMS` when positive, otherwise `0` |
+| `battery_discharge` | W | `-BatPower_BMS` when negative, otherwise `0` |
+| `grid_p` | W | Raw `Power_Meter` |
+| `grid_import` | W | `Power_Meter` when positive, otherwise `0` |
+| `grid_export` | W | `-Power_Meter` when negative, otherwise `0` |
+| `home_p` | W | `PV_p - BatPower_BMS` |
+| `battery_soc` | % | Raw `BatSOC` |
+
+### Daily Energy Entities
+
+The WHES driver also integrates power into daily kWh totals and publishes them
+as Home Assistant `energy` sensors with `state_class: total_increasing`.
+
+| Published key | Unit | Based on |
+| --- | --- | --- |
+| `pv_energy` | kWh | `PV_p` |
+| `home_energy` | kWh | `home_p` |
+| `battery_charge_energy` | kWh | `battery_charge` |
+| `battery_discharge_energy` | kWh | `battery_discharge` |
+| `grid_import_energy` | kWh | `grid_import` |
+| `grid_export_energy` | kWh | `grid_export` |
+
+Energy is accumulated from elapsed runtime between publishes:
+
+```text
+kWh += power_W * elapsed_ms / 3600000000
+```
+
+All daily energy totals reset to `0` when the Pico local date changes at
+midnight. NTP sync is enabled in `HA-Device.py`, so make sure the Pico can reach
+one of the configured NTP servers.
+
+## MQTT Topics
+
+The Pico derives its MQTT device id from `machine.unique_id()`.
+
+State is published to:
+
+```text
+homeassistant/sensor/<deviceid><uuid>/state
+```
+
+Home Assistant discovery config is published to:
+
+```text
+homeassistant/sensor/<deviceid><uuid>_<entity_index>/config
+```
+
+Devices that support command/set handling subscribe to:
+
+```text
+homeassistant/sensor/<deviceid><uuid>/set
+```
+
+The generic RS485 ad-hoc response topic is:
+
+```text
+homeassistant/sensor/<deviceid><uuid>/response
+```
+
+For the current WHES device UUID, `<uuid>` is `0001`.
+
+## Running on the Pico
+
+Copy the project files to the Pico filesystem, including:
+
+- `main.py`
+- `HA-Device.py`
+- `device.json`
+- `device_settings.py`
+- `secrets.py`
+- `device_modules/`
+- `lib/`
+- any configured TLS certificate files
+
+On boot, `main.py` runs `HA-Device.py`, connects WiFi/MQTT, loads device modules,
+subscribes to relevant topics, publishes Home Assistant discovery payloads, and
+starts each sensor driver.
+
+## RS485 Test Script
+
+Use `test_rs485_memory.py` when you want to test Modbus reads directly from the
+terminal without WiFi, MQTT, TLS, or Home Assistant.
+
+Run it on the Pico instead of `main.py`. It reads the entities in `device.json`
+and prints:
+
+```text
+key,address,value
+```
+
+Failed reads are printed as:
+
+```text
+key,address,ERROR: reason
+```
+
+## Adding a Device Module
+
+Device modules live in `device_modules/` and are discovered automatically by
+`device_modules/loader.py`. A module should provide:
+
+- `DEVICE_TYPE`
+- `supports(device)`
+- `setup(device, index)`
+- optionally `create_driver(device, device_char)`
+
+Drivers normally inherit from `device_modules.base.DeviceDriver` or reuse an
+existing driver, as `device_modules/whes.py` does with the generic RS485 driver.
+
+## Notes
+
+- The code targets MicroPython on Raspberry Pi Pico W.
+- MQTT discovery uses the `homeassistant/` topic prefix.
+- Generated bytecode/cache files are not needed on the Pico.
+- Keep credentials and certificates out of public repositories.
