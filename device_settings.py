@@ -22,6 +22,7 @@ mqtt_debug = False # Set to True to print MQTT messages to the console e.g. WiFi
 #
 # Recommended deployed value: 8000 (8 seconds). This is comfortably longer
 # than the normal 5-6 second main loop heartbeat and gives WiFi/MQTT/NTP calls
-# some room to pause without causing unnecessary resets. Note Pico Max Value is 8388 mS. Set to 0 while
-# developing over USB/REPL so the Pico does not reboot while paused at a prompt.
+# some room to pause without causing unnecessary resets. The Pico hardware
+# limit is about 8388 ms. Set to 0 while developing over USB/REPL so the Pico
+# does not reboot while paused at a prompt.
 watchdog_timeout_ms = 8000

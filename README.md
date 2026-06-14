@@ -59,13 +59,17 @@ deviceConfigFile = "device.json"
 ca_cert_path = "/certs/home-ca.der"
 ha_discovery = True
 ha_devicename = "Test1"
+ntp_servers = (
+    "pool.ntp.org",
+    "time.google.com",
+)
 watchdog_timeout_ms = 0
 ```
 
 If MQTT TLS is enabled, copy your CA certificate to the configured path on the
 Pico. Set `watchdog_timeout_ms` to a positive value up to `8000` to enable the
-Pico hardware watchdog after MQTT connects. Leave it as `0` while developing
-over USB/REPL.
+Pico hardware watchdog after MQTT connects; the RP2040 hardware limit is about
+`8388` ms. Leave it as `0` while developing over USB/REPL.
 
 ### `device.json`
 
@@ -180,6 +184,16 @@ Copy the project files to the Pico filesystem, including:
 On boot, `main.py` runs `HA-Device.py`, connects WiFi/MQTT, loads device modules,
 subscribes to relevant topics, publishes Home Assistant discovery payloads, and
 starts each sensor driver.
+
+## V1 Deployment Checklist
+
+- Set `watchdog_timeout_ms = 0` while flashing or debugging over USB/REPL.
+- Set `watchdog_timeout_ms = 8000` for deployment.
+- Let the device connect to MQTT and publish Home Assistant discovery once.
+- Confirm Home Assistant shows these WHES entities:
+  `PV_p`, `battery_p`, `grid_p`, `home_p`, `battery_soc`, `pv_e`, `home_e`,
+  `battery_charge_e`, `battery_discharge_e`, `grid_import_e`, and
+  `grid_export_e`.
 
 ## Host-Side Tests
 

@@ -50,26 +50,8 @@ PRESENTATION_ENTITIES = (
 PRESENTATION_KEYS = tuple(entity[0] for entity in PRESENTATION_ENTITIES)
 
 PRESENTATION_ENTITY_INDEXES = {
-    'PV_p': 0,
-    'battery_p': 1,
-    'grid_p': 4,
-    'home_p': 7,
-    'battery_soc': 8,
-    'pv_e': 9,
-    'home_e': 10,
-    'battery_charge_e': 11,
-    'battery_discharge_e': 12,
-    'grid_import_e': 13,
-    'grid_export_e': 14
+    key: index for index, (key, _, _, _) in enumerate(PRESENTATION_ENTITIES)
 }
-
-REMOVED_PRESENTATION_ENTITY_INDEXES = (2, 3, 5, 6)
-LEGACY_STATE_KEYS = (
-    'battery_charge_p',
-    'battery_discharge_p',
-    'grid_import_p',
-    'grid_export_p'
-)
 
 ENERGY_SOURCES = (
     ('pv_e', 'PV_p'),
@@ -118,7 +100,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
         self._energy_day = None
 
     def get_discovery_payloads(self, deviceid, ha_devicename):
-        payload_discovery = {index: None for index in REMOVED_PRESENTATION_ENTITY_INDEXES}
+        payload_discovery = {}
         payload_entities = self.get_state_payload()
 
         for entity in PRESENTATION_ENTITIES:
@@ -193,8 +175,6 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
     def _presentation_payload(self, values):
         payload = {}
         for key in PRESENTATION_KEYS:
-            payload[key] = values.get(key, 0)
-        for key in LEGACY_STATE_KEYS:
             payload[key] = values.get(key, 0)
         return payload
 

@@ -54,17 +54,17 @@ class WhesTests(unittest.TestCase):
         self.assertNotIn('PPV2', payload)
         self.assertEqual(payload['PV_p'], 1500)
         self.assertEqual(payload['battery_p'], 300)
-        self.assertEqual(payload['battery_charge_p'], 0)
-        self.assertEqual(payload['battery_discharge_p'], 300)
         self.assertEqual(payload['grid_p'], -200)
-        self.assertEqual(payload['grid_import_p'], 0)
-        self.assertEqual(payload['grid_export_p'], 200)
         self.assertEqual(payload['home_p'], 1800)
         self.assertEqual(payload['battery_soc'], 64)
+        self.assertNotIn('battery_charge_p', payload)
+        self.assertNotIn('battery_discharge_p', payload)
+        self.assertNotIn('grid_import_p', payload)
+        self.assertNotIn('grid_export_p', payload)
         self.assertEqual(payload['battery_discharge_e'], 0.005)
         self.assertEqual(payload['grid_export_e'], 0.0033)
 
-    def test_discovery_uses_stable_legacy_indexes(self):
+    def test_discovery_uses_presentation_order_indexes(self):
         whes = load_whes_module()
         device = {
             'name': 'WHES',
@@ -76,14 +76,11 @@ class WhesTests(unittest.TestCase):
 
         discovery, _ = driver.get_discovery_payloads('abc', 'WHES Device')
 
-        self.assertIsNone(discovery[2])
-        self.assertIsNone(discovery[3])
-        self.assertIsNone(discovery[5])
-        self.assertIsNone(discovery[6])
-        self.assertEqual(discovery[13]['name'], 'WHES grid_import_e')
-        self.assertEqual(discovery[13]['uniq_id'], 'abc0001_13')
-        self.assertEqual(discovery[14]['name'], 'WHES grid_export_e')
-        self.assertEqual(discovery[14]['uniq_id'], 'abc0001_14')
+        self.assertEqual(sorted(discovery.keys()), list(range(len(whes.PRESENTATION_ENTITIES))))
+        self.assertEqual(discovery[9]['name'], 'WHES grid_import_e')
+        self.assertEqual(discovery[9]['uniq_id'], 'abc0001_9')
+        self.assertEqual(discovery[10]['name'], 'WHES grid_export_e')
+        self.assertEqual(discovery[10]['uniq_id'], 'abc0001_10')
 
 
 if __name__ == '__main__':
