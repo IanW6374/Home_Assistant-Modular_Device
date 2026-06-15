@@ -82,6 +82,13 @@ def requested_loglevel(path, allowed_levels):
     return None
 
 
+def is_client_disconnect_error(exc):
+    args = getattr(exc, 'args', ())
+    if args and args[0] == -29312:
+        return True
+    return 'MBEDTLS_ERR_SSL_CONN_EOF' in str(exc)
+
+
 def response(status, body, content_type='text/html'):
     return (
         'HTTP/1.1 ' + status + '\r\n'
@@ -261,6 +268,8 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
 
             await writer.drain()
         except Exception as exc:
+            if is_client_disconnect_error(exc):
+                return
             try:
                 log_output('Local', 'Web portal', {'log': 'Request failed - ' + str(exc)}, 'ERROR')
             except Exception:

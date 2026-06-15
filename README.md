@@ -68,7 +68,7 @@ ntp_servers = (
 watchdog_timeout_ms = 0
 web_portal_enabled = False
 web_portal_https = False
-web_portal_port = 8080
+web_portal_port = None
 web_portal_cert_path = "/certs/web.crt.der"
 web_portal_key_path = "/certs/web.key.der"
 web_portal_refresh_ms = 5000
@@ -93,6 +93,10 @@ Open the portal with:
 http://<pico-ip>:8080/?token=<web_portal_token>
 ```
 
+When `web_portal_port = None`, the firmware uses `8080` for HTTP and `8443`
+for HTTPS. Set `web_portal_port` to an integer only when you want a custom
+port.
+
 The portal accepts `ERROR`, `INFO`, and `DEBUG` log levels. Changes are runtime
 only and are not written back to `device_settings.py`, so rebooting restores the
 configured default. The log pane refreshes automatically using
@@ -104,14 +108,14 @@ testing. If HTTPS is required on Pico W hardware, terminate TLS on a reverse
 proxy such as Home Assistant, Caddy, or nginx and proxy to the Pico's HTTP
 portal on the trusted LAN.
 
-#### Experimental Pico 2 W HTTPS
+#### Pico 2 W HTTPS
 
-Pico 2 W has more RAM than Pico W, so the portal can optionally be tested with
-HTTPS on that hardware. Enable it in `device_settings.py`:
+HTTPS has been tested successfully on Raspberry Pi Pico 2 W. Enable it in
+`device_settings.py`:
 
 ```python
 web_portal_https = True
-web_portal_port = 8443
+web_portal_port = None
 web_portal_cert_path = "/certs/web.crt.der"
 web_portal_key_path = "/certs/web.key.der"
 ```
@@ -126,9 +130,10 @@ openssl rsa -in web.key -outform DER -out web.key.der
 openssl x509 -in web.crt -outform DER -out web.crt.der
 ```
 
-Copy `web.key.der` and `web.crt.der` to `/certs/` on the Pico. If the portal
-logs `OSError: [Errno 12] ENOMEM` when a browser connects, the TLS handshake is
-still too large for the available MicroPython heap on that build.
+Copy `web.key.der` and `web.crt.der` to `/certs/` on the Pico. Pico W testing
+ran out of heap during the TLS handshake; Pico 2 W has enough headroom in the
+tested setup. If another MicroPython build logs `OSError: [Errno 12] ENOMEM`
+when a browser connects, use HTTP mode or terminate HTTPS on a reverse proxy.
 
 ### `device.json`
 

@@ -3,6 +3,7 @@ import unittest
 import web_portal
 from web_portal import (
     is_authenticated,
+    is_client_disconnect_error,
     make_tls_context,
     parse_request_line,
     redirect,
@@ -30,6 +31,11 @@ class WebPortalTests(unittest.TestCase):
         levels = ('ERROR', 'INFO', 'DEBUG')
         self.assertEqual(requested_loglevel('/set-loglevel?level=debug&token=abc', levels), 'DEBUG')
         self.assertIsNone(requested_loglevel('/set-loglevel?level=TRACE&token=abc', levels))
+
+    def test_client_disconnect_errors_are_recognized(self):
+        self.assertTrue(is_client_disconnect_error(OSError(-29312, 'MBEDTLS_ERR_SSL_CONN_EOF')))
+        self.assertTrue(is_client_disconnect_error(OSError('MBEDTLS_ERR_SSL_CONN_EOF')))
+        self.assertFalse(is_client_disconnect_error(OSError(12, 'ENOMEM')))
 
     def test_response_sets_content_length(self):
         raw = response('200 OK', 'hello', 'text/plain')

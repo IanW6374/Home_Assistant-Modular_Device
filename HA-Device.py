@@ -70,7 +70,9 @@ web_portal_server = None
 web_portal_enabled = getattr(device_settings, 'web_portal_enabled', False)
 web_portal_https = getattr(device_settings, 'web_portal_https', False)
 web_portal_host = getattr(device_settings, 'web_portal_host', '0.0.0.0')
-web_portal_port = getattr(device_settings, 'web_portal_port', 8443 if web_portal_https else 8080)
+web_portal_port = getattr(device_settings, 'web_portal_port', None)
+if web_portal_port is None:
+    web_portal_port = 8443 if web_portal_https else 8080
 web_portal_token = getattr(secrets, 'web_portal_token', '')
 web_portal_cert_path = getattr(device_settings, 'web_portal_cert_path', '/certs/web.crt.der')
 web_portal_key_path = getattr(device_settings, 'web_portal_key_path', '/certs/web.key.der')
