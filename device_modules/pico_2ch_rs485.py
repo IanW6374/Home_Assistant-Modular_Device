@@ -15,10 +15,12 @@ try:
     from .base import DeviceDriver
     from .base import ha_response_topic
     from .base import sensor_discovery_payload
+    from .logging import log_output
 except ImportError:
     from base import DeviceDriver
     from base import ha_response_topic
     from base import sensor_discovery_payload
+    from logging import log_output
 import asyncio
 import time
 
@@ -112,7 +114,12 @@ def setup(device, index):
                 'timeout_ms': cfg.get('timeout_ms', rs485.get('timeout_ms', DEFAULT_TIMEOUT_MS))
             }
         except Exception as exc:
-            print('Pico-2CH-RS485.setup port error', name, exc)
+            log_output(
+                'Local',
+                'Pico-2CH-RS485',
+                {'log': 'Setup port error ' + str(name) + ' ' + str(exc)},
+                'ERROR'
+            )
 
     return device_char
 
@@ -129,6 +136,7 @@ class Pico2CHRS485Driver(DeviceDriver):
         self._pending = []
         self._running = False
         self._bus_busy = False
+        self._log_callable = None
 
     def get_discovery_payloads(self, deviceid, ha_devicename):
         payload_discovery = {}
@@ -180,9 +188,10 @@ class Pico2CHRS485Driver(DeviceDriver):
             self._pending.append(payload)
         return {'defer_publish': True}
 
-    def start(self, publish_callable, deviceid):
+    def start(self, publish_callable, deviceid, log_callable=None):
         self._publish_callable = publish_callable
         self._deviceid = deviceid
+        self._log_callable = log_callable
 
         if self._running:
             return
@@ -225,7 +234,7 @@ class Pico2CHRS485Driver(DeviceDriver):
 
                     await self._handle_pending()
                 except Exception as exc:
-                    print('Pico-2CH-RS485 poll error', exc)
+                    self._log('Poll error ' + str(exc), 'ERROR')
 
                 first_poll = False
                 await asyncio.sleep_ms(next_delay if next_delay is not None else 1000)
@@ -233,7 +242,13 @@ class Pico2CHRS485Driver(DeviceDriver):
         try:
             asyncio.create_task(poll_loop())
         except Exception as exc:
-            print('Pico-2CH-RS485.start error', exc)
+            self._log('Start error ' + str(exc), 'ERROR')
+
+    def _log(self, message, logtype='INFO'):
+        if self._log_callable:
+            self._log_callable('Local', 'Pico-2CH-RS485', {'log': message}, logtype)
+        else:
+            log_output('Local', 'Pico-2CH-RS485', {'log': message}, logtype)
 
     async def _handle_pending(self):
         while self._pending:
@@ -274,9 +289,14 @@ class Pico2CHRS485Driver(DeviceDriver):
         response = await self._read_request(request)
         if response.get('ok'):
             return response['value']
-        print(_timestamp(), ' Local: Pico-2CH-RS485 - Read failed',
-              key, 'port', request['port'], 'slave', request['slave'],
-              'address', request['address'], response.get('error'))
+        self._log(
+            'Read failed ' + str(key) +
+            ' port ' + str(request['port']) +
+            ' slave ' + str(request['slave']) +
+            ' address ' + str(request['address']) +
+            ' ' + str(response.get('error')),
+            'ERROR'
+        )
         if response.get('error') == 'timeout':
             return 0
         return None

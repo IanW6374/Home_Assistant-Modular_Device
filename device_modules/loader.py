@@ -1,4 +1,8 @@
 import uos
+try:
+    from .logging import log_output
+except ImportError:
+    from logging import log_output
 
 EXCLUDE_FILES = {
     "__init__.py",
@@ -40,8 +44,12 @@ def _discover_modules():
             try:
                 module = __import__(module_name)
             except Exception as fallback_exc:
-                print('device_modules.loader: failed to import', module_name,
-                      'primary:', primary_error, 'fallback:', fallback_exc)
+                log_output(
+                    'Local',
+                    'Device loader',
+                    {'log': 'Could not load device module "' + module_name + '" - ' + str(fallback_exc)},
+                    'ERROR'
+                )
                 continue
 
         if hasattr(module, 'supports') and callable(module.supports):
@@ -53,7 +61,12 @@ def _discover_modules():
             if hasattr(module, 'SWITCH_DEVICE_TYPE'):
                 _DEVICE_TYPES[module_name + '_switch'] = module.SWITCH_DEVICE_TYPE
         else:
-            print('device_modules.loader: module does not expose supports()', module_name)
+            log_output(
+                'Local',
+                'Device loader',
+                {'log': 'Skipping "' + module_name + '" because it is not a device driver module'},
+                'INFO'
+            )
 
     return modules
 
@@ -67,9 +80,18 @@ def _find_module_for_device(device):
             if module.supports(device):
                 return module
         except Exception as exc:
-            print('device_modules.loader: supports failed',
-                  getattr(module, '__name__', 'unknown'),
-                  device.get('uuid'), device.get('name'), exc)
+            log_output(
+                'Local',
+                'Device loader',
+                {
+                    'log': 'Could not check device support in "' +
+                           str(getattr(module, '__name__', 'unknown')) + '" for ' +
+                           str(device.get('uuid')) + ' ' +
+                           str(device.get('name')) + ' ' +
+                           str(exc)
+                },
+                'ERROR'
+            )
             continue
     return None
 
@@ -82,8 +104,17 @@ def get_device_types():
 def setup_device(device, index):
     module = _find_module_for_device(device)
     if not module:
-        print('device_modules.loader: no module found for device',
-              device.get('uuid'), device.get('name'), device.get('type'))
+        log_output(
+            'Local',
+            'Device loader',
+            {
+                'log': 'No driver found for configured device ' +
+                       str(device.get('uuid')) + ' ' +
+                       str(device.get('name')) + ' ' +
+                       str(device.get('type'))
+            },
+            'ERROR'
+        )
         return None
 
     try:
@@ -93,9 +124,18 @@ def setup_device(device, index):
         elif hasattr(module, 'Driver'):
             device_char['driver'] = module.Driver(device, device_char)
     except Exception as exc:
-        print('device_modules.loader: setup failed',
-              getattr(module, '__name__', 'unknown'),
-              device.get('uuid'), device.get('name'), exc)
+        log_output(
+            'Local',
+            'Device loader',
+            {
+                'log': 'Could not set up device driver "' +
+                       str(getattr(module, '__name__', 'unknown')) + '" for ' +
+                       str(device.get('uuid')) + ' ' +
+                       str(device.get('name')) + ' ' +
+                       str(exc)
+            },
+            'ERROR'
+        )
         return None
 
     return device_char

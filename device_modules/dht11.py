@@ -69,7 +69,7 @@ class DHT11Driver(DeviceDriver):
             payload[self.device['entities'][str(e)]['class']] = self.device['entities'][str(e)]['value']
         return payload
 
-    def start(self, publish_callable, deviceid):
+    def start(self, publish_callable, deviceid, log_callable=None):
         import asyncio
 
         async def measure_loop():

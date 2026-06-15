@@ -4,6 +4,10 @@ from binascii import hexlify
 import json
 import secrets
 import device_settings
+try:
+    import network
+except ImportError:
+    network = None
 from machine import Pin, unique_id
 try:
     from machine import WDT
@@ -22,6 +26,8 @@ from device_modules.base import (
     homeassistant_device_info
 )
 from device_modules.validation import validate_device_config
+from device_modules.logging import set_log_output
+from web_portal import start_web_portal
 
 try:
     import ntptime
@@ -60,6 +66,15 @@ mqtt_debug = getattr(device_settings, 'mqtt_debug', True)
 watchdog_timeout_ms = getattr(device_settings, 'watchdog_timeout_ms', 0)
 watchdog_max_timeout_ms = 8000
 watchdog = None
+web_portal_server = None
+web_portal_enabled = getattr(device_settings, 'web_portal_enabled', False)
+web_portal_host = getattr(device_settings, 'web_portal_host', '0.0.0.0')
+web_portal_port = getattr(device_settings, 'web_portal_port', 8080)
+web_portal_token = getattr(secrets, 'web_portal_token', '')
+web_portal_refresh_ms = getattr(device_settings, 'web_portal_refresh_ms', 5000)
+web_log_lines = getattr(device_settings, 'web_log_lines', 100)
+web_log_line_max = getattr(device_settings, 'web_log_line_max', 300)
+log_buffer = []
 
 # Device types will be loaded from device modules
 deviceTypes = []
@@ -161,6 +176,89 @@ def logOutput(mode, action, data, logtype):
         else:
             
             print (log)
+
+        remember_log(log)
+
+
+def remember_log(log):
+    if len(log) > web_log_line_max:
+        log = log[:web_log_line_max] + '...'
+    log_buffer.append(log)
+    while len(log_buffer) > web_log_lines:
+        log_buffer.pop(0)
+
+
+def get_log_buffer():
+    return list(log_buffer)
+
+
+def get_loglevel():
+    return loglevel
+
+
+def set_loglevel(level):
+    global loglevel
+    if level in loglevels:
+        loglevel = level
+
+
+set_log_output(logOutput)
+
+
+def wifi_ip_address():
+    if network is None:
+        return web_portal_host
+
+    try:
+        wlan = network.WLAN(network.STA_IF)
+        ip_address = wlan.ifconfig()[0]
+        if ip_address and ip_address != '0.0.0.0':
+            return ip_address
+    except Exception:
+        pass
+
+    return web_portal_host
+
+
+async def start_admin_portal():
+    global web_portal_server
+
+    if not web_portal_enabled:
+        return None
+
+    if not web_portal_token:
+        logOutput('Local', 'Web portal', {'log': 'Disabled: missing web_portal_token in secrets.py'}, 'ERROR')
+        return None
+
+    settings = {
+        'host': web_portal_host,
+        'port': web_portal_port,
+        'token': web_portal_token,
+        'levels': tuple(loglevels),
+        'refresh_ms': web_portal_refresh_ms
+    }
+
+    portal_url_host = wifi_ip_address()
+    logOutput(
+        'Local',
+        'Web portal',
+        {'log': 'Starting on ' + web_portal_host + ':' + str(web_portal_port)},
+        'INFO'
+    )
+
+    try:
+        web_portal_server = await start_web_portal(settings, get_log_buffer, get_loglevel, set_loglevel, logOutput)
+    except Exception as exc:
+        logOutput('Local', 'Web portal', {'log': 'Failed to start - ' + str(exc)}, 'ERROR')
+        return None
+
+    logOutput(
+        'Local',
+        'Web portal',
+        {'log': 'Listening on http://' + portal_url_host + ':' + str(web_portal_port) + '/?token=<token>'},
+        'INFO'
+    )
+    return web_portal_server
             
             
 async def publish_message(msg, qosValue, logOnly, retain=False):
@@ -394,6 +492,7 @@ async def main(client):
         logOutput('MQTT', 'Connect', {'log': 'Connect WiFi before NTP sync'}, 'INFO')
         await client.wifi_connect(quick=True)
         await sync_ntp_time()
+        await start_admin_portal()
         await client.connect()
     except ValueError as exc:
         logOutput('MQTT', 'Connect', {'log': 'SSL error: ' + ssl_error_message(exc)}, 'ERROR')
@@ -446,6 +545,17 @@ config["queue_len"] = 1  # Use event interface with default queue size
 MQTTClient.DEBUG = mqtt_debug
 
 client = MQTTClient(config)
+
+
+def mqtt_debug_output(msg, *args):
+    try:
+        detail = msg % args
+    except Exception:
+        detail = str(msg)
+    logOutput('MQTT', 'Debug', {'log': detail}, 'DEBUG')
+
+
+client.dprint = mqtt_debug_output
 
 # Helper for drivers to publish via main publish_message
 def publish_wrapper(data, qosValue, logOnly):
@@ -515,7 +625,7 @@ for device in deviceConfig['devices']:
 
         if device_char and 'driver' in device_char and device['type']['class'] == 'sensor':
             try:
-                device_char['driver'].start(publish_wrapper, deviceid)
+                device_char['driver'].start(publish_wrapper, deviceid, logOutput)
             except Exception as exc:
                 logOutput('Local', 'Start device', {'log': device['name'] + ' - ' + str(exc)}, 'ERROR')
                     

@@ -47,6 +47,8 @@ mqtt_server = "mqtt.example.local"
 mqtt_username = "mqtt-user"
 mqtt_password = "mqtt-password"
 mqtt_ssl = True
+
+web_portal_token = "replace-with-a-long-random-url-safe-token"
 ```
 
 ### `device_settings.py`
@@ -64,12 +66,39 @@ ntp_servers = (
     "time.google.com",
 )
 watchdog_timeout_ms = 0
+web_portal_enabled = False
+web_portal_port = 8080
+web_portal_refresh_ms = 5000
 ```
 
 If MQTT TLS is enabled, copy your CA certificate to the configured path on the
 Pico. Set `watchdog_timeout_ms` to a positive value up to `8000` to enable the
 Pico hardware watchdog after MQTT connects; the RP2040 hardware limit is about
 `8388` ms. Leave it as `0` while developing over USB/REPL.
+
+### Web Log Portal
+
+The optional web portal exposes recent firmware logs and lets you change the
+runtime debug level remotely. It is disabled by default. To enable it, set
+`web_portal_enabled = True` and add `web_portal_token` to `secrets.py`. The
+portal binds to all network interfaces by default and logs the actual WiFi IP
+address after startup.
+
+Open the portal with:
+
+```text
+http://<pico-ip>:8080/?token=<web_portal_token>
+```
+
+The portal accepts `ERROR`, `INFO`, and `DEBUG` log levels. Changes are runtime
+only and are not written back to `device_settings.py`, so rebooting restores the
+configured default. The log pane refreshes automatically using
+`web_portal_refresh_ms` and remains scrollable so earlier buffered log events
+can be reviewed.
+
+The portal is HTTP-only on the Pico to avoid server-side TLS memory pressure. If
+HTTPS is required, terminate TLS on a reverse proxy such as Home Assistant,
+Caddy, or nginx and proxy to the Pico's HTTP portal on the trusted LAN.
 
 ### `device.json`
 

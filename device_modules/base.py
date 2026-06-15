@@ -97,7 +97,7 @@ class DeviceDriver:
     def set(self, payload):
         return
 
-    def start(self, publish_callable, deviceid):
+    def start(self, publish_callable, deviceid, log_callable=None):
         return
 
 
