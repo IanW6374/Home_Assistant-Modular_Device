@@ -67,7 +67,10 @@ ntp_servers = (
 )
 watchdog_timeout_ms = 0
 web_portal_enabled = False
+web_portal_https = False
 web_portal_port = 8080
+web_portal_cert_path = "/certs/web.crt.der"
+web_portal_key_path = "/certs/web.key.der"
 web_portal_refresh_ms = 5000
 ```
 
@@ -96,9 +99,36 @@ configured default. The log pane refreshes automatically using
 `web_portal_refresh_ms` and remains scrollable so earlier buffered log events
 can be reviewed.
 
-The portal is HTTP-only on the Pico to avoid server-side TLS memory pressure. If
-HTTPS is required, terminate TLS on a reverse proxy such as Home Assistant,
-Caddy, or nginx and proxy to the Pico's HTTP portal on the trusted LAN.
+The portal defaults to HTTP because server-side TLS exhausted heap during Pico W
+testing. If HTTPS is required on Pico W hardware, terminate TLS on a reverse
+proxy such as Home Assistant, Caddy, or nginx and proxy to the Pico's HTTP
+portal on the trusted LAN.
+
+#### Experimental Pico 2 W HTTPS
+
+Pico 2 W has more RAM than Pico W, so the portal can optionally be tested with
+HTTPS on that hardware. Enable it in `device_settings.py`:
+
+```python
+web_portal_https = True
+web_portal_port = 8443
+web_portal_cert_path = "/certs/web.crt.der"
+web_portal_key_path = "/certs/web.key.der"
+```
+
+Create a small self-signed certificate and convert the files to DER:
+
+```sh
+openssl genrsa -traditional -out web.key 1024
+openssl req -new -x509 -key web.key -out web.crt -days 365 \
+  -subj "/CN=pico-web-portal"
+openssl rsa -in web.key -outform DER -out web.key.der
+openssl x509 -in web.crt -outform DER -out web.crt.der
+```
+
+Copy `web.key.der` and `web.crt.der` to `/certs/` on the Pico. If the portal
+logs `OSError: [Errno 12] ENOMEM` when a browser connects, the TLS handshake is
+still too large for the available MicroPython heap on that build.
 
 ### `device.json`
 

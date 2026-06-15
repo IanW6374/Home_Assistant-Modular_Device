@@ -19,8 +19,11 @@ ha_device_info = {
 mqtt_debug = False # Set to True to print MQTT messages to the console e.g. WiFi connection status, MQTT connection status, MQTT messages received etc.
 
 web_portal_enabled = True
+web_portal_https = False
 web_portal_host = '0.0.0.0'
 web_portal_port = 8080
+web_portal_cert_path = '/certs/web.crt.der'
+web_portal_key_path = '/certs/web.key.der'
 web_portal_refresh_ms = 5000
 web_log_lines = 100
 web_log_line_max = 300

@@ -68,9 +68,12 @@ watchdog_max_timeout_ms = 8000
 watchdog = None
 web_portal_server = None
 web_portal_enabled = getattr(device_settings, 'web_portal_enabled', False)
+web_portal_https = getattr(device_settings, 'web_portal_https', False)
 web_portal_host = getattr(device_settings, 'web_portal_host', '0.0.0.0')
-web_portal_port = getattr(device_settings, 'web_portal_port', 8080)
+web_portal_port = getattr(device_settings, 'web_portal_port', 8443 if web_portal_https else 8080)
 web_portal_token = getattr(secrets, 'web_portal_token', '')
+web_portal_cert_path = getattr(device_settings, 'web_portal_cert_path', '/certs/web.crt.der')
+web_portal_key_path = getattr(device_settings, 'web_portal_key_path', '/certs/web.key.der')
 web_portal_refresh_ms = getattr(device_settings, 'web_portal_refresh_ms', 5000)
 web_log_lines = getattr(device_settings, 'web_log_lines', 100)
 web_log_line_max = getattr(device_settings, 'web_log_line_max', 300)
@@ -231,13 +234,17 @@ async def start_admin_portal():
         return None
 
     settings = {
+        'https': web_portal_https,
         'host': web_portal_host,
         'port': web_portal_port,
         'token': web_portal_token,
+        'cert_path': web_portal_cert_path,
+        'key_path': web_portal_key_path,
         'levels': tuple(loglevels),
         'refresh_ms': web_portal_refresh_ms
     }
 
+    scheme = 'https' if web_portal_https else 'http'
     portal_url_host = wifi_ip_address()
     logOutput(
         'Local',
@@ -255,7 +262,7 @@ async def start_admin_portal():
     logOutput(
         'Local',
         'Web portal',
-        {'log': 'Listening on http://' + portal_url_host + ':' + str(web_portal_port) + '/?token=<token>'},
+        {'log': 'Listening on ' + scheme + '://' + portal_url_host + ':' + str(web_portal_port) + '/?token=<token>'},
         'INFO'
     )
     return web_portal_server

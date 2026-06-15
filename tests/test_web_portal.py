@@ -1,7 +1,9 @@
 import unittest
 
+import web_portal
 from web_portal import (
     is_authenticated,
+    make_tls_context,
     parse_request_line,
     redirect,
     render_log_text,
@@ -53,6 +55,33 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('setInterval(refreshLogs,refreshMs)', html)
         self.assertIn('var refreshMs=3000', html)
         self.assertNotIn('hello', html)
+
+    def test_make_tls_context_reports_missing_certificate_file(self):
+        with self.assertRaisesRegex(RuntimeError, 'certificate file not found'):
+            make_tls_context('/tmp/missing-web.crt', '/tmp/missing-web.key')
+
+    def test_make_tls_context_explains_invalid_key(self):
+        original_ssl = web_portal.ssl
+        original_open = web_portal.open if hasattr(web_portal, 'open') else open
+
+        class FakeContext:
+            def load_cert_chain(self, cert_path, key_path):
+                raise ValueError('invalid key')
+
+        class FakeSsl:
+            PROTOCOL_TLS_SERVER = 1
+
+            def SSLContext(self, protocol):
+                return FakeContext()
+
+        try:
+            web_portal.ssl = FakeSsl()
+            web_portal.open = lambda path, mode='r': original_open(__file__, 'rb')
+            with self.assertRaisesRegex(RuntimeError, 'traditional RSA key'):
+                make_tls_context('/tmp/web.crt', '/tmp/web.key')
+        finally:
+            web_portal.ssl = original_ssl
+            web_portal.open = original_open
 
 
 if __name__ == '__main__':

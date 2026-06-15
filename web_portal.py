@@ -1,4 +1,9 @@
 try:
+    import ssl
+except ImportError:
+    ssl = None
+
+try:
     import asyncio
 except ImportError:
     asyncio = None
@@ -165,6 +170,35 @@ window.addEventListener('load',function(){
 </html>"""
 
 
+def make_tls_context(cert_path, key_path):
+    if ssl is None:
+        raise RuntimeError('ssl module not available')
+
+    if gc:
+        gc.collect()
+
+    for path, label in ((cert_path, 'certificate'), (key_path, 'private key')):
+        try:
+            with open(path, 'rb'):
+                pass
+        except Exception as exc:
+            raise RuntimeError('HTTPS ' + label + ' file not found or unreadable: ' + str(path) + ' - ' + str(exc))
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    if gc:
+        gc.collect()
+    try:
+        context.load_cert_chain(cert_path, key_path)
+    except Exception as exc:
+        detail = str(exc)
+        if 'invalid key' in detail:
+            detail += ' - regenerate the HTTPS key as a traditional RSA key or convert the cert/key to DER for this MicroPython build.'
+        raise RuntimeError('Could not load HTTPS certificate/key: ' + detail)
+    if gc:
+        gc.collect()
+    return context
+
+
 async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_setter, log_output):
     if asyncio is None:
         return None
@@ -239,9 +273,17 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
     if gc:
         gc.collect()
 
+    ssl_context = None
+    if settings.get('https', False):
+        ssl_context = make_tls_context(settings.get('cert_path'), settings.get('key_path'))
+
+    if gc:
+        gc.collect()
+
     return await asyncio.start_server(
         handle_client,
         settings.get('host', '0.0.0.0'),
-        settings.get('port', 8080),
-        backlog=1
+        settings.get('port', 8443 if settings.get('https', False) else 8080),
+        backlog=1,
+        ssl=ssl_context
     )
