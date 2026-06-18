@@ -1,4 +1,5 @@
 import importlib.util
+import asyncio
 import sys
 import types
 import unittest
@@ -34,11 +35,12 @@ class WhesTests(unittest.TestCase):
             'uuid': '0001',
             'type': {'class': 'sensor', 'subclass': 'WHES'},
             'entities': {
-                '0': {'class': 'power', 'key': 'PPV1', 'value': 1000},
-                '1': {'class': 'power', 'key': 'PPV2', 'value': 500},
-                '2': {'class': 'power', 'key': 'BatPower_BMS', 'value': -300},
-                '3': {'class': 'power', 'key': 'Power_Meter', 'value': -200},
-                '4': {'class': 'battery', 'key': 'BatSOC', 'value': 64}
+                '0': {'class': 'memory_value', 'key': 'SerialNumber', 'value': 'INV123456'},
+                '1': {'class': 'power', 'key': 'PPV1', 'value': 1000},
+                '2': {'class': 'power', 'key': 'PPV2', 'value': 500},
+                '3': {'class': 'power', 'key': 'BatPower_BMS', 'value': -300},
+                '4': {'class': 'power', 'key': 'Power_Meter', 'value': -200},
+                '5': {'class': 'battery', 'key': 'BatSOC', 'value': 64}
             }
         }
         driver = whes.WHESDriver(device, {})
@@ -52,6 +54,7 @@ class WhesTests(unittest.TestCase):
 
         self.assertNotIn('PPV1', payload)
         self.assertNotIn('PPV2', payload)
+        self.assertEqual(payload['serial_number'], 'INV123456')
         self.assertEqual(payload['PV_p'], 1500)
         self.assertEqual(payload['battery_p'], 300)
         self.assertEqual(payload['grid_p'], -200)
@@ -69,18 +72,63 @@ class WhesTests(unittest.TestCase):
         device = {
             'name': 'WHES',
             'uuid': '0001',
+            '_portal_url': 'http://192.168.1.50:8080/?token=abc',
             'type': {'class': 'sensor', 'subclass': 'WHES'},
-            'entities': {}
+            'entities': {
+                '0': {'class': 'memory_value', 'key': 'SerialNumber', 'value': 'INV123456'}
+            }
         }
         driver = whes.WHESDriver(device, {})
 
         discovery, _ = driver.get_discovery_payloads('abc', 'WHES Device')
 
         self.assertEqual(sorted(discovery.keys()), list(range(len(whes.PRESENTATION_ENTITIES))))
-        self.assertEqual(discovery[9]['name'], 'WHES grid_import_e')
-        self.assertEqual(discovery[9]['uniq_id'], 'abc0001_9')
-        self.assertEqual(discovery[10]['name'], 'WHES grid_export_e')
+        self.assertEqual(discovery[0]['name'], 'INV123456 serial_number')
+        self.assertEqual(discovery[0]['dev']['name'], 'INV123456')
+        self.assertEqual(discovery[0]['dev']['sn'], 'INV123456')
+        self.assertEqual(discovery[0]['dev']['cu'], 'http://192.168.1.50:8080/?token=abc')
+        self.assertEqual(discovery[0]['entity_category'], 'diagnostic')
+        self.assertEqual(discovery[10]['name'], 'INV123456 grid_import_e')
         self.assertEqual(discovery[10]['uniq_id'], 'abc0001_10')
+        self.assertEqual(discovery[11]['name'], 'INV123456 grid_export_e')
+        self.assertEqual(discovery[11]['uniq_id'], 'abc0001_11')
+        payload = driver.get_state_payload()
+        self.assertEqual(payload['serial_number'], 'INV123456')
+        self.assertNotIn('portal_url', payload)
+
+    def test_prepare_discovery_reads_serial_number(self):
+        whes = load_whes_module()
+        device = {
+            'name': 'WHES',
+            'uuid': '0001',
+            'type': {'class': 'sensor', 'subclass': 'WHES'},
+            'entities': {
+                '0': {
+                    'class': 'memory_value',
+                    'key': 'SerialNumber',
+                    'value': '',
+                    'address': 36010,
+                    'count': 10,
+                    'data_type': 'ascii'
+                }
+            }
+        }
+        driver = whes.WHESDriver(device, {})
+
+        async def read_entity(entity):
+            self.assertEqual(entity['address'], 36010)
+            self.assertEqual(entity['count'], 10)
+            self.assertEqual(entity['data_type'], 'ascii')
+            return 'INV654321'
+
+        driver._read_entity = read_entity
+
+        asyncio.run(driver.prepare_discovery())
+        discovery, payload = driver.get_discovery_payloads('abc', 'WHES Device')
+
+        self.assertEqual(payload['serial_number'], 'INV654321')
+        self.assertEqual(discovery[0]['dev']['sn'], 'INV654321')
+        self.assertEqual(discovery[1]['name'], 'INV654321 PV_p')
 
 
 if __name__ == '__main__':

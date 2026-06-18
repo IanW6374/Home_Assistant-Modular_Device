@@ -225,6 +225,18 @@ def wifi_ip_address():
     return web_portal_host
 
 
+def web_portal_url():
+    if not web_portal_enabled or not web_portal_token:
+        return None
+
+    scheme = 'https' if web_portal_https else 'http'
+    host = wifi_ip_address()
+    return (
+        scheme + '://' + host + ':' + str(web_portal_port) +
+        '/?token=' + web_portal_token
+    )
+
+
 async def start_admin_portal():
     global web_portal_server
 
@@ -341,15 +353,23 @@ async def homeassistant_discovery():
             device_char = find_device_char(device['uuid'])
             if device_char and 'driver' in device_char:
                 try:
+                    portal_url = web_portal_url()
+                    if portal_url:
+                        device['_portal_url'] = portal_url
+                    elif '_portal_url' in device:
+                        del device['_portal_url']
+                    if hasattr(device_char['driver'], 'prepare_discovery'):
+                        await device_char['driver'].prepare_discovery()
                     payload_discovery, payload_entities = device_char['driver'].get_discovery_payloads(deviceid, ha_devicename)
                 except Exception:
                     payload_discovery = {}
                     payload_entities = {}
 
             if not device_info_added and payload_discovery:
-                payload_discovery[0].update({
-                    "dev": homeassistant_device_info(deviceid, ha_devicename)
-                })
+                if "dev" not in payload_discovery[0]:
+                    payload_discovery[0].update({
+                        "dev": homeassistant_device_info(deviceid, ha_devicename)
+                    })
                 device_info_added = True
 
             for i in payload_discovery:

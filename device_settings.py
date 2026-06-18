@@ -2,7 +2,7 @@ deviceConfigFile = 'device.json'
 ca_cert_path = '/certs/home-ca.der'
 
 ha_discovery = True
-ha_devicename = 'Test1'
+ha_devicename = 'WHES'
 
 ntp_servers = (
     'pool.ntp.org',
@@ -12,7 +12,7 @@ ntp_servers = (
 ha_device_info = {
     "mf": "Home",
     "mdl": "PicoW",
-    "sw": "1.0",
+    "sw": "1.1",
     "hw": "1.0"
 }
 

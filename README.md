@@ -140,8 +140,12 @@ when a browser connects, use HTTP mode or terminate HTTPS on a reverse proxy.
 Devices are declared in `device.json`. The current WHES config uses the `WHES`
 sensor subclass and reads these Modbus registers:
 
+The WHES serial number is read from Modbus and used to prefix Home Assistant
+entity names instead of `WHES`.
+
 | Key | Address | Type | Purpose |
 | --- | ---: | --- | --- |
+| `SerialNumber` | `36010` | `ascii`, count `10` | Inverter serial number |
 | `PPV1` | `36112` | `uint16` | PV string 1 power |
 | `PPV2` | `36113` | `uint16` | PV string 2 power |
 | `BatPower_BMS` | `36153` | `int32` | Signed battery power |
@@ -159,6 +163,11 @@ invalid RS485 counts, and unsupported data types.
 
 The WHES module reads the raw Modbus values above and publishes a cleaner
 presentation payload to Home Assistant.
+
+It also publishes a `serial_number` diagnostic sensor. The serial number is sent
+in Home Assistant MQTT device metadata as `sn`. If the web log portal is enabled,
+the firmware sends its runtime portal URL as the Home Assistant device
+configuration URL.
 
 ### Power and Battery Entities
 
@@ -255,9 +264,9 @@ starts each sensor driver.
 - Set `watchdog_timeout_ms = 8000` for deployment.
 - Let the device connect to MQTT and publish Home Assistant discovery once.
 - Confirm Home Assistant shows these WHES entities:
-  `PV_p`, `battery_p`, `grid_p`, `home_p`, `battery_soc`, `pv_e`, `home_e`,
-  `battery_charge_e`, `battery_discharge_e`, `grid_import_e`, and
-  `grid_export_e`.
+  `serial_number`, `PV_p`, `battery_p`, `grid_p`, `home_p`, `battery_soc`,
+  `pv_e`, `home_e`, `battery_charge_e`, `battery_discharge_e`,
+  `grid_import_e`, and `grid_export_e`.
 
 ## Host-Side Tests
 

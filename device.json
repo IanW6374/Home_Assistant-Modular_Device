@@ -26,6 +26,18 @@
             },
             "entities": {
                 "0": {
+                    "class": "memory_value",
+                    "key": "SerialNumber",
+                    "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36010,
+                    "count": 10,
+                    "data_type": "ascii",
+                    "pollinterval": 3600
+                },
+                "1": {
                     "class": "power",
                     "key": "PPV1",
                     "unit": "W",
@@ -39,7 +51,7 @@
                     "data_type": "uint16",
                     "pollinterval": 60
                 },
-                "1": {
+                "2": {
                     "class": "power",
                     "key": "PPV2",
                     "unit": "W",
@@ -53,7 +65,7 @@
                     "data_type": "uint16",
                     "pollinterval": 60
                 },
-                "2": {
+                "3": {
                     "class": "power",
                     "key": "BatPower_BMS",
                     "unit": "W",
@@ -67,7 +79,7 @@
                     "data_type": "int32",
                     "pollinterval": 60
                 },
-                "3": {
+                "4": {
                     "class": "power",
                     "key": "Power_Meter",
                     "unit": "W",
@@ -81,7 +93,7 @@
                     "data_type": "int32",
                     "pollinterval": 60
                 },
-                "4": {
+                "5": {
                     "class": "battery",
                     "key": "BatSOC",
                     "unit": "%",

@@ -7,10 +7,12 @@ Home Assistant presentation payload with calculated PV and home-load power.
 try:
     from . import pico_2ch_rs485 as rs485_module
     from .base import ha_state_topic
+    from .base import homeassistant_device_info
     from .base import sensor_discovery_payload
 except ImportError:
     import pico_2ch_rs485 as rs485_module
     from base import ha_state_topic
+    from base import homeassistant_device_info
     from base import sensor_discovery_payload
 
 import time
@@ -22,6 +24,7 @@ DEVICE_TYPE = {
         'WHES': {
             'entities': {
                 'battery',
+                'memory_value',
                 'power'
             }
         }
@@ -33,6 +36,7 @@ DEVICE_TYPE = {
 
 
 PRESENTATION_ENTITIES = (
+    ('serial_number', None, '', None),
     ('PV_p', 'power', 'W', 'measurement'),
     ('battery_p', 'power', 'W', 'measurement'),
     ('grid_p', 'power', 'W', 'measurement'),
@@ -68,11 +72,25 @@ RAW_KEYS = {
     'battery_soc': 'BatSOC',
     'grid_p': 'Power_Meter',
     'ppv1': 'PPV1',
-    'ppv2': 'PPV2'
+    'ppv2': 'PPV2',
+    'serial_number': 'SerialNumber'
 }
 
 
 ENERGY_PRECISION = 4
+
+
+def _configured_value(device, *keys):
+    for key in keys:
+        if key in device and device[key]:
+            return device[key]
+
+    inverter = device.get('inverter', {})
+    for key in keys:
+        if key in inverter and inverter[key]:
+            return inverter[key]
+
+    return None
 
 
 def supports(device):
@@ -106,20 +124,50 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
         for entity in PRESENTATION_ENTITIES:
             key, entity_class, unit, state_class = entity
             index = PRESENTATION_ENTITY_INDEXES[key]
+            discovery_entity = {}
+            if entity_class:
+                discovery_entity['class'] = entity_class
+            if unit:
+                discovery_entity['unit'] = unit
+            if state_class:
+                discovery_entity['state_class'] = state_class
+            if key == 'serial_number':
+                discovery_entity['entity_category'] = 'diagnostic'
+
             payload_discovery[index] = sensor_discovery_payload(
-                self.device,
-                {
-                    'class': entity_class,
-                    'unit': unit,
-                    'state_class': state_class
-                },
+                self._ha_named_device(),
+                discovery_entity,
                 key,
                 index,
                 deviceid,
                 ha_devicename
             )
+            payload_discovery[index]['dev'] = self.discovery_device_info(deviceid, ha_devicename)
 
         return payload_discovery, payload_entities
+
+    def discovery_device_info(self, deviceid, ha_devicename):
+        info = homeassistant_device_info(deviceid, ha_devicename)
+        serial_number = self._inverter_serial_number()
+        portal_url = self._portal_url()
+
+        if serial_number:
+            info['identifiers'] = [serial_number]
+            info['name'] = serial_number
+            info['sn'] = serial_number
+        if portal_url:
+            info['cu'] = portal_url
+
+        return info
+
+    async def prepare_discovery(self):
+        serial_entity = self._serial_entity()
+        if not serial_entity or serial_entity.get('value'):
+            return
+
+        value = await self._read_entity(serial_entity)
+        if value is not None:
+            serial_entity['value'] = value
 
     def get_state_payload(self):
         values = self._calculated_values()
@@ -145,6 +193,32 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
             values[entity.get('key', entity['class'])] = entity.get('value', 0)
         return values
 
+    def _ha_named_device(self):
+        device = self.device.copy()
+        device['name'] = self._entity_name_prefix()
+        return device
+
+    def _entity_name_prefix(self):
+        return self._inverter_serial_number() or self.device['name']
+
+    def _inverter_serial_number(self):
+        source = self._source_values()
+        serial_number = source.get(RAW_KEYS['serial_number'], '')
+        if serial_number:
+            return str(serial_number).strip()
+
+        return _configured_value(self.device, 'inverter_serial_number')
+
+    def _serial_entity(self):
+        for e in self.device['entities']:
+            entity = self.device['entities'][str(e)]
+            if entity.get('key') == RAW_KEYS['serial_number']:
+                return entity
+        return None
+
+    def _portal_url(self):
+        return _configured_value(self.device, '_portal_url')
+
     def _calculated_values(self):
         source = self._source_values()
         ppv1 = self._number(source.get(RAW_KEYS['ppv1'], source.get('Ppv1', 0)))
@@ -153,6 +227,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
         grid_p = self._number(source.get(RAW_KEYS['grid_p'], 0))
 
         values = {
+            'serial_number': self._inverter_serial_number() or '',
             'PV_p': ppv1 + ppv2,
             'battery_p': battery_p,
             'battery_charge_p': -battery_p if battery_p < 0 else 0,

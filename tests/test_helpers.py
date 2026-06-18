@@ -14,6 +14,7 @@ DEVICE_TYPES = [
             'WHES': {
                 'entities': {
                     'battery',
+                    'memory_value',
                     'power'
                 }
             }
@@ -58,6 +59,13 @@ class HelperTests(unittest.TestCase):
                             'data_type': 'uint16'
                         },
                         '1': {
+                            'class': 'memory_value',
+                            'key': 'SerialNumber',
+                            'address': 36010,
+                            'count': 10,
+                            'data_type': 'ascii'
+                        },
+                        '2': {
                             'class': 'battery',
                             'key': 'BatSOC',
                             'address': 36155,
