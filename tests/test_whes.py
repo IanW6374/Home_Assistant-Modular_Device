@@ -84,10 +84,12 @@ class WhesTests(unittest.TestCase):
 
         self.assertEqual(sorted(discovery.keys()), list(range(len(whes.PRESENTATION_ENTITIES))))
         self.assertEqual(discovery[0]['name'], 'INV123456 serial_number')
-        self.assertEqual(discovery[0]['dev']['name'], 'INV123456')
-        self.assertEqual(discovery[0]['dev']['sn'], 'INV123456')
+        self.assertEqual(discovery[0]['dev']['name'], 'WHES Device')
+        self.assertEqual(discovery[0]['dev']['sn'], 'abc')
         self.assertEqual(discovery[0]['dev']['cu'], 'http://192.168.1.50:8080/?token=abc')
         self.assertEqual(discovery[0]['entity_category'], 'diagnostic')
+        for index in discovery:
+            self.assertTrue(discovery[index]['name'].startswith('INV123456 '))
         self.assertEqual(discovery[10]['name'], 'INV123456 grid_import_e')
         self.assertEqual(discovery[10]['uniq_id'], 'abc0001_10')
         self.assertEqual(discovery[11]['name'], 'INV123456 grid_export_e')
@@ -127,7 +129,7 @@ class WhesTests(unittest.TestCase):
         discovery, payload = driver.get_discovery_payloads('abc', 'WHES Device')
 
         self.assertEqual(payload['serial_number'], 'INV654321')
-        self.assertEqual(discovery[0]['dev']['sn'], 'INV654321')
+        self.assertEqual(discovery[0]['dev']['sn'], 'abc')
         self.assertEqual(discovery[1]['name'], 'INV654321 PV_p')
 
 

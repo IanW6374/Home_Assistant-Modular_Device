@@ -148,13 +148,8 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
 
     def discovery_device_info(self, deviceid, ha_devicename):
         info = homeassistant_device_info(deviceid, ha_devicename)
-        serial_number = self._inverter_serial_number()
         portal_url = self._portal_url()
 
-        if serial_number:
-            info['identifiers'] = [serial_number]
-            info['name'] = serial_number
-            info['sn'] = serial_number
         if portal_url:
             info['cu'] = portal_url
 
