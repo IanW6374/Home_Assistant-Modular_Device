@@ -58,7 +58,7 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(payload['PV_p'], 1500)
         self.assertEqual(payload['battery_p'], 300)
         self.assertEqual(payload['grid_p'], -200)
-        self.assertEqual(payload['home_p'], 1800)
+        self.assertEqual(payload['home_p'], 1600)
         self.assertEqual(payload['battery_soc'], 64)
         self.assertNotIn('battery_charge_p', payload)
         self.assertNotIn('battery_discharge_p', payload)
@@ -66,6 +66,28 @@ class WhesTests(unittest.TestCase):
         self.assertNotIn('grid_export_p', payload)
         self.assertEqual(payload['battery_discharge_e'], 0.005)
         self.assertEqual(payload['grid_export_e'], 0.0033)
+
+    def test_home_power_includes_grid_import_and_battery_charge(self):
+        whes = load_whes_module()
+        device = {
+            'name': 'WHES',
+            'uuid': '0001',
+            'type': {'class': 'sensor', 'subclass': 'WHES'},
+            'entities': {
+                '0': {'class': 'power', 'key': 'PPV1', 'value': 800},
+                '1': {'class': 'power', 'key': 'PPV2', 'value': 200},
+                '2': {'class': 'power', 'key': 'BatPower_BMS', 'value': 300},
+                '3': {'class': 'power', 'key': 'Power_Meter', 'value': 500}
+            }
+        }
+        driver = whes.WHESDriver(device, {})
+
+        values = driver._calculated_values()
+
+        self.assertEqual(values['PV_p'], 1000)
+        self.assertEqual(values['battery_p'], -300)
+        self.assertEqual(values['grid_p'], 500)
+        self.assertEqual(values['home_p'], 1200)
 
     def test_discovery_uses_presentation_order_indexes(self):
         whes = load_whes_module()

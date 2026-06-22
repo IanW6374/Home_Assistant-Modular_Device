@@ -232,7 +232,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
             'grid_export_p': -grid_p if grid_p < 0 else 0,
             'battery_soc': self._number(source.get(RAW_KEYS['battery_soc'], 0))
         }
-        values['home_p'] = values['PV_p'] + battery_p
+        values['home_p'] = values['PV_p'] + battery_p + grid_p
         return values
 
     def _add_energy_values(self, values):

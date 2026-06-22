@@ -176,7 +176,7 @@ configuration URL.
 | `PV_p` | W | `PPV1 + PPV2` |
 | `battery_p` | W | `BatPower_BMS * -1` |
 | `grid_p` | W | Raw `Power_Meter` |
-| `home_p` | W | `PV_p + battery_p` |
+| `home_p` | W | `PV_p + battery_p + grid_p` |
 | `battery_soc` | % | Raw `BatSOC` |
 
 Sign conventions:
