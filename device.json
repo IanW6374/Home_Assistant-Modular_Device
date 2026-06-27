@@ -106,6 +106,21 @@
                     "count": 1,
                     "data_type": "uint16",
                     "pollinterval": 60
+                },
+                "6": {
+                    "class": "battery",
+                    "key": "battery_min_cap",
+                    "unit": "%",
+                    "state_class": "measurement",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 60009,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "scale": 0.01,
+                    "pollinterval": 60
                 }
             }
         }

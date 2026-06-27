@@ -42,6 +42,7 @@ PRESENTATION_ENTITIES = (
     ('grid_p', 'power', 'W', 'measurement'),
     ('home_p', 'power', 'W', 'measurement'),
     ('battery_soc', 'battery', '%', 'measurement'),
+    ('battery_min_cap', 'battery', '%', 'measurement'),
     ('pv_e', 'energy', 'kWh', 'total_increasing'),
     ('home_e', 'energy', 'kWh', 'total_increasing'),
     ('battery_charge_e', 'energy', 'kWh', 'total_increasing'),
@@ -69,6 +70,7 @@ ENERGY_SOURCES = (
 
 RAW_KEYS = {
     'battery_p': 'BatPower_BMS',
+    'battery_min_cap': 'battery_min_cap',
     'battery_soc': 'BatSOC',
     'grid_p': 'Power_Meter',
     'ppv1': 'PPV1',
@@ -230,6 +232,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
             'grid_p': grid_p,
             'grid_import_p': grid_p if grid_p > 0 else 0,
             'grid_export_p': -grid_p if grid_p < 0 else 0,
+            'battery_min_cap': self._number(source.get(RAW_KEYS['battery_min_cap'], 0)),
             'battery_soc': self._number(source.get(RAW_KEYS['battery_soc'], 0))
         }
         values['home_p'] = values['PV_p'] + battery_p + grid_p

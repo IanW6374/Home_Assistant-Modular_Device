@@ -40,7 +40,8 @@ class WhesTests(unittest.TestCase):
                 '2': {'class': 'power', 'key': 'PPV2', 'value': 500},
                 '3': {'class': 'power', 'key': 'BatPower_BMS', 'value': -300},
                 '4': {'class': 'power', 'key': 'Power_Meter', 'value': -200},
-                '5': {'class': 'battery', 'key': 'BatSOC', 'value': 64}
+                '5': {'class': 'battery', 'key': 'BatSOC', 'value': 64},
+                '6': {'class': 'battery', 'key': 'battery_min_cap', 'value': 20.5}
             }
         }
         driver = whes.WHESDriver(device, {})
@@ -60,6 +61,7 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(payload['grid_p'], -200)
         self.assertEqual(payload['home_p'], 1600)
         self.assertEqual(payload['battery_soc'], 64)
+        self.assertEqual(payload['battery_min_cap'], 20.5)
         self.assertNotIn('battery_charge_p', payload)
         self.assertNotIn('battery_discharge_p', payload)
         self.assertNotIn('grid_import_p', payload)
@@ -112,10 +114,10 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(discovery[0]['entity_category'], 'diagnostic')
         for index in discovery:
             self.assertTrue(discovery[index]['name'].startswith('INV123456 '))
-        self.assertEqual(discovery[10]['name'], 'INV123456 grid_import_e')
-        self.assertEqual(discovery[10]['uniq_id'], 'abc0001_10')
-        self.assertEqual(discovery[11]['name'], 'INV123456 grid_export_e')
+        self.assertEqual(discovery[11]['name'], 'INV123456 grid_import_e')
         self.assertEqual(discovery[11]['uniq_id'], 'abc0001_11')
+        self.assertEqual(discovery[12]['name'], 'INV123456 grid_export_e')
+        self.assertEqual(discovery[12]['uniq_id'], 'abc0001_12')
         payload = driver.get_state_payload()
         self.assertEqual(payload['serial_number'], 'INV123456')
         self.assertNotIn('portal_url', payload)
