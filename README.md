@@ -151,7 +151,7 @@ entity names instead of `WHES`.
 | `BatPower_BMS` | `36153` | `int32` | Signed battery power |
 | `Power_Meter` | `36131` | `int32` | Signed grid meter power |
 | `BatSOC` | `36155` | `uint16` | Battery state of charge |
-| `battery_min_cap` | `60009` | `uint16`, scale `0.01` | Minimum battery capacity |
+| `battery_min_cap` | `60009` | `uint16` | Minimum battery capacity |
 
 The configured RS485 parameters are 115200 baud, 8 data bits, no parity, 1 stop
 bit, slave address `1`, and Modbus function `4`.
@@ -179,7 +179,7 @@ configuration URL.
 | `grid_p` | W | Raw `Power_Meter` |
 | `home_p` | W | `PV_p + battery_p + grid_p` |
 | `battery_soc` | % | Raw `BatSOC` |
-| `battery_min_cap` | % | Raw `battery_min_cap` scaled by `0.01` |
+| `battery_min_cap` | % | Raw `battery_min_cap` |
 
 Sign conventions:
 
@@ -271,8 +271,7 @@ function `0x10`/`16` for multiple registers. The WHES inverter accepts function
   "function": "x10",
   "address": 60009,
   "values": [20],
-  "data_type": "uint16",
-  "scale": 0.01
+  "data_type": "uint16"
 }
 ```
 

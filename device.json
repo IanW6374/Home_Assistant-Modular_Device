@@ -119,7 +119,6 @@
                     "address": 60009,
                     "count": 1,
                     "data_type": "uint16",
-                    "scale": 0.01,
                     "pollinterval": 60
                 }
             }
