@@ -1,7 +1,7 @@
 """Pico 2-channel RS485 sensor module.
 
 Polls multiple Modbus RTU memory/register addresses over one or more Pico UARTs
-and publishes readings to MQTT. Also accepts ad-hoc read requests via the
+and publishes readings to MQTT. Also accepts ad-hoc read/write requests via the
 device's MQTT ``/set`` topic and publishes replies to ``/response``.
 """
 
@@ -168,11 +168,12 @@ class Pico2CHRS485Driver(DeviceDriver):
         return payload
 
     def set(self, payload):
-        """Queue an ad-hoc read request from MQTT.
+        """Queue an ad-hoc read/write request from MQTT.
 
-        Payload example:
+        Read payload example:
         {
             "request_id": "optional-correlation-id",
+            "operation": "read",
             "port": "ch0",
             "slave": 1,
             "address": 36155,
@@ -181,9 +182,21 @@ class Pico2CHRS485Driver(DeviceDriver):
             "data_type": "uint16",
             "scale": 0.1
         }
+
+        Write payload example:
+        {
+            "request_id": "optional-correlation-id",
+            "operation": "write",
+            "port": "ch0",
+            "slave": 1,
+            "address": 60009,
+            "value": 20,
+            "data_type": "uint16",
+            "scale": 0.01
+        }
         """
         if self._publish_callable and self._deviceid:
-            asyncio.create_task(self._read_and_publish(payload))
+            asyncio.create_task(self._request_and_publish(payload))
         else:
             self._pending.append(payload)
         return {'defer_publish': True}
@@ -253,7 +266,7 @@ class Pico2CHRS485Driver(DeviceDriver):
     async def _handle_pending(self):
         while self._pending:
             request = self._pending.pop(0)
-            await self._read_and_publish(request)
+            await self._request_and_publish(request)
             await asyncio.sleep(0)
 
     def _poll_entities(self):
@@ -269,7 +282,13 @@ class Pico2CHRS485Driver(DeviceDriver):
         return entity.get('pollinterval', self.device.get('pollinterval', DEFAULT_POLL_INTERVAL))
 
     async def _read_and_publish(self, request):
-        response = await self._read_request(request)
+        await self._request_and_publish(request)
+
+    async def _request_and_publish(self, request):
+        if self._is_write_request(request):
+            response = await self._write_request(request)
+        else:
+            response = await self._read_request(request)
         self._publish_response(response)
 
     async def _read_entity(self, entity):
@@ -304,6 +323,7 @@ class Pico2CHRS485Driver(DeviceDriver):
     async def _read_request(self, request):
         response = {
             'ok': False,
+            'operation': 'read',
             'request_id': request.get('request_id'),
             'port': request.get('port', DEFAULT_PORT),
             'slave': request.get('slave', self.device.get('slave', 1)),
@@ -320,10 +340,10 @@ class Pico2CHRS485Driver(DeviceDriver):
             try:
                 raw = await self._modbus_read(
                     response['port'],
-                    int(response['slave']),
-                    int(response['function']),
-                    int(response['address']),
-                    int(response['count'])
+                    self._as_int(response['slave']),
+                    self._as_int(response['function']),
+                    self._as_int(response['address']),
+                    self._as_int(response['count'])
                 )
             finally:
                 self._release_bus()
@@ -350,6 +370,80 @@ class Pico2CHRS485Driver(DeviceDriver):
                 response['raw'] = ''
 
         return response
+
+    async def _write_request(self, request):
+        response = {
+            'ok': False,
+            'operation': 'write',
+            'request_id': request.get('request_id'),
+            'port': request.get('port', DEFAULT_PORT),
+            'slave': request.get('slave', self.device.get('slave', 1)),
+            'address': request.get('address', request.get('memory_address')),
+            'function': request.get('function', request.get('function_code'))
+        }
+
+        try:
+            if response['address'] is None:
+                raise ValueError('missing address')
+            if 'value' not in request and 'values' not in request:
+                raise ValueError('missing value')
+
+            values = request.get('values')
+            if values is None:
+                values = [request.get('value')]
+            elif not isinstance(values, (list, tuple)):
+                values = [values]
+
+            raw = self._encode_registers(
+                values,
+                request.get('data_type', request.get('type', 'uint16')),
+                request.get('scale', 1),
+                request.get('offset', 0),
+                request.get('byte_order', 'big'),
+                request.get('word_order', 'big')
+            )
+            count = len(raw) // 2
+            function = response['function']
+            if function is None:
+                function = 6 if count == 1 else 16
+            response['function'] = self._as_int(function)
+            response['count'] = count
+
+            await self._acquire_bus()
+            try:
+                await self._modbus_write(
+                    response['port'],
+                    self._as_int(response['slave']),
+                    response['function'],
+                    self._as_int(response['address']),
+                    raw
+                )
+            finally:
+                self._release_bus()
+
+            response.update({
+                'ok': True,
+                'value': request.get('values', request.get('value')),
+                'raw': self._hex(raw)
+            })
+        except Exception as exc:
+            response['error'] = str(exc)
+
+        return response
+
+    def _is_write_request(self, request):
+        operation = request.get('operation', request.get('action', request.get('mode')))
+        if operation is None:
+            return 'value' in request or 'values' in request
+        return str(operation).lower() in ('write', 'set')
+
+    def _as_int(self, value):
+        if isinstance(value, str):
+            value = value.strip().lower()
+            if value.startswith('x'):
+                value = '0' + value
+            return int(value, 0)
+        return int(value)
 
     async def _acquire_bus(self):
         while self._bus_busy:
@@ -399,6 +493,69 @@ class Pico2CHRS485Driver(DeviceDriver):
             raise ValueError('unexpected byte count')
 
         return reply[3:3 + reply[2]]
+
+    async def _modbus_write(self, port_name, slave, function, address, raw):
+        port = self.devchar['ports'].get(port_name)
+        if not port:
+            raise ValueError('unknown port ' + str(port_name))
+        if len(raw) % 2:
+            raise ValueError('write data must contain whole registers')
+
+        count = len(raw) // 2
+        if function == 6:
+            if count != 1:
+                raise ValueError('function 6 writes exactly one register')
+            request = bytes([
+                slave & 0xff,
+                function & 0xff,
+                (address >> 8) & 0xff,
+                address & 0xff
+            ]) + raw
+            expected = 8
+        elif function == 16:
+            request = bytes([
+                slave & 0xff,
+                function & 0xff,
+                (address >> 8) & 0xff,
+                address & 0xff,
+                (count >> 8) & 0xff,
+                count & 0xff,
+                len(raw) & 0xff
+            ]) + raw
+            expected = 8
+        else:
+            raise ValueError('unsupported write function ' + str(function))
+
+        request += self._crc_bytes(request)
+
+        uart = port['uart']
+        self._drain(uart)
+        self._set_tx(port, True)
+        uart.write(request)
+        if hasattr(uart, 'flush'):
+            uart.flush()
+        await asyncio.sleep_ms(port.get('turnaround_ms', 5))
+        self._set_tx(port, False)
+
+        reply = await self._read_exact(uart, expected, port.get('timeout_ms', DEFAULT_TIMEOUT_MS))
+        if len(reply) < expected:
+            raise ValueError('timeout')
+        if self._crc(reply[:-2]) != (reply[-2] | (reply[-1] << 8)):
+            raise ValueError('crc mismatch')
+        if reply[0] != slave:
+            raise ValueError('unexpected slave')
+        if reply[1] == (function | 0x80):
+            raise ValueError('modbus exception ' + str(reply[2]))
+        if reply[1] != function:
+            raise ValueError('unexpected function')
+
+        if function == 6:
+            if reply[2:6] != request[2:6]:
+                raise ValueError('unexpected write echo')
+        elif reply[2] != ((address >> 8) & 0xff) or reply[3] != (address & 0xff):
+            raise ValueError('unexpected write address')
+        elif reply[4] != ((count >> 8) & 0xff) or reply[5] != (count & 0xff):
+            raise ValueError('unexpected write count')
 
     async def _read_exact(self, uart, size, timeout_ms):
         deadline = time.ticks_add(time.ticks_ms(), timeout_ms)
@@ -460,6 +617,47 @@ class Pico2CHRS485Driver(DeviceDriver):
             return unpack('>f', raw)[0]
 
         return (raw[0] << 8) | raw[1]
+
+    def _encode_registers(self, values, data_type, scale, offset, byte_order, word_order):
+        raw = b''
+        for value in values:
+            raw += self._encode_value(value, data_type, scale, offset)
+
+        if len(raw) == 4 and word_order == 'little':
+            raw = raw[2:4] + raw[0:2]
+
+        if byte_order == 'little':
+            words = []
+            for i in range(0, len(raw), 2):
+                words.append(bytes([raw[i + 1], raw[i]]))
+            raw = b''.join(words)
+
+        return raw
+
+    def _encode_value(self, value, data_type, scale, offset):
+        if data_type == 'ascii':
+            raise ValueError('ascii writes are not supported')
+
+        scale = scale or 1
+        value = int(round((float(value) - offset) / scale))
+
+        if data_type == 'int16':
+            if value < 0:
+                value += 65536
+            return bytes([(value >> 8) & 0xff, value & 0xff])
+        if data_type == 'uint32' or data_type == 'int32':
+            if value < 0:
+                value += 4294967296
+            return bytes([
+                (value >> 24) & 0xff,
+                (value >> 16) & 0xff,
+                (value >> 8) & 0xff,
+                value & 0xff
+            ])
+        if data_type == 'float32':
+            raise ValueError('float32 writes are not supported')
+
+        return bytes([(value >> 8) & 0xff, value & 0xff])
 
     def _crc_bytes(self, payload):
         crc = self._crc(payload)

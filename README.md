@@ -241,6 +241,44 @@ The generic RS485 ad-hoc response topic is:
 homeassistant/sensor/<deviceid><uuid>/response
 ```
 
+RS485 modules accept ad-hoc Modbus read and write requests on the `/set` topic.
+Read requests remain backwards-compatible, so `operation` is optional when no
+`value` or `values` field is present:
+
+```json
+{
+  "request_id": "read-battery-soc",
+  "operation": "read",
+  "port": "ch0",
+  "slave": 1,
+  "function": 4,
+  "address": 36155,
+  "count": 1,
+  "data_type": "uint16"
+}
+```
+
+Write requests use Modbus function `6` for a single register by default, or
+function `0x10`/`16` for multiple registers. The WHES inverter accepts function
+`x10`, and payloads may use `16`, `"16"`, `"0x10"`, or `"x10"`:
+
+```json
+{
+  "request_id": "set-min-battery",
+  "operation": "write",
+  "port": "ch0",
+  "slave": 1,
+  "function": "x10",
+  "address": 60009,
+  "values": [20],
+  "data_type": "uint16",
+  "scale": 0.01
+}
+```
+
+Responses are published to `/response` with `ok`, `operation`, the request
+metadata, and either `value`/`raw` or `error`.
+
 For the current WHES device UUID, `<uuid>` is `0001`.
 
 ## Running on the Pico

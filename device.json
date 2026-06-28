@@ -115,7 +115,7 @@
                     "value": 0,
                     "port": "ch0",
                     "slave": 1,
-                    "function": 4,
+                    "function": 3,
                     "address": 60009,
                     "count": 1,
                     "data_type": "uint16",
