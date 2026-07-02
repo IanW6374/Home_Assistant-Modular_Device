@@ -569,7 +569,9 @@ deviceTypes = get_device_types()
 
 config['client_id'] = deviceid
 config['ssl_params'] = {'server_side':False, 'key':None, 'cert':None, 'cadata':cacert, 'cert_reqs':ssl.CERT_REQUIRED, 'server_hostname': config['server']}
-config["queue_len"] = 1  # Use event interface with default queue size
+# mqtt_as MsgQueue keeps one slot empty to distinguish full from empty, so a
+# queue_len of 1 has no usable capacity and subscribed messages are discarded.
+config["queue_len"] = 8
 
 MQTTClient.DEBUG = mqtt_debug
 
