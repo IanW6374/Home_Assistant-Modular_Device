@@ -462,6 +462,8 @@ async def handle_mqtt_message(topic, payload, retained):
 
 
 async def messages(client):  # Respond to incoming messages
+    logOutput('MQTT', 'Listener', {'log': 'Started subscribed message listener'}, 'INFO')
+
     async for topic, payload, retained in client.queue:
         try:
             await handle_mqtt_message(topic, payload, retained)
@@ -611,6 +613,31 @@ def mqtt_debug_output(msg, *args):
 
 
 client.dprint = mqtt_debug_output
+
+
+def trace_mqtt_queue_put(topic, payload, retained):
+    try:
+        msg_topic = decode_mqtt_value(topic)
+        msg_payload = decode_mqtt_value(payload)
+        logOutput(
+            'MQTT',
+            'Queue',
+            {
+                'payload': msg_payload,
+                'topic': msg_topic,
+                'log': 'Topic: ' + msg_topic
+            },
+            'INFO'
+        )
+    except Exception as exc:
+        logOutput('MQTT', 'Queue', {'log': 'Trace error: ' + str(exc)}, 'ERROR')
+
+    mqtt_queue_put(topic, payload, retained)
+
+
+mqtt_queue_put = client.queue.put
+client.queue.put = trace_mqtt_queue_put
+
 
 # Helper for drivers to publish via main publish_message
 def publish_wrapper(data, qosValue, logOnly):
