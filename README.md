@@ -260,7 +260,9 @@ Read requests remain backwards-compatible, so `operation` is optional when no
 
 Write requests use Modbus function `6` for a single register by default, or
 function `0x10`/`16` for multiple registers. The WHES inverter accepts function
-`x10`, and payloads may use `16`, `"16"`, `"0x10"`, or `"x10"`:
+`x10`, and payloads may use `16`, `"16"`, `"0x10"`, or `"x10"`. Use `value`
+for a single scalar write, or `values` with an array when using function `16`
+style writes:
 
 ```json
 {

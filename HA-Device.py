@@ -416,51 +416,75 @@ def device_config(devicetype, uuid, command, payload):
 
 
 
+def decode_mqtt_value(value):
+    if hasattr(value, 'decode'):
+        return value.decode('utf-8')
+    return str(value)
+
+
+async def handle_mqtt_message(topic, payload, retained):
+    msg_topic = decode_mqtt_value(topic)
+    msg_payload_text = decode_mqtt_value(payload)
+
+    if msg_topic == 'homeassistant/status':
+        data = {
+            'payload': msg_payload_text,
+            'topic': msg_topic,
+            'log': 'HA Status: ' + msg_payload_text
+            }
+
+        if msg_payload_text == 'online':
+            asyncio.create_task(homeassistant_discovery())
+
+        logOutput ('MQTT', 'Received', data, 'INFO')
+        return
+
+    msg_payload = json.loads(msg_payload_text)
+
+    data = {
+            'payload': msg_payload,
+            'topic': msg_topic,
+            'log': msg_topic
+        }
+
+    logOutput ('MQTT', 'Received', data, 'INFO')
+
+    msg_parts = msg_topic.split('/', 3)
+    if len(msg_parts) != 4:
+        return
+
+    msg_topic_1, msg_topic_2, msg_topic_3, msg_topic_4 = msg_parts
+
+    if msg_topic_1 == 'homeassistant':
+        data = device_config(msg_topic_2, msg_topic_3[len(deviceid):len(msg_topic_3)], msg_topic_4, msg_payload)
+        if data:
+            asyncio.create_task(publish_message(data, 0, False))
+
+
 async def messages(client):  # Respond to incoming messages
     async for topic, payload, retained in client.queue:
-        msg_topic = topic.decode('utf-8')
-        
-        if msg_topic == 'homeassistant/status':
-            
-            msg_payload = payload.decode('utf-8')
-            
-            data = {
-                'payload': msg_payload,
-                'topic': msg_topic,
-                'log': 'HA Status: ' + msg_payload
-                }
+        try:
+            await handle_mqtt_message(topic, payload, retained)
+        except Exception as exc:
+            try:
+                msg_topic = decode_mqtt_value(topic)
+                msg_payload = decode_mqtt_value(payload)
+            except Exception:
+                msg_topic = '<decode failed>'
+                msg_payload = '<decode failed>'
 
-            if msg_payload == 'online':
-
-                asyncio.create_task(homeassistant_discovery())
-            
-            logOutput ('MQTT', 'Received', data, 'INFO')                
-            
-        else:
-            
-            msg_payload = json.loads(payload.decode('utf-8'))
- 
-            data = {
+            logOutput(
+                'MQTT',
+                'Received',
+                {
                     'payload': msg_payload,
                     'topic': msg_topic,
-                    'log': msg_topic
-                }
-    
-            logOutput ('MQTT', 'Received', data, 'INFO')
-    
-            msg_parts = msg_topic.split('/', 3)
-            if len(msg_parts) != 4:
-                continue
+                    'log': 'Message handling error on topic ' + msg_topic + ' - ' + str(exc)
+                },
+                'ERROR'
+            )
 
-            msg_topic_1, msg_topic_2, msg_topic_3, msg_topic_4 = msg_parts
-
-            if msg_topic_1 == 'homeassistant':
-            
-                data = device_config(msg_topic_2, msg_topic_3[len(deviceid):len(msg_topic_3)], msg_topic_4, msg_payload)
-                if data:
-                    asyncio.create_task(publish_message(data, 0, False))
-                
-    await asyncio.sleep(0)
+        await asyncio.sleep(0)
 
 
 
