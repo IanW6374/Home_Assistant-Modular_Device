@@ -1,6 +1,18 @@
 REQUIRED_DEVICE_FIELDS = ('name', 'uuid', 'type')
 REQUIRED_TYPE_FIELDS = ('class', 'subclass')
 RS485_DATA_TYPES = ('ascii', 'float32', 'int16', 'int32', 'uint16', 'uint32')
+SENSOR_CLASSES = {
+    'battery',
+    'current',
+    'energy',
+    'frequency',
+    'memory_value',
+    'power',
+    'power_factor',
+    'reactive_power',
+    'temperature',
+    'voltage'
+}
 
 
 def validate_device_config(device_config, device_types):
@@ -87,7 +99,7 @@ def _validate_sensor_entities(device, type_entry, label):
         entity_class = entity.get('class')
         if not entity_class:
             errors.append(entity_label + ': missing class')
-        elif supported is not None and entity_class not in supported:
+        elif supported is not None and entity_class not in supported and entity_class not in SENSOR_CLASSES:
             errors.append(entity_label + ': unsupported class ' + str(entity_class))
 
         key = entity.get('key', entity_class)

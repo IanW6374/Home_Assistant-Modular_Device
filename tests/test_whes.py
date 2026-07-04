@@ -122,6 +122,34 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(payload['serial_number'], 'INV123456')
         self.assertNotIn('portal_url', payload)
 
+    def test_device_information_and_running_data_entities_are_exposed(self):
+        whes = load_whes_module()
+        device = {
+            'name': 'WHES',
+            'uuid': '0001',
+            'type': {'class': 'sensor', 'subclass': 'WHES'},
+            'entities': {
+                '0': {'class': 'memory_value', 'key': 'SerialNumber_INV', 'value': 'INV123456'},
+                '1': {'class': 'memory_value', 'key': 'RunMode', 'value': 1},
+                '2': {'class': 'temperature', 'key': 'INVSink_Temp', 'value': 41.2}
+            }
+        }
+        driver = whes.WHESDriver(device, {})
+
+        discovery, payload = driver.get_discovery_payloads('abc', 'WHES Device')
+
+        self.assertEqual(payload['serial_number'], 'INV123456')
+        self.assertEqual(payload['RunMode'], 1)
+        self.assertEqual(payload['INVSink_Temp'], 41.2)
+
+        run_mode_index = whes.PRESENTATION_ENTITY_INDEXES['RunMode']
+        temp_index = whes.PRESENTATION_ENTITY_INDEXES['INVSink_Temp']
+        self.assertEqual(discovery[run_mode_index]['entity_category'], 'diagnostic')
+        self.assertEqual(discovery[temp_index]['device_class'], 'temperature')
+        self.assertEqual(discovery[temp_index]['unit_of_measurement'], '°C')
+        self.assertNotIn('Vpv1', whes.PRESENTATION_ENTITY_INDEXES)
+        self.assertNotIn('ETotal_Pv', whes.PRESENTATION_ENTITY_INDEXES)
+
     def test_prepare_discovery_reads_serial_number(self):
         whes = load_whes_module()
         device = {

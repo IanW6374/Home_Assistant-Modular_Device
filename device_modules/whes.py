@@ -24,8 +24,10 @@ DEVICE_TYPE = {
         'WHES': {
             'entities': {
                 'battery',
+                'energy',
                 'memory_value',
-                'power'
+                'power',
+                'temperature'
             }
         }
     },
@@ -36,26 +38,45 @@ DEVICE_TYPE = {
 
 
 PRESENTATION_ENTITIES = (
-    ('serial_number', None, '', None),
-    ('PV_p', 'power', 'W', 'measurement'),
-    ('battery_p', 'power', 'W', 'measurement'),
-    ('grid_p', 'power', 'W', 'measurement'),
-    ('home_p', 'power', 'W', 'measurement'),
-    ('battery_soc', 'battery', '%', 'measurement'),
-    ('battery_min_cap', 'battery', '%', 'measurement'),
-    ('pv_e', 'energy', 'kWh', 'total_increasing'),
-    ('home_e', 'energy', 'kWh', 'total_increasing'),
-    ('battery_charge_e', 'energy', 'kWh', 'total_increasing'),
-    ('battery_discharge_e', 'energy', 'kWh', 'total_increasing'),
-    ('grid_import_e', 'energy', 'kWh', 'total_increasing'),
-    ('grid_export_e', 'energy', 'kWh', 'total_increasing')
+    ('serial_number', None, '', None, 'diagnostic'),
+    ('PV_p', 'power', 'W', 'measurement', None),
+    ('battery_p', 'power', 'W', 'measurement', None),
+    ('grid_p', 'power', 'W', 'measurement', None),
+    ('home_p', 'power', 'W', 'measurement', None),
+    ('battery_soc', 'battery', '%', 'measurement', None),
+    ('battery_min_cap', 'battery', '%', 'measurement', None),
+    ('pv_e', 'energy', 'kWh', 'total_increasing', None),
+    ('home_e', 'energy', 'kWh', 'total_increasing', None),
+    ('battery_charge_e', 'energy', 'kWh', 'total_increasing', None),
+    ('battery_discharge_e', 'energy', 'kWh', 'total_increasing', None),
+    ('grid_import_e', 'energy', 'kWh', 'total_increasing', None),
+    ('grid_export_e', 'energy', 'kWh', 'total_increasing', None),
+    ('DeviceType', None, '', None, 'diagnostic'),
+    ('Manufacturer', None, '', None, 'diagnostic'),
+    ('SerialNumber_INV', None, '', None, 'diagnostic'),
+    ('DSP1_ver', None, '', None, 'diagnostic'),
+    ('DSP2_ver', None, '', None, 'diagnostic'),
+    ('EMS_ver', None, '', None, 'diagnostic'),
+    ('BMS_ver', None, '', None, 'diagnostic'),
+    ('Harare_Version', None, '', None, 'diagnostic'),
+    ('RatedPower', 'power', 'W', 'measurement', 'diagnostic'),
+    ('RunMode', None, '', None, 'diagnostic'),
+    ('BmsStatus', None, '', None, 'diagnostic'),
+    ('ErrCode_DSP', None, '', None, 'diagnostic'),
+    ('ErrCode_BAT', None, '', None, 'diagnostic'),
+    ('ErrCode_EMS', None, '', None, 'diagnostic'),
+    ('INVSink_Temp', 'temperature', '°C', 'measurement', None),
+    ('BatSink_Temp', 'temperature', '°C', 'measurement', None),
+    ('SlaveError', None, '', None, 'diagnostic'),
+    ('PowerLimitByBMSChg', 'power', 'W', 'measurement', 'diagnostic'),
+    ('PowerLimitByBMSDisChg', 'power', 'W', 'measurement', 'diagnostic')
 )
 
 
 PRESENTATION_KEYS = tuple(entity[0] for entity in PRESENTATION_ENTITIES)
 
 PRESENTATION_ENTITY_INDEXES = {
-    key: index for index, (key, _, _, _) in enumerate(PRESENTATION_ENTITIES)
+    key: index for index, (key, _, _, _, _) in enumerate(PRESENTATION_ENTITIES)
 }
 
 ENERGY_SOURCES = (
@@ -73,9 +94,10 @@ RAW_KEYS = {
     'battery_min_cap': 'battery_min_cap',
     'battery_soc': 'BatSOC',
     'grid_p': 'Power_Meter',
-    'ppv1': 'PPV1',
-    'ppv2': 'PPV2',
-    'serial_number': 'SerialNumber'
+    'home_p': 'dwPower_HomeLoad',
+    'ppv1': 'Ppv1',
+    'ppv2': 'Ppv2',
+    'serial_number': 'SerialNumber_INV'
 }
 
 
@@ -124,7 +146,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
         payload_entities = self.get_state_payload()
 
         for entity in PRESENTATION_ENTITIES:
-            key, entity_class, unit, state_class = entity
+            key, entity_class, unit, state_class, entity_category = entity
             index = PRESENTATION_ENTITY_INDEXES[key]
             discovery_entity = {}
             if entity_class:
@@ -133,8 +155,8 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
                 discovery_entity['unit'] = unit
             if state_class:
                 discovery_entity['state_class'] = state_class
-            if key == 'serial_number':
-                discovery_entity['entity_category'] = 'diagnostic'
+            if entity_category:
+                discovery_entity['entity_category'] = entity_category
 
             payload_discovery[index] = sensor_discovery_payload(
                 self._ha_named_device(),
@@ -200,7 +222,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
 
     def _inverter_serial_number(self):
         source = self._source_values()
-        serial_number = source.get(RAW_KEYS['serial_number'], '')
+        serial_number = source.get(RAW_KEYS['serial_number'], source.get('SerialNumber', ''))
         if serial_number:
             return str(serial_number).strip()
 
@@ -209,7 +231,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
     def _serial_entity(self):
         for e in self.device['entities']:
             entity = self.device['entities'][str(e)]
-            if entity.get('key') == RAW_KEYS['serial_number']:
+            if entity.get('key') in (RAW_KEYS['serial_number'], 'SerialNumber'):
                 return entity
         return None
 
@@ -218,12 +240,13 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
 
     def _calculated_values(self):
         source = self._source_values()
-        ppv1 = self._number(source.get(RAW_KEYS['ppv1'], source.get('Ppv1', 0)))
-        ppv2 = self._number(source.get(RAW_KEYS['ppv2'], source.get('Ppv2', 0)))
+        ppv1 = self._number(source.get(RAW_KEYS['ppv1'], source.get('PPV1', 0)))
+        ppv2 = self._number(source.get(RAW_KEYS['ppv2'], source.get('PPV2', 0)))
         battery_p = self._number(source.get(RAW_KEYS['battery_p'], 0)) * -1
         grid_p = self._number(source.get(RAW_KEYS['grid_p'], 0))
 
-        values = {
+        values = source.copy()
+        values.update({
             'serial_number': self._inverter_serial_number() or '',
             'PV_p': ppv1 + ppv2,
             'battery_p': battery_p,
@@ -234,8 +257,11 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
             'grid_export_p': -grid_p if grid_p < 0 else 0,
             'battery_min_cap': self._number(source.get(RAW_KEYS['battery_min_cap'], 0)),
             'battery_soc': self._number(source.get(RAW_KEYS['battery_soc'], 0))
-        }
-        values['home_p'] = values['PV_p'] + battery_p + grid_p
+        })
+        values['home_p'] = self._number(source.get(
+            RAW_KEYS['home_p'],
+            values['PV_p'] + battery_p + grid_p
+        ))
         return values
 
     def _add_energy_values(self, values):
