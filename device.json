@@ -118,7 +118,7 @@
                 },
                 "7": {
                     "class": "memory_value",
-                    "key": "Harare_Version",
+                    "key": "Hardware_Version",
                     "value": "",
                     "port": "ch0",
                     "slave": 1,

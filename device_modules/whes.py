@@ -58,7 +58,7 @@ PRESENTATION_ENTITIES = (
     ('DSP2_ver', None, '', None, 'diagnostic'),
     ('EMS_ver', None, '', None, 'diagnostic'),
     ('BMS_ver', None, '', None, 'diagnostic'),
-    ('Harare_Version', None, '', None, 'diagnostic'),
+    ('Hardware_Version', None, '', None, 'diagnostic'),
     ('RatedPower', 'power', 'W', 'measurement', 'diagnostic'),
     ('RunMode', None, '', None, 'diagnostic'),
     ('BmsStatus', None, '', None, 'diagnostic'),
