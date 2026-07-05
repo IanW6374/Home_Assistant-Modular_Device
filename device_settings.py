@@ -16,7 +16,7 @@ ha_device_info = {
     "hw": "1.0"
 }
 
-mqtt_debug = False # Set to True to print MQTT messages to the console e.g. WiFi connection status, MQTT connection status, MQTT messages received etc.
+loglevel = 'DEBUG' # ERROR, INFO, or DEBUG. DEBUG includes MQTT topic/payload details and mqtt_as client debug messages.
 
 web_portal_enabled = True
 web_portal_https = False

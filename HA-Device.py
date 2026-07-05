@@ -61,8 +61,9 @@ ha_devicename = device_settings.ha_devicename
 ntp_servers = getattr(device_settings, 'ntp_servers', ('pool.ntp.org',))
 
 loglevels = ['ERROR', 'INFO', 'DEBUG']
-loglevel = 'INFO'
-mqtt_debug = getattr(device_settings, 'mqtt_debug', True)
+loglevel = getattr(device_settings, 'loglevel', 'INFO')
+if loglevel not in loglevels:
+    loglevel = 'INFO'
 watchdog_timeout_ms = getattr(device_settings, 'watchdog_timeout_ms', 0)
 watchdog_max_timeout_ms = 8000
 watchdog = None
@@ -205,6 +206,7 @@ def set_loglevel(level):
     global loglevel
     if level in loglevels:
         loglevel = level
+        MQTTClient.DEBUG = loglevel == 'DEBUG'
 
 
 set_log_output(logOutput)
@@ -599,7 +601,7 @@ config['ssl_params'] = {'server_side':False, 'key':None, 'cert':None, 'cadata':c
 # queue_len of 1 has no usable capacity and subscribed messages are discarded.
 config["queue_len"] = 8
 
-MQTTClient.DEBUG = mqtt_debug
+MQTTClient.DEBUG = loglevel == 'DEBUG'
 
 client = MQTTClient(config)
 
