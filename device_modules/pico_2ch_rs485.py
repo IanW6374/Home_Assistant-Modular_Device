@@ -13,11 +13,13 @@ except ImportError:
 from machine import UART, Pin
 try:
     from .base import DeviceDriver
+    from .base import ha_safe_id
     from .base import ha_response_topic
     from .base import sensor_discovery_payload
     from .logging import log_output
 except ImportError:
     from base import DeviceDriver
+    from base import ha_safe_id
     from base import ha_response_topic
     from base import sensor_discovery_payload
     from logging import log_output
@@ -46,6 +48,7 @@ DEVICE_TYPE = {
 DEFAULT_PORT = 'ch0'
 DEFAULT_TIMEOUT_MS = 500
 DEFAULT_POLL_INTERVAL = 60
+DEFAULT_MAX_GROUP_REGISTERS = 32
 
 
 def _timestamp():
@@ -137,6 +140,13 @@ class Pico2CHRS485Driver(DeviceDriver):
         self._running = False
         self._bus_busy = False
         self._log_callable = None
+        self._last_request = {
+            'ok': None,
+            'operation': '',
+            'address': '',
+            'error': '',
+            'latency_ms': 0
+        }
 
     def get_discovery_payloads(self, deviceid, ha_devicename):
         payload_discovery = {}
@@ -147,7 +157,11 @@ class Pico2CHRS485Driver(DeviceDriver):
             entity = self.device['entities'][str(e)]
             key = entity.get('key', entity['class'])
 
-            payload_discovery[i] = sensor_discovery_payload(
+            discovery_id = ha_safe_id(key)
+            entity = entity.copy()
+            entity['ha_id'] = key
+
+            payload_discovery[discovery_id] = sensor_discovery_payload(
                 self.device,
                 entity,
                 key,
@@ -221,6 +235,8 @@ class Pico2CHRS485Driver(DeviceDriver):
                     now = time.ticks_ms()
                     next_delay = None
 
+                    due_entities = []
+
                     for entity in entities:
                         pollinterval = self._entity_pollinterval(entity)
                         due = first_poll or (
@@ -229,14 +245,20 @@ class Pico2CHRS485Driver(DeviceDriver):
                         )
 
                         if due:
-                            value = await self._read_entity(entity)
-                            if value is not None:
-                                entity['value'] = value
-                                changed = True
+                            due_entities.append(entity)
 
                             if pollinterval > 0:
                                 entity['_next_poll'] = time.ticks_add(time.ticks_ms(), int(pollinterval * 1000))
 
+                    for group in self._poll_groups(due_entities):
+                        results = await self._read_entity_group(group)
+                        for entity, value in results:
+                            if value is not None:
+                                entity['value'] = value
+                                changed = True
+
+                    for entity in entities:
+                        pollinterval = self._entity_pollinterval(entity)
                         if pollinterval > 0:
                             delay = max(0, time.ticks_diff(entity.get('_next_poll', now), time.ticks_ms()))
                             if next_delay is None or delay < next_delay:
@@ -293,18 +315,7 @@ class Pico2CHRS485Driver(DeviceDriver):
 
     async def _read_entity(self, entity):
         key = entity.get('key', entity['class'])
-        request = {
-            'port': entity.get('port', DEFAULT_PORT),
-            'slave': entity.get('slave', self.device.get('slave', 1)),
-            'address': entity.get('address', entity.get('memory_address')),
-            'count': entity.get('count', 1),
-            'function': entity.get('function', entity.get('function_code', 3)),
-            'data_type': entity.get('data_type', entity.get('type', 'uint16')),
-            'scale': entity.get('scale', 1),
-            'offset': entity.get('offset', 0),
-            'byte_order': entity.get('byte_order', 'big'),
-            'word_order': entity.get('word_order', 'big')
-        }
+        request = self._entity_request(entity)
         response = await self._read_request(request)
         if response.get('ok'):
             return response['value']
@@ -319,6 +330,76 @@ class Pico2CHRS485Driver(DeviceDriver):
         if response.get('error') == 'timeout':
             return 0
         return None
+
+    async def _read_entity_group(self, entities):
+        if len(entities) == 1:
+            value = await self._read_entity(entities[0])
+            return [(entities[0], value)]
+
+        first = self._entity_request(entities[0])
+        start_address = self._as_int(first['address'])
+        end_address = start_address
+        keys = []
+
+        for entity in entities:
+            request = self._entity_request(entity)
+            address = self._as_int(request['address'])
+            count = self._as_int(request['count'])
+            end_address = max(end_address, address + count)
+            keys.append(entity.get('key', entity['class']))
+
+        response = {
+            'ok': False,
+            'operation': 'read',
+            'request_id': None,
+            'port': first['port'],
+            'slave': first['slave'],
+            'address': start_address,
+            'count': end_address - start_address,
+            'function': first['function']
+        }
+        start_ms = self._ticks_ms()
+
+        try:
+            await self._acquire_bus()
+            try:
+                raw = await self._modbus_read(
+                    response['port'],
+                    self._as_int(response['slave']),
+                    self._as_int(response['function']),
+                    response['address'],
+                    response['count']
+                )
+            finally:
+                self._release_bus()
+
+            results = []
+            for entity in entities:
+                request = self._entity_request(entity)
+                offset = (self._as_int(request['address']) - start_address) * 2
+                size = self._as_int(request['count']) * 2
+                value = self._decode_entity_value(raw[offset:offset + size], request)
+                results.append((entity, value))
+
+            response.update({'ok': True, 'raw': self._hex(raw)})
+            return results
+        except Exception as exc:
+            error = str(exc)
+            response['error'] = error
+            self._log(
+                'Read failed group ' + ','.join(str(key) for key in keys) +
+                ' port ' + str(response['port']) +
+                ' slave ' + str(response['slave']) +
+                ' address ' + str(response['address']) +
+                ' count ' + str(response['count']) +
+                ' ' + error,
+                'ERROR'
+            )
+            if error == 'timeout':
+                return [(entity, 0) for entity in entities]
+            return [(entity, None) for entity in entities]
+        finally:
+            self._record_request_result(response, start_ms)
 
     async def _read_request(self, request):
         response = {
@@ -336,6 +417,7 @@ class Pico2CHRS485Driver(DeviceDriver):
             if response['address'] is None:
                 raise ValueError('missing address')
 
+            start_ms = self._ticks_ms()
             await self._acquire_bus()
             try:
                 raw = await self._modbus_read(
@@ -348,14 +430,7 @@ class Pico2CHRS485Driver(DeviceDriver):
             finally:
                 self._release_bus()
 
-            value = self._decode_registers(
-                raw,
-                request.get('data_type', request.get('type', 'uint16')),
-                request.get('byte_order', 'big'),
-                request.get('word_order', 'big')
-            )
-            if not isinstance(value, str):
-                value = (value * request.get('scale', 1)) + request.get('offset', 0)
+            value = self._decode_entity_value(raw, request)
 
             response.update({
                 'ok': True,
@@ -368,6 +443,8 @@ class Pico2CHRS485Driver(DeviceDriver):
             if error == 'timeout':
                 response['value'] = 0
                 response['raw'] = ''
+        finally:
+            self._record_request_result(response, start_ms if 'start_ms' in locals() else None)
 
         return response
 
@@ -409,6 +486,7 @@ class Pico2CHRS485Driver(DeviceDriver):
             response['function'] = self._as_int(function)
             response['count'] = count
 
+            start_ms = self._ticks_ms()
             await self._acquire_bus()
             try:
                 await self._modbus_write(
@@ -428,8 +506,129 @@ class Pico2CHRS485Driver(DeviceDriver):
             })
         except Exception as exc:
             response['error'] = str(exc)
+        finally:
+            self._record_request_result(response, start_ms if 'start_ms' in locals() else None)
 
         return response
+
+    def diagnostics_payload(self):
+        return {
+            'rs485_last_ok': self._last_request.get('ok'),
+            'rs485_last_operation': self._last_request.get('operation', ''),
+            'rs485_last_address': self._last_request.get('address', ''),
+            'rs485_last_error': self._last_request.get('error', ''),
+            'rs485_last_latency_ms': self._last_request.get('latency_ms', 0)
+        }
+
+    def _record_request_result(self, response, start_ms):
+        latency_ms = 0
+        if start_ms is not None:
+            latency_ms = max(0, self._ticks_diff(self._ticks_ms(), start_ms))
+        response['latency_ms'] = latency_ms
+        self._last_request = {
+            'ok': bool(response.get('ok')),
+            'operation': response.get('operation', ''),
+            'address': response.get('address', ''),
+            'error': response.get('error', ''),
+            'latency_ms': latency_ms
+        }
+
+    def _entity_request(self, entity):
+        return {
+            'port': entity.get('port', DEFAULT_PORT),
+            'slave': entity.get('slave', self.device.get('slave', 1)),
+            'address': entity.get('address', entity.get('memory_address')),
+            'count': entity.get('count', 1),
+            'function': entity.get('function', entity.get('function_code', 3)),
+            'data_type': entity.get('data_type', entity.get('type', 'uint16')),
+            'scale': entity.get('scale', 1),
+            'offset': entity.get('offset', 0),
+            'byte_order': entity.get('byte_order', 'big'),
+            'word_order': entity.get('word_order', 'big')
+        }
+
+    def _decode_entity_value(self, raw, request):
+        value = self._decode_registers(
+            raw,
+            request.get('data_type', request.get('type', 'uint16')),
+            request.get('byte_order', 'big'),
+            request.get('word_order', 'big')
+        )
+        if not isinstance(value, str):
+            value = (value * request.get('scale', 1)) + request.get('offset', 0)
+        return value
+
+    def _poll_groups(self, entities):
+        groups = []
+        current = []
+
+        for entity in sorted(entities, key=self._entity_group_sort_key):
+            if not current or self._can_extend_group(current, entity):
+                current.append(entity)
+            else:
+                groups.append(current)
+                current = [entity]
+
+        if current:
+            groups.append(current)
+
+        return groups
+
+    def _entity_group_sort_key(self, entity):
+        request = self._entity_request(entity)
+        return (
+            request['port'],
+            self._as_int(request['slave']),
+            self._as_int(request['function']),
+            self._entity_pollinterval(entity),
+            self._as_int(request['address'] or 0)
+        )
+
+    def _can_extend_group(self, current, entity):
+        first = self._entity_request(current[0])
+        request = self._entity_request(entity)
+
+        if request['address'] is None or first['address'] is None:
+            return False
+
+        if request['port'] != first['port']:
+            return False
+        if self._as_int(request['slave']) != self._as_int(first['slave']):
+            return False
+        if self._as_int(request['function']) != self._as_int(first['function']):
+            return False
+        if self._entity_pollinterval(entity) != self._entity_pollinterval(current[0]):
+            return False
+
+        current_start = self._as_int(self._entity_request(current[0])['address'])
+        current_end = current_start
+        for item in current:
+            item_request = self._entity_request(item)
+            current_end = max(
+                current_end,
+                self._as_int(item_request['address']) + self._as_int(item_request['count'])
+            )
+
+        address = self._as_int(request['address'])
+        end_address = address + self._as_int(request['count'])
+        if address != current_end:
+            return False
+
+        return (end_address - current_start) <= self._max_group_registers()
+
+    def _max_group_registers(self):
+        rs485 = self.device.get('rs485', {})
+        return rs485.get('max_group_registers', DEFAULT_MAX_GROUP_REGISTERS)
+
+    def _ticks_ms(self):
+        if hasattr(time, 'ticks_ms'):
+            return time.ticks_ms()
+        return int(time.time() * 1000)
+
+    def _ticks_diff(self, end, start):
+        if hasattr(time, 'ticks_diff'):
+            return time.ticks_diff(end, start)
+        return end - start
 
     def _is_write_request(self, request):
         operation = request.get('operation', request.get('action', request.get('mode')))

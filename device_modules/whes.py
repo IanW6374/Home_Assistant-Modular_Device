@@ -6,11 +6,13 @@ Home Assistant presentation payload with calculated PV and home-load power.
 
 try:
     from . import pico_2ch_rs485 as rs485_module
+    from .base import ha_safe_id
     from .base import ha_state_topic
     from .base import homeassistant_device_info
     from .base import sensor_discovery_payload
 except ImportError:
     import pico_2ch_rs485 as rs485_module
+    from base import ha_safe_id
     from base import ha_state_topic
     from base import homeassistant_device_info
     from base import sensor_discovery_payload
@@ -69,7 +71,12 @@ PRESENTATION_ENTITIES = (
     ('BatSink_Temp', 'temperature', '°C', 'measurement', None),
     ('SlaveError', None, '', None, 'diagnostic'),
     ('PowerLimitByBMSChg', 'power', 'W', 'measurement', 'diagnostic'),
-    ('PowerLimitByBMSDisChg', 'power', 'W', 'measurement', 'diagnostic')
+    ('PowerLimitByBMSDisChg', 'power', 'W', 'measurement', 'diagnostic'),
+    ('rs485_last_ok', None, '', None, 'diagnostic'),
+    ('rs485_last_operation', None, '', None, 'diagnostic'),
+    ('rs485_last_address', None, '', None, 'diagnostic'),
+    ('rs485_last_error', None, '', None, 'diagnostic'),
+    ('rs485_last_latency_ms', None, 'ms', 'measurement', 'diagnostic')
 )
 
 
@@ -157,8 +164,10 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
                 discovery_entity['state_class'] = state_class
             if entity_category:
                 discovery_entity['entity_category'] = entity_category
+            discovery_entity['ha_id'] = key
 
-            payload_discovery[index] = sensor_discovery_payload(
+            discovery_id = ha_safe_id(key)
+            payload_discovery[discovery_id] = sensor_discovery_payload(
                 self._ha_named_device(),
                 discovery_entity,
                 key,
@@ -166,7 +175,7 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
                 deviceid,
                 ha_devicename
             )
-            payload_discovery[index]['dev'] = self.discovery_device_info(deviceid, ha_devicename)
+            payload_discovery[discovery_id]['dev'] = self.discovery_device_info(deviceid, ha_devicename)
 
         return payload_discovery, payload_entities
 
@@ -258,11 +267,23 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
             'battery_min_cap': self._number(source.get(RAW_KEYS['battery_min_cap'], 0)),
             'battery_soc': self._number(source.get(RAW_KEYS['battery_soc'], 0))
         })
+        values.update(self._rs485_diagnostics_payload())
         values['home_p'] = self._number(source.get(
             RAW_KEYS['home_p'],
             values['PV_p'] + battery_p + grid_p
         ))
         return values
+
+    def _rs485_diagnostics_payload(self):
+        if hasattr(rs485_module.Pico2CHRS485Driver, 'diagnostics_payload'):
+            return rs485_module.Pico2CHRS485Driver.diagnostics_payload(self)
+        return {
+            'rs485_last_ok': None,
+            'rs485_last_operation': '',
+            'rs485_last_address': '',
+            'rs485_last_error': '',
+            'rs485_last_latency_ms': 0
+        }
 
     def _add_energy_values(self, values):
         for energy_key in self._energy_totals:

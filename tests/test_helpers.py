@@ -2,8 +2,10 @@ import unittest
 
 from device_modules.base import ha_config_topic
 from device_modules.base import ha_response_topic
+from device_modules.base import ha_safe_id
 from device_modules.base import ha_set_topic
 from device_modules.base import ha_state_topic
+from device_modules.base import ha_unique_id
 from device_modules.base import homeassistant_device_info
 from device_modules.validation import validate_device_config
 
@@ -42,6 +44,11 @@ class HelperTests(unittest.TestCase):
             ha_response_topic('sensor', 'abc', '0001'),
             'homeassistant/sensor/abc0001/response'
         )
+
+    def test_home_assistant_safe_ids(self):
+        self.assertEqual(ha_safe_id('PowerLimitByBMSDisChg'), 'powerlimitbybmsdischg')
+        self.assertEqual(ha_safe_id('grid import e'), 'grid_import_e')
+        self.assertEqual(ha_unique_id('abc', '0001', 'grid_import_e'), 'abc0001_grid_import_e')
 
     def test_home_assistant_device_info_uses_configured_name_and_pico_serial(self):
         info = homeassistant_device_info('abc123', 'Configured Device')

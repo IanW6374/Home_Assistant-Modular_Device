@@ -16,7 +16,7 @@ ha_device_info = {
     "hw": "1.0"
 }
 
-loglevel = 'DEBUG' # ERROR, INFO, or DEBUG. DEBUG includes MQTT topic/payload details and mqtt_as client debug messages.
+loglevel = 'INFO' # ERROR, INFO, or DEBUG. DEBUG includes MQTT topic/payload details and mqtt_as client debug messages.
 
 web_portal_enabled = True
 web_portal_https = False

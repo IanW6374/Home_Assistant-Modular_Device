@@ -23,8 +23,8 @@ def ha_state_topic(device_type, deviceid, uuid):
     return ha_device_topic(device_type, deviceid, uuid) + '/state'
 
 
-def ha_config_topic(device_type, deviceid, uuid, index):
-    return ha_device_topic(device_type, deviceid, uuid) + '_' + str(index) + '/config'
+def ha_config_topic(device_type, deviceid, uuid, entity_id):
+    return ha_device_topic(device_type, deviceid, uuid) + '_' + str(entity_id) + '/config'
 
 
 def ha_set_topic(device_type, deviceid, uuid):
@@ -35,11 +35,29 @@ def ha_response_topic(device_type, deviceid, uuid):
     return ha_device_topic(device_type, deviceid, uuid) + '/response'
 
 
+def ha_safe_id(value):
+    value = str(value)
+    safe = ''
+    for char in value:
+        if char.isalnum():
+            safe += char.lower()
+        else:
+            safe += '_'
+    while '__' in safe:
+        safe = safe.replace('__', '_')
+    return safe.strip('_') or 'entity'
+
+
+def ha_unique_id(deviceid, uuid, entity_id):
+    return deviceid + uuid + '_' + ha_safe_id(entity_id)
+
+
 def sensor_discovery_payload(device, entity, key, index, deviceid, ha_devicename):
+    entity_id = entity.get('ha_id', key)
     payload = {
         "~": ha_device_topic(device['type']['class'], deviceid, device['uuid']),
         "stat_t": "~/state",
-        "uniq_id": deviceid + device['uuid'] + '_' + str(index),
+        "uniq_id": ha_unique_id(deviceid, device['uuid'], entity_id),
         "name": device['name'] + ' ' + key,
         "value_template": "{{ value_json[" + repr(key) + "] }}",
         "dev": homeassistant_device_info(deviceid, ha_devicename)
@@ -90,6 +108,29 @@ class DeviceDriver:
                 'log': 'HA Discovery: ' + self.device['name']
             }
             publish_callable(data, 0, False)
+
+    def discovery_cleanup_topics(self, deviceid, current_ids):
+        topics = []
+        current_ids = set(str(entity_id) for entity_id in current_ids)
+        cleanup_count = max(len(current_ids) + 10, 64)
+        if device_settings:
+            cleanup_count = getattr(
+                device_settings,
+                'ha_discovery_cleanup_legacy_count',
+                cleanup_count
+            )
+
+        for index in range(cleanup_count):
+            entity_id = str(index)
+            if entity_id not in current_ids:
+                topics.append(ha_config_topic(
+                    self.device['type']['class'],
+                    deviceid,
+                    self.device['uuid'],
+                    entity_id
+                ))
+
+        return topics
 
     def handle_set(self, payload):
         return

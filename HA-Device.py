@@ -172,8 +172,14 @@ def logOutput(mode, action, data, logtype):
         log = timestamp + '  ' + mode + ': ' + action + ' - ' + data['log']
         
         if mode == 'MQTT' and loglevel == 'DEBUG' and action != 'Connect':
-                
-            log += '\n\n\tTopic: ' + data['topic'] + '\n\tPayload: ' + json.dumps(data['payload']) + '\n\n'
+            topic = data.get('topic')
+            payload = data.get('payload')
+            if topic is not None:
+                log += '\n\n\tTopic: ' + str(topic)
+            if 'payload' in data:
+                log += '\n\tPayload: ' + json.dumps(payload)
+            if topic is not None or 'payload' in data:
+                log += '\n'
                    
         if logtype == 'ERROR':
             
@@ -353,6 +359,7 @@ async def homeassistant_discovery():
             payload_entities = {}
 
             device_char = find_device_char(device['uuid'])
+            cleanup_topics = []
             if device_char and 'driver' in device_char:
                 try:
                     portal_url = web_portal_url()
@@ -363,16 +370,31 @@ async def homeassistant_discovery():
                     if hasattr(device_char['driver'], 'prepare_discovery'):
                         await device_char['driver'].prepare_discovery()
                     payload_discovery, payload_entities = device_char['driver'].get_discovery_payloads(deviceid, ha_devicename)
+                    if hasattr(device_char['driver'], 'discovery_cleanup_topics'):
+                        cleanup_topics = device_char['driver'].discovery_cleanup_topics(
+                            deviceid,
+                            payload_discovery.keys()
+                        )
                 except Exception:
                     payload_discovery = {}
                     payload_entities = {}
+                    cleanup_topics = []
 
             if not device_info_added and payload_discovery:
-                if "dev" not in payload_discovery[0]:
-                    payload_discovery[0].update({
+                first_discovery_id = next(iter(payload_discovery))
+                if "dev" not in payload_discovery[first_discovery_id]:
+                    payload_discovery[first_discovery_id].update({
                         "dev": homeassistant_device_info(deviceid, ha_devicename)
                     })
                 device_info_added = True
+
+            for topic in cleanup_topics:
+                data = {
+                    'payload': None,
+                    'topic': topic,
+                    'log': 'HA Discovery cleanup: ' + device['name']
+                }
+                asyncio.create_task(publish_message(data, 0, False, True))
 
             for i in payload_discovery:
                 data = {
@@ -629,7 +651,7 @@ def trace_mqtt_queue_put(topic, payload, retained):
                 'topic': msg_topic,
                 'log': 'Topic: ' + msg_topic
             },
-            'INFO'
+            'DEBUG'
         )
     except Exception as exc:
         logOutput('MQTT', 'Queue', {'log': 'Trace error: ' + str(exc)}, 'ERROR')

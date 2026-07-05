@@ -42,7 +42,16 @@ class FakeUART:
     def write(self, data):
         self.writes.append(data)
         function = data[1]
-        if function == 6:
+        if function in (3, 4):
+            address = (data[2] << 8) | data[3]
+            count = (data[4] << 8) | data[5]
+            raw = b''
+            for offset in range(count):
+                value = address + offset
+                raw += bytes([(value >> 8) & 0xff, value & 0xff])
+            body = bytes([data[0], function, count * 2]) + raw
+            self.reply = body + PicoModuleTest.driver._crc_bytes(body)
+        elif function == 6:
             self.reply = data
         elif function == 16:
             body = data[:6]
@@ -150,6 +159,40 @@ class PicoModuleTest(unittest.TestCase):
         self.assertTrue(response['ok'])
         self.assertEqual(response['function'], 16)
         self.assertEqual(self.uart.writes[0][1], 0x10)
+
+    def test_contiguous_due_entities_are_read_as_one_group(self):
+        entities = [
+            {
+                'class': 'power',
+                'key': 'first',
+                'port': 'ch0',
+                'slave': 1,
+                'function': 4,
+                'address': 100,
+                'count': 1,
+                'data_type': 'uint16'
+            },
+            {
+                'class': 'power',
+                'key': 'second',
+                'port': 'ch0',
+                'slave': 1,
+                'function': 4,
+                'address': 101,
+                'count': 1,
+                'data_type': 'uint16'
+            }
+        ]
+
+        groups = self.driver._poll_groups(entities)
+        results = asyncio.run(self.driver._read_entity_group(groups[0]))
+
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(len(self.uart.writes), 1)
+        self.assertEqual(self.uart.writes[0][:6], b'\x01\x04\x00d\x00\x02')
+        self.assertEqual(results[0][1], 100)
+        self.assertEqual(results[1][1], 101)
+        self.assertTrue(self.driver.diagnostics_payload()['rs485_last_ok'])
 
 
 if __name__ == '__main__':

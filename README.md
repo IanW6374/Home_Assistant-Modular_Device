@@ -65,6 +65,7 @@ ntp_servers = (
     "pool.ntp.org",
     "time.google.com",
 )
+loglevel = "INFO"
 watchdog_timeout_ms = 0
 web_portal_enabled = False
 web_portal_https = False
@@ -99,9 +100,10 @@ port.
 
 The portal accepts `ERROR`, `INFO`, and `DEBUG` log levels. Changes are runtime
 only and are not written back to `device_settings.py`, so rebooting restores the
-configured default. The log pane refreshes automatically using
-`web_portal_refresh_ms` and remains scrollable so earlier buffered log events
-can be reviewed.
+configured default. `DEBUG` also enables MQTT topic/payload logging and
+`mqtt_as` client debug output. The log pane refreshes automatically using
+`web_portal_refresh_ms` and remains scrollable so earlier buffered log events can
+be reviewed.
 
 The portal defaults to HTTP because server-side TLS exhausted heap during Pico W
 testing. If HTTPS is required on Pico W hardware, terminate TLS on a reverse
@@ -145,16 +147,38 @@ entity names instead of `WHES`.
 
 | Key | Address | Type | Purpose |
 | --- | ---: | --- | --- |
-| `SerialNumber` | `36010` | `ascii`, count `10` | Inverter serial number |
-| `PPV1` | `36112` | `uint16` | PV string 1 power |
-| `PPV2` | `36113` | `uint16` | PV string 2 power |
+| `DeviceType` | `36001` | `uint16` | Device type |
+| `Manufacturer` | `36002` | `ascii`, count `8` | Manufacturer |
+| `SerialNumber_INV` | `36010` | `ascii`, count `10` | Inverter serial number |
+| `DSP1_ver` | `36020` | `ascii`, count `8` | DSP1 firmware version |
+| `DSP2_ver` | `36028` | `ascii`, count `8` | DSP2 firmware version |
+| `EMS_ver` | `36036` | `ascii`, count `8` | EMS firmware version |
+| `BMS_ver` | `36044` | `ascii`, count `16` | BMS firmware version |
+| `Hardware_Version` | `36060` | `ascii`, count `8` | Hardware version |
+| `RatedPower` | `36068` | `uint16` | Rated inverter power |
+| `RunMode` | `36101` | `uint16` | Running mode |
+| `BmsStatus` | `36102` | `uint16` | BMS status |
+| `ErrCode_DSP` | `36103` | `uint16` | DSP error code |
+| `ErrCode_BAT` | `36104` | `uint16` | Battery error code |
+| `ErrCode_EMS` | `36105` | `uint16` | EMS error code |
+| `INVSink_Temp` | `36106` | `int16`, scale `0.1` | Inverter heatsink temperature |
+| `BatSink_Temp` | `36107` | `int16`, scale `0.1` | Battery heatsink temperature |
+| `Ppv1` | `36112` | `uint16` | PV string 1 power |
+| `Ppv2` | `36113` | `uint16` | PV string 2 power |
 | `BatPower_BMS` | `36153` | `int32` | Signed battery power |
 | `Power_Meter` | `36131` | `int32` | Signed grid meter power |
 | `BatSOC` | `36155` | `uint16` | Battery state of charge |
+| `SlaveError` | `37500` | `uint16` | Slave error status |
+| `PowerLimitByBMSChg` | `37501` | `int16` | BMS charge power limit |
+| `PowerLimitByBMSDisChg` | `37502` | `int16` | BMS discharge power limit |
 | `battery_min_cap` | `60009` | `uint16` | Minimum battery capacity |
 
 The configured RS485 parameters are 115200 baud, 8 data bits, no parity, 1 stop
 bit, slave address `1`, and Modbus function `4`.
+
+The RS485 poller groups contiguous due registers dynamically when port, slave,
+function, and poll interval match. This means adding or removing adjacent
+registers in `device.json` automatically changes the Modbus read grouping.
 
 `device_modules/validation.py` validates the loaded device config at boot and
 logs issues such as missing fields, unsupported entity classes, duplicate keys,
@@ -174,7 +198,7 @@ configuration URL.
 
 | Published key | Unit | Source/calculation |
 | --- | --- | --- |
-| `PV_p` | W | `PPV1 + PPV2` |
+| `PV_p` | W | `Ppv1 + Ppv2` |
 | `battery_p` | W | `BatPower_BMS * -1` |
 | `grid_p` | W | Raw `Power_Meter` |
 | `home_p` | W | `PV_p + battery_p + grid_p` |
@@ -213,6 +237,22 @@ totals reset to `0` when the Pico local date changes at midnight. NTP sync is
 enabled in `HA-Device.py`, so make sure the Pico can reach one of the configured
 NTP servers.
 
+### Device Information, Running Data, and Diagnostics
+
+WHES device information sensors are published as Home Assistant diagnostic
+entities: `DeviceType`, `Manufacturer`, `SerialNumber_INV`, `DSP1_ver`,
+`DSP2_ver`, `EMS_ver`, `BMS_ver`, `Hardware_Version`, and `RatedPower`.
+
+WHES running data includes `RunMode`, `BmsStatus`, `ErrCode_DSP`,
+`ErrCode_BAT`, `ErrCode_EMS`, `INVSink_Temp`, `BatSink_Temp`, `SlaveError`,
+`PowerLimitByBMSChg`, and `PowerLimitByBMSDisChg`. Error/status and power-limit
+metadata are diagnostic entities; temperature sensors are normal measurement
+entities.
+
+The firmware also publishes RS485 diagnostic entities for the last bus request:
+`rs485_last_ok`, `rs485_last_operation`, `rs485_last_address`,
+`rs485_last_error`, and `rs485_last_latency_ms`.
+
 ## MQTT Topics
 
 The Pico derives its MQTT device id from `machine.unique_id()`.
@@ -226,8 +266,13 @@ homeassistant/sensor/<deviceid><uuid>/state
 Home Assistant discovery config is published to:
 
 ```text
-homeassistant/sensor/<deviceid><uuid>_<entity_index>/config
+homeassistant/sensor/<deviceid><uuid>_<entity_id>/config
 ```
+
+For WHES, `<entity_id>` is based on the published key, such as `pv_p`,
+`grid_import_e`, or `rs485_last_latency_ms`. The firmware publishes empty
+retained payloads for the old numeric discovery topics so Home Assistant can
+remove stale entities from earlier firmware versions.
 
 Devices that support command/set handling subscribe to:
 
@@ -307,7 +352,8 @@ starts each sensor driver.
 - Confirm Home Assistant shows these WHES entities:
   `serial_number`, `PV_p`, `battery_p`, `grid_p`, `home_p`, `battery_soc`,
   `pv_e`, `home_e`, `battery_charge_e`, `battery_discharge_e`,
-  `grid_import_e`, and `grid_export_e`.
+  `grid_import_e`, `grid_export_e`, the WHES device information/running data
+  sensors, and the RS485 diagnostic sensors.
 
 ## Host-Side Tests
 

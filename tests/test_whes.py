@@ -91,7 +91,7 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(values['grid_p'], 500)
         self.assertEqual(values['home_p'], 1200)
 
-    def test_discovery_uses_presentation_order_indexes(self):
+    def test_discovery_uses_presentation_key_ids(self):
         whes = load_whes_module()
         device = {
             'name': 'WHES',
@@ -106,18 +106,19 @@ class WhesTests(unittest.TestCase):
 
         discovery, _ = driver.get_discovery_payloads('abc', 'WHES Device')
 
-        self.assertEqual(sorted(discovery.keys()), list(range(len(whes.PRESENTATION_ENTITIES))))
-        self.assertEqual(discovery[0]['name'], 'INV123456 serial_number')
-        self.assertEqual(discovery[0]['dev']['name'], 'WHES Device')
-        self.assertEqual(discovery[0]['dev']['sn'], 'abc')
-        self.assertEqual(discovery[0]['dev']['cu'], 'http://192.168.1.50:8080/?token=abc')
-        self.assertEqual(discovery[0]['entity_category'], 'diagnostic')
+        expected_keys = [whes.ha_safe_id(key) for key in whes.PRESENTATION_KEYS]
+        self.assertEqual(list(discovery.keys()), expected_keys)
+        self.assertEqual(discovery['serial_number']['name'], 'INV123456 serial_number')
+        self.assertEqual(discovery['serial_number']['dev']['name'], 'WHES Device')
+        self.assertEqual(discovery['serial_number']['dev']['sn'], 'abc')
+        self.assertEqual(discovery['serial_number']['dev']['cu'], 'http://192.168.1.50:8080/?token=abc')
+        self.assertEqual(discovery['serial_number']['entity_category'], 'diagnostic')
         for index in discovery:
             self.assertTrue(discovery[index]['name'].startswith('INV123456 '))
-        self.assertEqual(discovery[11]['name'], 'INV123456 grid_import_e')
-        self.assertEqual(discovery[11]['uniq_id'], 'abc0001_11')
-        self.assertEqual(discovery[12]['name'], 'INV123456 grid_export_e')
-        self.assertEqual(discovery[12]['uniq_id'], 'abc0001_12')
+        self.assertEqual(discovery['grid_import_e']['name'], 'INV123456 grid_import_e')
+        self.assertEqual(discovery['grid_import_e']['uniq_id'], 'abc0001_grid_import_e')
+        self.assertEqual(discovery['grid_export_e']['name'], 'INV123456 grid_export_e')
+        self.assertEqual(discovery['grid_export_e']['uniq_id'], 'abc0001_grid_export_e')
         payload = driver.get_state_payload()
         self.assertEqual(payload['serial_number'], 'INV123456')
         self.assertNotIn('portal_url', payload)
@@ -142,11 +143,11 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(payload['RunMode'], 1)
         self.assertEqual(payload['INVSink_Temp'], 41.2)
 
-        run_mode_index = whes.PRESENTATION_ENTITY_INDEXES['RunMode']
-        temp_index = whes.PRESENTATION_ENTITY_INDEXES['INVSink_Temp']
-        self.assertEqual(discovery[run_mode_index]['entity_category'], 'diagnostic')
-        self.assertEqual(discovery[temp_index]['device_class'], 'temperature')
-        self.assertEqual(discovery[temp_index]['unit_of_measurement'], '°C')
+        self.assertEqual(discovery['runmode']['entity_category'], 'diagnostic')
+        self.assertEqual(discovery['invsink_temp']['device_class'], 'temperature')
+        self.assertEqual(discovery['invsink_temp']['unit_of_measurement'], '°C')
+        self.assertIn('rs485_last_ok', payload)
+        self.assertEqual(discovery['rs485_last_latency_ms']['entity_category'], 'diagnostic')
         self.assertNotIn('Vpv1', whes.PRESENTATION_ENTITY_INDEXES)
         self.assertNotIn('ETotal_Pv', whes.PRESENTATION_ENTITY_INDEXES)
 
@@ -181,8 +182,8 @@ class WhesTests(unittest.TestCase):
         discovery, payload = driver.get_discovery_payloads('abc', 'WHES Device')
 
         self.assertEqual(payload['serial_number'], 'INV654321')
-        self.assertEqual(discovery[0]['dev']['sn'], 'abc')
-        self.assertEqual(discovery[1]['name'], 'INV654321 PV_p')
+        self.assertEqual(discovery['serial_number']['dev']['sn'], 'abc')
+        self.assertEqual(discovery['pv_p']['name'], 'INV654321 PV_p')
 
 
 if __name__ == '__main__':
