@@ -1,0 +1,181 @@
+{
+    "devices": [
+        {
+            "name": "Greenstar 8000",
+            "uuid": "0001",
+            "type": {
+                "class": "sensor",
+                "subclass": "EMS-Boiler"
+            },
+            "boiler_id": 8,
+            "ems": {
+                "uart": 0,
+                "tx": 0,
+                "rx": 1,
+                "baudrate": 9600,
+                "bits": 8,
+                "parity": null,
+                "stop": 1,
+                "frame_gap_ms": 20,
+                "poll_ms": 5
+            },
+            "entities": {
+                "0": {
+                    "class": "memory_value",
+                    "key": "heatingactive",
+                    "value": false
+                },
+                "1": {
+                    "class": "memory_value",
+                    "key": "tapwateractive",
+                    "value": false
+                },
+                "2": {
+                    "class": "temperature",
+                    "key": "curflowtemp",
+                    "value": null,
+                    "unit": "\u00b0C",
+                    "state_class": "measurement"
+                },
+                "3": {
+                    "class": "temperature",
+                    "key": "rettemp",
+                    "value": null,
+                    "unit": "\u00b0C",
+                    "state_class": "measurement"
+                },
+                "4": {
+                    "class": "temperature",
+                    "key": "boiltemp",
+                    "value": null,
+                    "unit": "\u00b0C",
+                    "state_class": "measurement"
+                },
+                "5": {
+                    "class": "temperature",
+                    "key": "exhausttemp",
+                    "value": null,
+                    "unit": "\u00b0C",
+                    "state_class": "measurement"
+                },
+                "6": {
+                    "class": "pressure",
+                    "key": "syspress",
+                    "value": null,
+                    "unit": "bar",
+                    "state_class": "measurement"
+                },
+                "7": {
+                    "class": "memory_value",
+                    "key": "curburnpow",
+                    "value": null,
+                    "unit": "%",
+                    "state_class": "measurement"
+                },
+                "8": {
+                    "class": "memory_value",
+                    "key": "burngas",
+                    "value": false
+                },
+                "9": {
+                    "class": "memory_value",
+                    "key": "flameactive",
+                    "value": false
+                },
+                "10": {
+                    "class": "memory_value",
+                    "key": "flamecurr",
+                    "value": null,
+                    "unit": "uA",
+                    "state_class": "measurement"
+                },
+                "11": {
+                    "class": "memory_value",
+                    "key": "heatingpump",
+                    "value": false
+                },
+                "12": {
+                    "class": "memory_value",
+                    "key": "heatingpumpmod",
+                    "value": null,
+                    "unit": "%",
+                    "state_class": "measurement"
+                },
+                "13": {
+                    "class": "temperature",
+                    "key": "dhw.curtemp",
+                    "value": null,
+                    "unit": "\u00b0C",
+                    "state_class": "measurement"
+                },
+                "14": {
+                    "class": "memory_value",
+                    "key": "dhw.curflow",
+                    "value": null,
+                    "unit": "l/min",
+                    "state_class": "measurement"
+                },
+                "15": {
+                    "class": "memory_value",
+                    "key": "dhw.charging",
+                    "value": false
+                },
+                "16": {
+                    "class": "memory_value",
+                    "key": "burnstarts",
+                    "value": null,
+                    "entity_category": "diagnostic"
+                },
+                "17": {
+                    "class": "memory_value",
+                    "key": "burnworkmin",
+                    "value": null,
+                    "unit": "min",
+                    "entity_category": "diagnostic"
+                },
+                "18": {
+                    "class": "memory_value",
+                    "key": "servicecode",
+                    "value": "",
+                    "entity_category": "diagnostic"
+                },
+                "19": {
+                    "class": "memory_value",
+                    "key": "servicecodenumber",
+                    "value": null,
+                    "entity_category": "diagnostic"
+                },
+                "20": {
+                    "class": "memory_value",
+                    "key": "ems_last_ok",
+                    "value": null,
+                    "entity_category": "diagnostic"
+                },
+                "21": {
+                    "class": "memory_value",
+                    "key": "ems_last_type",
+                    "value": "",
+                    "entity_category": "diagnostic"
+                },
+                "22": {
+                    "class": "memory_value",
+                    "key": "ems_last_error",
+                    "value": "",
+                    "entity_category": "diagnostic"
+                },
+                "23": {
+                    "class": "memory_value",
+                    "key": "ems_frames",
+                    "value": 0,
+                    "entity_category": "diagnostic"
+                },
+                "24": {
+                    "class": "memory_value",
+                    "key": "ems_crc_errors",
+                    "value": 0,
+                    "entity_category": "diagnostic"
+                }
+            }
+        }
+    ]
+}

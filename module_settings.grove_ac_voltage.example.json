@@ -1,0 +1,73 @@
+{
+    "devices": [
+        {
+            "name": "AC Voltage",
+            "uuid": "0001",
+            "type": {
+                "class": "sensor",
+                "subclass": "Grove-AC-Voltage"
+            },
+            "pollinterval": 5,
+            "ac_voltage": {
+                "_comment": "The calibration value is intentionally configurable. Once connected, compare against a known meter reading at 240V AC and adjust this multiplier until the published voltage matches reality.",
+                "adc_pin": 26,
+                "vref": 3.3,
+                "adc_max": 65535,
+                "sample_count": 600,
+                "sample_delay_us": 200,
+                "calibration": 700,
+                "offset": 0,
+                "precision": 1,
+                "threshold": 180,
+                "hysteresis": 10,
+                "threshold_key": "ac_present"
+            },
+            "entities": {
+                "0": {
+                    "class": "voltage",
+                    "key": "voltage",
+                    "value": null,
+                    "unit": "V",
+                    "state_class": "measurement"
+                },
+                "1": {
+                    "class": "memory_value",
+                    "key": "ac_present",
+                    "value": false,
+                    "component": "binary_sensor",
+                    "device_class": "power"
+                },
+                "2": {
+                    "class": "memory_value",
+                    "key": "adc_rms",
+                    "value": null,
+                    "entity_category": "diagnostic"
+                },
+                "3": {
+                    "class": "memory_value",
+                    "key": "adc_midpoint",
+                    "value": null,
+                    "entity_category": "diagnostic"
+                },
+                "4": {
+                    "class": "memory_value",
+                    "key": "adc_min",
+                    "value": null,
+                    "entity_category": "diagnostic"
+                },
+                "5": {
+                    "class": "memory_value",
+                    "key": "adc_max",
+                    "value": null,
+                    "entity_category": "diagnostic"
+                },
+                "6": {
+                    "class": "memory_value",
+                    "key": "ac_voltage_error",
+                    "value": "",
+                    "entity_category": "diagnostic"
+                }
+            }
+        }
+    ]
+}

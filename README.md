@@ -1,13 +1,13 @@
 # Home Assistant Modular Device
 
 MicroPython firmware for a Raspberry Pi Pico W that exposes modular devices to
-Home Assistant over MQTT. Devices are described in `device.json`, discovered at
-boot, and handled by small driver modules in `device_modules/`.
+Home Assistant over MQTT. Modules are described in `module_settings.json`,
+discovered at boot, and handled by small driver modules in `device_modules/`.
 
-The current configuration includes a WHES single-phase inverter driver over
-RS485/Modbus RTU. The WHES driver reads a small set of inverter registers and
-publishes Home Assistant-friendly power, battery, grid, and daily energy
-entities.
+The current checked-in `module_settings.json` includes a WHES single-phase inverter
+driver over RS485/Modbus RTU. Additional example configs show standalone Pico
+devices for EMS boiler monitoring, PT1000 temperature sensing, and AC voltage
+presence/measurement.
 
 ## Features
 
@@ -16,19 +16,32 @@ entities.
 - GPIO light and switch modules.
 - Generic Pico 2-channel RS485 Modbus sensor module.
 - WHES-specific RS485 module with calculated MQTT presentation entities.
+- Read-only Bosch/Worcester EMS boiler monitor over an EMS-to-TTL interface.
+- MAX31865/PT1000 RTD temperature sensor over SPI.
+- Grove MCP6002 AC voltage sensor over ADC, with optional threshold binary
+  sensor.
+- Optional local Waveshare Pico-OLED-1.3 status display.
 
 ## Repository Layout
 
 ```text
 main.py                         Boot entry point, executes HA-Device.py
 HA-Device.py                    WiFi, MQTT, discovery, and device orchestration
-device.json                     Device and register configuration
+module_settings.json            Module and register configuration
 device_settings.py              Local firmware settings
+local_display.py                Optional SH1107 OLED status display service
+module_settings.ems.example.json EMS boiler example configuration
+module_settings.max31865_pt1000.example.json PT1000/MAX31865 example configuration
+module_settings.grove_ac_voltage.example.json Grove AC voltage example configuration
+module_settings.dual_pt1000_voltage_display.example.json Combined PT1000/voltage/display example
 secrets.py                      WiFi and MQTT credentials, not suitable for commits
 secrets.example.py              Template for local credentials
 device_modules/                 Device driver modules
 device_modules/whes.py          WHES inverter presentation/calculation driver
 device_modules/pico_2ch_rs485.py Generic RS485 Modbus driver
+device_modules/ems.py           Read-only EMS boiler monitor
+device_modules/max31865_pt1000.py MAX31865 PT1000 RTD driver
+device_modules/grove_ac_voltage.py Grove AC voltage ADC driver
 tests/                          Host-side unit tests
 lib/                            MicroPython support libraries
 ```
@@ -53,11 +66,11 @@ web_portal_token = "replace-with-a-long-random-url-safe-token"
 
 ### `device_settings.py`
 
-`device_settings.py` selects the device config file, certificate path, Home
+`device_settings.py` selects the module settings file, certificate path, Home
 Assistant discovery behavior, and NTP servers:
 
 ```python
-deviceConfigFile = "device.json"
+moduleSettingsFile = "module_settings.json"
 ca_cert_path = "/certs/home-ca.der"
 ha_discovery = True
 ha_devicename = "Test1"
@@ -73,6 +86,25 @@ web_portal_port = None
 web_portal_cert_path = "/certs/web.crt.der"
 web_portal_key_path = "/certs/web.key.der"
 web_portal_refresh_ms = 5000
+local_display = {
+    "enabled": False,
+    "type": "Waveshare-Pico-OLED-1.3",
+    "width": 128,
+    "height": 64,
+    "spi": 1,
+    "sck": 10,
+    "mosi": 11,
+    "cs": 9,
+    "dc": 8,
+    "rst": 12,
+    "refresh_ms": 1000,
+    "button_a": 15,
+    "button_b": 17,
+    "button_a_short": "next_page",
+    "button_a_long": "refresh_discovery",
+    "button_b_short": "previous_page",
+    "button_b_long": "toggle_loglevel",
+}
 ```
 
 If MQTT TLS is enabled, copy your CA certificate to the configured path on the
@@ -137,10 +169,76 @@ ran out of heap during the TLS handshake; Pico 2 W has enough headroom in the
 tested setup. If another MicroPython build logs `OSError: [Errno 12] ENOMEM`
 when a browser connects, use HTTP mode or terminate HTTPS on a reverse proxy.
 
-### `device.json`
+### Local OLED Display
 
-Devices are declared in `device.json`. The current WHES config uses the `WHES`
-sensor subclass and reads these Modbus registers:
+`local_display.py` adds an optional status display for Waveshare Pico-OLED-1.3
+style SH1107 modules. It is disabled by default; enable it in
+`device_settings.py` by setting:
+
+```python
+local_display["enabled"] = True
+```
+
+The default SPI and button pins match the Waveshare Pico-OLED-1.3 examples:
+
+| Signal | Pico GPIO |
+| --- | ---: |
+| SCK | GP10 |
+| MOSI | GP11 |
+| CS | GP9 |
+| DC | GP8 |
+| RST | GP12 |
+| Key0 / button A | GP15 |
+| Key1 / button B | GP17 |
+
+When enabled, the display shows WiFi/MQTT status, the active config file, log
+level, web portal state, recent error alerts, and current device payload values.
+Short and long presses can page through screens, request Home Assistant
+discovery, or toggle the runtime log level.
+
+### Module Settings Files
+
+`device_settings.py` points at the active module settings file through
+`moduleSettingsFile`. The default remains:
+
+```python
+moduleSettingsFile = "module_settings.json"
+```
+
+The repo includes separate example configs for standalone Pico devices:
+
+| File | Sensor subclass | Purpose |
+| --- | --- | --- |
+| `module_settings.json` | `WHES` | Current WHES inverter RS485/Modbus setup |
+| `module_settings.ems.example.json` | `EMS-Boiler` | Worcester/Bosch EMS boiler broadcast monitor |
+| `module_settings.max31865_pt1000.example.json` | `MAX31865-PT1000` | PT1000 RTD probe through a MAX31865 amplifier |
+| `module_settings.grove_ac_voltage.example.json` | `Grove-AC-Voltage` | Grove MCP6002 AC voltage measurement and optional AC-present binary sensor |
+| `module_settings.dual_pt1000_voltage_display.example.json` | `MAX31865-PT1000`, `Grove-AC-Voltage` | Two PT1000 probes plus Grove AC voltage, intended for use with the local OLED display |
+
+Copy one of the example files or point `moduleSettingsFile` at it on the target
+Pico. Each example assumes a dedicated Pico for that hardware role.
+
+For the combined PT1000/voltage/display example, set:
+
+```python
+moduleSettingsFile = "module_settings.dual_pt1000_voltage_display.example.json"
+local_display["enabled"] = True
+```
+
+It allocates GPIOs this way:
+
+| Hardware | Pico GPIOs |
+| --- | --- |
+| MAX31865 flow probe | SPI0 SCK GP2, MOSI GP3, MISO GP4, CS GP5 |
+| MAX31865 return probe | SPI0 SCK GP2, MOSI GP3, MISO GP4, CS GP6 |
+| Grove AC voltage sensor | ADC0 GP26 |
+| Waveshare Pico-OLED-1.3 display | SPI1 SCK GP10, MOSI GP11, CS GP9, DC GP8, RST GP12 |
+| Display Key0 / Key1 | GP15 / GP17 |
+
+### WHES `module_settings.json`
+
+Modules are declared in `module_settings.json`. The current WHES config uses
+the `WHES` sensor subclass and reads these Modbus registers:
 
 The WHES serial number is read from Modbus and used to prefix Home Assistant
 entity names instead of `WHES`.
@@ -178,9 +276,9 @@ bit, slave address `1`, and Modbus function `4`.
 
 The RS485 poller groups contiguous due registers dynamically when port, slave,
 function, and poll interval match. This means adding or removing adjacent
-registers in `device.json` automatically changes the Modbus read grouping.
+registers in `module_settings.json` automatically changes the Modbus read grouping.
 
-`device_modules/validation.py` validates the loaded device config at boot and
+`device_modules/validation.py` validates the loaded module settings at boot and
 logs issues such as missing fields, unsupported entity classes, duplicate keys,
 invalid RS485 counts, and unsupported data types.
 
@@ -253,6 +351,87 @@ The firmware also publishes RS485 diagnostic entities for the last bus request:
 `rs485_last_ok`, `rs485_last_operation`, `rs485_last_address`,
 `rs485_last_error`, and `rs485_last_latency_ms`.
 
+## EMS Boiler Monitor
+
+`device_modules/ems.py` provides a read-only `EMS-Boiler` sensor subclass for
+Bosch/Worcester EMS boilers. It expects an EMS-to-TTL interface board between
+the boiler bus and the Pico UART; do not connect the Pico UART directly to the
+boiler EMS bus.
+
+The driver listens for broadcast monitor telegrams and publishes configured
+values only after EMS CRC validation. It does not acknowledge polls, fetch
+telegrams, or write settings, so it is intentionally a monitor-only first
+implementation.
+
+The example [module_settings.ems.example.json](module_settings.ems.example.json) uses UART0 on
+GP0/GP1 at 9600 baud and includes common Greenstar 8000-style entities such as:
+
+- heating and tap-water active flags
+- flow, return, boiler, exhaust, and DHW temperatures
+- system pressure
+- burner state/current power
+- flame current
+- service code and EMS diagnostic counters
+
+## MAX31865 PT1000 Temperature
+
+`device_modules/max31865_pt1000.py` provides a `MAX31865-PT1000` sensor subclass
+for the Adafruit MAX31865 RTD amplifier and a PT1000 probe. It reads the
+MAX31865 over SPI and converts measured RTD resistance to temperature using the
+Callendar-Van Dusen curve.
+
+The example [module_settings.max31865_pt1000.example.json](module_settings.max31865_pt1000.example.json)
+uses SPI0 with these default pins:
+
+| Signal | Pico GPIO |
+| --- | ---: |
+| SCK | GP2 |
+| MOSI | GP3 |
+| MISO | GP4 |
+| CS | GP5 |
+
+Important config fields:
+
+| Field | Purpose |
+| --- | --- |
+| `wires` | RTD wiring mode: `2`, `3`, or `4` |
+| `rtd_nominal` | Probe nominal resistance; `1000` for PT1000 |
+| `ref_resistor` | MAX31865 board reference resistor; Adafruit PT1000 boards usually use `4300` ohms |
+| `filter_hz` | Mains filter selection, usually `50` in the UK |
+| `precision` | Decimal places for published temperature/resistance |
+
+The example publishes `temperature` as a normal Home Assistant temperature
+sensor and optional diagnostic values for resistance, raw RTD count, and fault
+status.
+
+## Grove AC Voltage Sensor
+
+`device_modules/grove_ac_voltage.py` provides a `Grove-AC-Voltage` sensor
+subclass for the Grove AC Voltage Sensor based on the MCP6002 amplifier. The
+board outputs a biased analogue AC waveform; the Pico samples it with ADC,
+removes the DC midpoint, calculates RMS, and applies a configurable calibration
+multiplier.
+
+The example [module_settings.grove_ac_voltage.example.json](module_settings.grove_ac_voltage.example.json)
+uses GP26/ADC0 and is aimed at typical 240V AC monitoring. It publishes:
+
+- `voltage`, a calibrated RMS voltage sensor
+- `ac_present`, an optional Home Assistant binary sensor
+- ADC diagnostics: RMS counts, midpoint, min, max, and last error
+
+Threshold behavior is configured under `ac_voltage`:
+
+| Field | Purpose |
+| --- | --- |
+| `threshold` | Voltage at or above which the binary sensor turns on |
+| `hysteresis` | Drop below `threshold - hysteresis` required before turning off |
+| `threshold_key` | State key used by the binary sensor entity |
+
+Remove the `ac_present` entity from the example config if you only want the
+voltage sensor. The example includes a `_comment` field explaining calibration:
+compare the published value with a known meter reading at 240V AC and adjust
+`calibration` until the MQTT value matches reality.
+
 ## MQTT Topics
 
 The Pico derives its MQTT device id from `machine.unique_id()`.
@@ -267,6 +446,13 @@ Home Assistant discovery config is published to:
 
 ```text
 homeassistant/sensor/<deviceid><uuid>_<entity_id>/config
+```
+
+Modules may also publish other Home Assistant discovery components when needed.
+For example, the Grove AC voltage threshold entity publishes discovery under:
+
+```text
+homeassistant/binary_sensor/<deviceid><uuid>_<entity_id>/config
 ```
 
 For WHES, `<entity_id>` is based on the published key, such as `pv_p`,
@@ -333,7 +519,7 @@ Copy the project files to the Pico filesystem, including:
 
 - `main.py`
 - `HA-Device.py`
-- `device.json`
+- `module_settings.json`
 - `device_settings.py`
 - `secrets.py`
 - `device_modules/`
@@ -365,7 +551,9 @@ python3 -m unittest discover -s tests
 ```
 
 The tests cover WHES presentation calculations, rounded daily energy values,
-Home Assistant topic helpers, and config validation.
+EMS telegram decoding, MAX31865 PT1000 conversion, Grove AC voltage RMS and
+threshold behavior, local display rendering/actions, Home Assistant topic
+helpers, and config validation.
 
 ## Adding a Device Module
 

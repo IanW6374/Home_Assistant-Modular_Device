@@ -9,6 +9,7 @@ SENSOR_CLASSES = {
     'memory_value',
     'power',
     'power_factor',
+    'pressure',
     'reactive_power',
     'temperature',
     'voltage'
@@ -20,11 +21,11 @@ def validate_device_config(device_config, device_types):
     uuids = set()
 
     if not isinstance(device_config, dict):
-        return ['device config must be an object']
+        return ['module settings must be an object']
 
     devices = device_config.get('devices')
     if not isinstance(devices, list):
-        return ['device config must contain a devices list']
+        return ['module settings must contain a devices list']
 
     for index, device in enumerate(devices):
         label = _device_label(device, index)

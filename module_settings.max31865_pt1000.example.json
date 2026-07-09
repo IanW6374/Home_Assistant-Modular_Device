@@ -1,0 +1,61 @@
+{
+    "devices": [
+        {
+            "name": "PT1000 Temperature",
+            "uuid": "0001",
+            "type": {
+                "class": "sensor",
+                "subclass": "MAX31865-PT1000"
+            },
+            "pollinterval": 30,
+            "max31865": {
+                "spi": 0,
+                "sck": 2,
+                "mosi": 3,
+                "miso": 4,
+                "cs": 5,
+                "baudrate": 1000000,
+                "wires": 2,
+                "filter_hz": 50,
+                "rtd_nominal": 1000,
+                "ref_resistor": 4300,
+                "precision": 2
+            },
+            "entities": {
+                "0": {
+                    "class": "temperature",
+                    "key": "temperature",
+                    "value": null,
+                    "unit": "\u00b0C",
+                    "state_class": "measurement"
+                },
+                "1": {
+                    "class": "memory_value",
+                    "key": "resistance",
+                    "value": null,
+                    "unit": "\u03a9",
+                    "state_class": "measurement",
+                    "entity_category": "diagnostic"
+                },
+                "2": {
+                    "class": "memory_value",
+                    "key": "rtd_raw",
+                    "value": null,
+                    "entity_category": "diagnostic"
+                },
+                "3": {
+                    "class": "memory_value",
+                    "key": "fault",
+                    "value": "",
+                    "entity_category": "diagnostic"
+                },
+                "4": {
+                    "class": "memory_value",
+                    "key": "fault_code",
+                    "value": 0,
+                    "entity_category": "diagnostic"
+                }
+            }
+        }
+    ]
+}

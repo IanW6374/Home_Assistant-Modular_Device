@@ -28,6 +28,7 @@ from device_modules.base import (
 from device_modules.validation import validate_device_config
 from device_modules.logging import set_log_output
 from web_portal import start_web_portal
+from local_display import LocalDisplayService
 
 try:
     import ntptime
@@ -49,10 +50,14 @@ config['user'] = secrets.mqtt_username
 config['password'] = secrets.mqtt_password
 config['ssl'] = secrets.mqtt_ssl
 
-deviceConfigFile = device_settings.deviceConfigFile
+moduleSettingsFile = getattr(
+    device_settings,
+    'moduleSettingsFile',
+    getattr(device_settings, 'deviceConfigFile', 'module_settings.json')
+)
 
 
-# Device Configuration
+# Module settings
 
 deviceid = hexlify(unique_id()).decode()
 
@@ -81,6 +86,8 @@ web_portal_refresh_ms = getattr(device_settings, 'web_portal_refresh_ms', 5000)
 web_log_lines = getattr(device_settings, 'web_log_lines', 100)
 web_log_line_max = getattr(device_settings, 'web_log_line_max', 300)
 log_buffer = []
+local_display_config = getattr(device_settings, 'local_display', {'enabled': False})
+local_display_service = None
 
 # Device types will be loaded from device modules
 deviceTypes = []
@@ -245,6 +252,104 @@ def web_portal_url():
     )
 
 
+def mqtt_connection_status():
+    try:
+        isconnected = getattr(client, 'isconnected', None)
+        if callable(isconnected):
+            return 'up' if isconnected() else 'down'
+        if isconnected is not None:
+            return 'up' if isconnected else 'down'
+        if getattr(client, 'up', None):
+            return 'up' if client.up.is_set() else 'down'
+    except Exception:
+        pass
+    return 'unknown'
+
+
+def local_display_status():
+    alerts = []
+    if log_buffer:
+        for line in reversed(log_buffer[-10:]):
+            if 'ERROR' in line:
+                alerts.append(line[-64:])
+                if len(alerts) >= 3:
+                    break
+
+    return {
+        'device_name': ha_devicename,
+        'wifi_ip': wifi_ip_address(),
+        'mqtt': mqtt_connection_status(),
+        'config': moduleSettingsFile,
+        'loglevel': get_loglevel(),
+        'web_portal': web_portal_enabled,
+        'alerts': alerts
+    }
+
+
+def local_display_snapshots():
+    snapshots = []
+
+    for device_char in outputDevices:
+        if device_char.get('uuid') == '0000' or 'driver' not in device_char:
+            continue
+
+        device = next((d for d in deviceObjects if d.get('uuid') == device_char.get('uuid')), None)
+        if not device:
+            continue
+
+        try:
+            payload = device_char['driver'].get_state_payload()
+        except Exception as exc:
+            payload = {'error': str(exc)}
+
+        snapshots.append({
+            'name': device.get('name', device_char.get('uuid')),
+            'payload': payload
+        })
+
+    return snapshots
+
+
+def request_homeassistant_discovery():
+    try:
+        asyncio.create_task(homeassistant_discovery())
+        logOutput('Local', 'Display', {'log': 'Requested Home Assistant discovery'}, 'INFO')
+    except Exception as exc:
+        logOutput('Local', 'Display', {'log': 'Discovery request failed - ' + str(exc)}, 'ERROR')
+
+
+def toggle_display_loglevel():
+    next_level = 'DEBUG' if get_loglevel() != 'DEBUG' else 'INFO'
+    set_loglevel(next_level)
+    logOutput('Local', 'Display', {'log': 'Log level set to ' + next_level}, 'INFO')
+
+
+def start_local_display():
+    global local_display_service
+
+    if not local_display_config or not local_display_config.get('enabled'):
+        return
+
+    actions = {
+        'refresh_discovery': request_homeassistant_discovery,
+        'toggle_loglevel': toggle_display_loglevel
+    }
+
+    try:
+        local_display_service = LocalDisplayService(
+            local_display_config,
+            local_display_status,
+            local_display_snapshots,
+            actions,
+            logOutput
+        )
+        if local_display_service.start():
+            logOutput('Local', 'Display', {'log': 'Started local OLED display'}, 'INFO')
+    except Exception as exc:
+        local_display_service = None
+        logOutput('Local', 'Display', {'log': 'Failed to start - ' + str(exc)}, 'ERROR')
+
+
 async def start_admin_portal():
     global web_portal_server
 
@@ -397,9 +502,14 @@ async def homeassistant_discovery():
                 asyncio.create_task(publish_message(data, 0, False, True))
 
             for i in payload_discovery:
+                payload = payload_discovery[i].copy()
+                topic = payload.pop('_topic', None)
+                component = payload.pop('_component', device['type']['class'])
+                if topic is None:
+                    topic = ha_config_topic(component, deviceid, device['uuid'], i)
                 data = {
-                    'payload': payload_discovery[i],
-                    'topic': ha_config_topic(device['type']['class'], deviceid, device['uuid'], i),
+                    'payload': payload,
+                    'topic': topic,
                     'log': 'HA Discovery: ' + device['name']
                 }
                 asyncio.create_task(publish_message(data, 0, False, True))
@@ -567,6 +677,8 @@ def ssl_error_message(exc):
 async def main(client):
     global watchdog
 
+    start_local_display()
+
     try:
         logOutput('MQTT', 'Connect', {'log': 'Connect WiFi before NTP sync'}, 'INFO')
         await client.wifi_connect(quick=True)
@@ -670,22 +782,22 @@ def publish_wrapper(data, qosValue, logOnly):
     except Exception:
         pass
 
-# Import Device Configuration, Validate, Associate GPIO Inputs & Outputs and Initialise
+# Import module settings, validate, associate GPIO inputs/outputs, and initialise
 
 i = 1
 
-logOutput ('Local', 'Device', {'log':'Importing device configuration file: ' + deviceConfigFile}, 'INFO')
+logOutput ('Local', 'Device', {'log':'Importing module settings file: ' + moduleSettingsFile}, 'INFO')
 
-with open(deviceConfigFile, 'rb') as f:
+with open(moduleSettingsFile, 'rb') as f:
 
-    deviceConfig = json.loads(f.read())
+    moduleSettings = json.loads(f.read())
     
-logOutput ('Local', 'Device', {'log':'Imported device configuration file: ' + deviceConfigFile}, 'INFO')
+logOutput ('Local', 'Device', {'log':'Imported module settings file: ' + moduleSettingsFile}, 'INFO')
 
-for validation_error in validate_device_config(deviceConfig, deviceTypes):
+for validation_error in validate_device_config(moduleSettings, deviceTypes):
     logOutput('Local', 'Device validation', {'log': validation_error}, 'ERROR')
         
-for device in deviceConfig['devices']:
+for device in moduleSettings['devices']:
     if deviceValidation(device):
         logOutput('Local', 'Add device', {'log': device['name'] + ' (' + device['type']['class'] + ':' + device['type']['subclass'] + ')'}, 'INFO')
 
