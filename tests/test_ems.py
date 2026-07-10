@@ -144,7 +144,7 @@ class EMSTests(unittest.TestCase):
     def test_example_config_validates(self):
         from device_modules.validation import validate_device_config
 
-        with open('module_settings.ems.example.json', 'rb') as f:
+        with open('examples/module_settings.ems.example.json', 'rb') as f:
             config = json.loads(f.read())
 
         self.assertEqual(validate_device_config(config, [self.ems.DEVICE_TYPE]), [])

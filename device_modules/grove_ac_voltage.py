@@ -12,6 +12,7 @@ try:
     from .base import ha_safe_id
     from .base import ha_unique_id
     from .base import sensor_discovery_payload
+    from .base import homeassistant_origin_info
     from .logging import log_output
 except ImportError:
     from base import DeviceDriver
@@ -19,6 +20,7 @@ except ImportError:
     from base import ha_safe_id
     from base import ha_unique_id
     from base import sensor_discovery_payload
+    from base import homeassistant_origin_info
     from logging import log_output
 import asyncio
 import time
@@ -131,10 +133,13 @@ class GroveACVoltageDriver(DeviceDriver):
         async def measure_loop():
             while True:
                 try:
+                    started = self._ticks_ms()
                     reading = self.read()
                     self._update_entities(reading)
+                    self.mark_read_ok(self._ticks_diff(self._ticks_ms(), started))
                     self.publish_state(publish_callable, deviceid)
                 except Exception as exc:
+                    self.mark_read_error(exc)
                     self._update_key('ac_voltage_error', str(exc))
                     self._log('Read error ' + str(exc), 'ERROR')
 
@@ -160,6 +165,37 @@ class GroveACVoltageDriver(DeviceDriver):
             'adc_min': stats['minimum'],
             'adc_max': stats['maximum'],
             'ac_voltage_error': ''
+        }
+
+    def set(self, payload):
+        if isinstance(payload, dict) and payload.get('operation') == 'calibrate':
+            return self.set_calibration(payload)
+        return None
+
+    def set_calibration(self, payload):
+        try:
+            known_voltage = float(payload.get('known_voltage'))
+        except Exception:
+            return {'ok': False, 'error': 'known_voltage required'}
+
+        state = self.get_state_payload()
+        try:
+            measured_voltage = float(payload.get('measured_voltage', state.get('voltage')))
+        except Exception:
+            measured_voltage = 0
+
+        if measured_voltage <= 0:
+            return {'ok': False, 'error': 'current voltage must be greater than zero'}
+
+        self.calibration = round((self.calibration * known_voltage) / measured_voltage, 6)
+        cfg = self.device.get('ac_voltage', {})
+        cfg['calibration'] = self.calibration
+        self._log('Calibration set to ' + str(self.calibration), 'INFO')
+        return {
+            'ok': True,
+            'calibration': self.calibration,
+            'known_voltage': known_voltage,
+            'measured_voltage': measured_voltage
         }
 
     def _sample_adc(self):
@@ -215,7 +251,8 @@ class GroveACVoltageDriver(DeviceDriver):
             'value_template': "{{ 'ON' if value_json[" + repr(key) + "] else 'OFF' }}",
             'payload_on': 'ON',
             'payload_off': 'OFF',
-            'dev': self.discovery_device_info(deviceid, ha_devicename)
+            'dev': self.discovery_device_info(deviceid, ha_devicename),
+            'o': homeassistant_origin_info()
         }
 
         device_class = entity.get('device_class')
@@ -223,6 +260,8 @@ class GroveACVoltageDriver(DeviceDriver):
             payload['device_class'] = device_class
         if 'entity_category' in entity:
             payload['entity_category'] = entity['entity_category']
+        if entity.get('entity_category') == 'diagnostic':
+            payload['en'] = False
 
         return payload
 
@@ -241,6 +280,16 @@ class GroveACVoltageDriver(DeviceDriver):
             time.sleep_us(us)
         else:
             time.sleep(us / 1000000)
+
+    def _ticks_ms(self):
+        if hasattr(time, 'ticks_ms'):
+            return time.ticks_ms()
+        return int(time.time() * 1000)
+
+    def _ticks_diff(self, end, start):
+        if hasattr(time, 'ticks_diff'):
+            return time.ticks_diff(end, start)
+        return end - start
 
     def _log(self, message, logtype='INFO'):
         if self._log_callable:

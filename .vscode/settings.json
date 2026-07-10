@@ -11,5 +11,20 @@
     ],
     "python.analysis.extraPaths": [
         "~/.micropico-stubs/included"
+    ],
+    "json.schemas": [
+        {
+            "fileMatch": [
+                "/device_settings.json"
+            ],
+            "url": "./device_settings.schema.json"
+        },
+        {
+            "fileMatch": [
+                "/module_settings.json",
+                "/examples/module_settings*.json"
+            ],
+            "url": "./module_settings.schema.json"
+        }
     ]
 }

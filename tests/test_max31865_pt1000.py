@@ -59,6 +59,7 @@ def load_module():
     sys.modules['machine'] = machine
 
     sys.modules.pop('device_modules.max31865_pt1000', None)
+    sys.modules.pop('device_modules.spi_bus', None)
     return importlib.import_module('device_modules.max31865_pt1000')
 
 
@@ -165,10 +166,32 @@ class MAX31865PT1000Tests(unittest.TestCase):
         self.assertIn('spi', device_char)
         self.assertEqual(device_char['cs'].state, 1)
 
+    def test_setup_reuses_matching_spi_bus(self):
+        first = device_config()
+        second = device_config()
+        second['uuid'] = '0002'
+        second['max31865']['cs'] = 6
+
+        first_char = self.module.setup(first, 1)
+        second_char = self.module.setup(second, 2)
+
+        self.assertIs(first_char['spi'], second_char['spi'])
+
+    def test_setup_rejects_conflicting_spi_bus(self):
+        first = device_config()
+        second = device_config()
+        second['uuid'] = '0002'
+        second['max31865'].update({'phase': 0, 'cs': 6})
+
+        self.module.setup(first, 1)
+
+        with self.assertRaisesRegex(RuntimeError, 'different pins or mode'):
+            self.module.setup(second, 2)
+
     def test_example_config_validates(self):
         from device_modules.validation import validate_device_config
 
-        with open('module_settings.max31865_pt1000.example.json', 'rb') as f:
+        with open('examples/module_settings.max31865_pt1000.example.json', 'rb') as f:
             config = json.loads(f.read())
 
         self.assertEqual(validate_device_config(config, [self.module.DEVICE_TYPE]), [])
@@ -177,7 +200,7 @@ class MAX31865PT1000Tests(unittest.TestCase):
         from device_modules import grove_ac_voltage
         from device_modules.validation import validate_device_config
 
-        with open('module_settings.dual_pt1000_voltage_display.example.json', 'rb') as f:
+        with open('examples/module_settings.dual_pt1000_voltage_display.example.json', 'rb') as f:
             config = json.loads(f.read())
 
         errors = validate_device_config(

@@ -86,7 +86,7 @@ class LocalDisplayTests(unittest.TestCase):
             'device_name': 'Boiler Pico',
             'wifi_ip': '192.168.1.50',
             'mqtt': 'up',
-            'config': 'module_settings.ems.example.json',
+            'config': 'examples/module_settings.ems.example.json',
             'loglevel': 'INFO',
             'web_portal': True
         })

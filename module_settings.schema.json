@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Home Assistant Modular Device module settings",
+  "type": "object",
+  "required": ["devices"],
+  "properties": {
+    "_comment": {
+      "type": "string"
+    },
+    "devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "uuid", "type", "entities"],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "uuid": {
+            "type": "string",
+            "pattern": "^[0-9A-Fa-f]{4}$"
+          },
+          "pollinterval": {
+            "type": "number",
+            "minimum": 0
+          },
+          "retain_state": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "object",
+            "required": ["class", "subclass"],
+            "properties": {
+              "class": {
+                "type": "string"
+              },
+              "subclass": {
+                "type": "string"
+              }
+            }
+          },
+          "entities": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["class"],
+              "properties": {
+                "class": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "value": {},
+                "unit": {
+                  "type": "string"
+                },
+                "state_class": {
+                  "type": "string"
+                },
+                "entity_category": {
+                  "type": "string"
+                },
+                "component": {
+                  "type": "string"
+                },
+                "device_class": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

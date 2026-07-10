@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Home Assistant Modular Device firmware settings",
+  "type": "object",
+  "required": ["device"],
+  "properties": {
+    "device": {
+      "type": "object",
+      "required": ["name", "module_settings_file", "ca_cert_path"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "module_settings_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ca_cert_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "loglevel": {
+          "type": "string",
+          "enum": ["ERROR", "INFO", "DEBUG"]
+        },
+        "watchdog_timeout_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388
+        },
+        "ntp_servers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ha": {
+      "type": "object",
+      "properties": {
+        "discovery": {
+          "type": "boolean"
+        },
+        "discovery_cleanup_legacy_identity": {
+          "type": "boolean"
+        },
+        "discovery_cleanup_legacy": {
+          "type": "boolean"
+        },
+        "discovery_cleanup_legacy_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "system_diagnostics": {
+          "type": "boolean"
+        },
+        "device_info": {
+          "type": "object",
+          "properties": {
+            "mf": {
+              "type": "string"
+            },
+            "mdl": {
+              "type": "string"
+            },
+            "sw": {
+              "type": "string"
+            },
+            "sw_version": {
+              "type": "string"
+            },
+            "hw": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": {
+            "type": ["string", "number", "boolean", "null"]
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "web_portal": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "https": {
+          "type": "boolean"
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "cert_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "key_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refresh_ms": {
+          "type": "integer",
+          "minimum": 250
+        },
+        "log_lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "log_line_max": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "local_display": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "type": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "spi": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sck": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mosi": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dc": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rst": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refresh_ms": {
+          "type": "integer",
+          "minimum": 250
+        },
+        "button_a": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "button_b": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "button_a_short": {
+          "type": "string"
+        },
+        "button_a_long": {
+          "type": "string"
+        },
+        "button_b_short": {
+          "type": "string"
+        },
+        "button_b_long": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

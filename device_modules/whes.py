@@ -207,12 +207,14 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
         self._update_energy_totals(values)
         self._add_energy_values(values)
         payload = self._presentation_payload(values)
+        self.mark_publish()
+        payload.update(self.health_state_payload())
         data = {
             'payload': payload,
             'topic': ha_state_topic('sensor', deviceid, self.device['uuid']),
             'log': 'HA Update: ' + self.device['name']
         }
-        publish_callable(data, 0, False)
+        publish_callable(data, 0, False, bool(self.device.get('retain_state', False)))
 
     def _source_values(self):
         values = {}

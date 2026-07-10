@@ -118,6 +118,15 @@ class GroveACVoltageTests(unittest.TestCase):
         self.assertTrue(payload['ac_present'])
         self.assertEqual(payload['adc_rms'], 1000)
 
+    def test_runtime_calibration_uses_current_voltage(self):
+        self.driver._update_entities({'voltage': 50})
+
+        result = self.driver.set_calibration({'known_voltage': '100'})
+
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['calibration'], 2000)
+        self.assertEqual(self.driver.device['ac_voltage']['calibration'], 2000)
+
     def test_binary_discovery_uses_binary_sensor_component(self):
         discovery, _ = self.driver.get_discovery_payloads('abc', 'Voltage Pico')
 
@@ -130,7 +139,7 @@ class GroveACVoltageTests(unittest.TestCase):
     def test_example_config_validates(self):
         from device_modules.validation import validate_device_config
 
-        with open('module_settings.grove_ac_voltage.example.json', 'rb') as f:
+        with open('examples/module_settings.grove_ac_voltage.example.json', 'rb') as f:
             config = json.loads(f.read())
 
         self.assertEqual(validate_device_config(config, [self.module.DEVICE_TYPE]), [])

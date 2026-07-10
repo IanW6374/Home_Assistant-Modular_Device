@@ -4,10 +4,10 @@ MicroPython firmware for a Raspberry Pi Pico W that exposes modular devices to
 Home Assistant over MQTT. Modules are described in `module_settings.json`,
 discovered at boot, and handled by small driver modules in `device_modules/`.
 
-The current checked-in `module_settings.json` includes a WHES single-phase inverter
-driver over RS485/Modbus RTU. Additional example configs show standalone Pico
-devices for EMS boiler monitoring, PT1000 temperature sensing, and AC voltage
-presence/measurement.
+The checked-in `module_settings.json` is the active device configuration for a
+target Pico. Additional example configs in `examples/` show standalone Pico
+devices for WHES inverter monitoring, EMS boiler monitoring, PT1000 temperature
+sensing, and AC voltage presence/measurement.
 
 ## Features
 
@@ -21,6 +21,9 @@ presence/measurement.
 - Grove MCP6002 AC voltage sensor over ADC, with optional threshold binary
   sensor.
 - Optional local Waveshare Pico-OLED-1.3 status display.
+- Lightweight web dashboard with logs, module health, discovery trigger, and
+  Grove AC voltage calibration.
+- MQTT availability and diagnostic health entities for easier field debugging.
 
 ## Repository Layout
 
@@ -28,20 +31,26 @@ presence/measurement.
 main.py                         Boot entry point, executes HA-Device.py
 HA-Device.py                    WiFi, MQTT, discovery, and device orchestration
 module_settings.json            Module and register configuration
-device_settings.py              Local firmware settings
+device_settings.json            Local firmware settings
+settings_loader.py              Required JSON settings loader and validator
 local_display.py                Optional SH1107 OLED status display service
-module_settings.ems.example.json EMS boiler example configuration
-module_settings.max31865_pt1000.example.json PT1000/MAX31865 example configuration
-module_settings.grove_ac_voltage.example.json Grove AC voltage example configuration
-module_settings.dual_pt1000_voltage_display.example.json Combined PT1000/voltage/display example
+examples/                       Example module settings and credential templates
+examples/module_settings.whes.example.json WHES inverter example configuration
+examples/module_settings.ems.example.json EMS boiler example configuration
+examples/module_settings.max31865_pt1000.example.json PT1000/MAX31865 example configuration
+examples/module_settings.grove_ac_voltage.example.json Grove AC voltage example configuration
+examples/module_settings.dual_pt1000_voltage_display.example.json Combined PT1000/voltage/display example
 secrets.py                      WiFi and MQTT credentials, not suitable for commits
-secrets.example.py              Template for local credentials
+examples/secrets.example.py     Template for local credentials
 device_modules/                 Device driver modules
 device_modules/whes.py          WHES inverter presentation/calculation driver
 device_modules/pico_2ch_rs485.py Generic RS485 Modbus driver
 device_modules/ems.py           Read-only EMS boiler monitor
 device_modules/max31865_pt1000.py MAX31865 PT1000 RTD driver
 device_modules/grove_ac_voltage.py Grove AC voltage ADC driver
+device_settings.schema.json     Host-side JSON schema for firmware settings
+module_settings.schema.json     Host-side JSON schema for module settings
+tools/deploy.py                 Host-side helper for copying files to a Pico
 tests/                          Host-side unit tests
 lib/                            MicroPython support libraries
 ```
@@ -64,46 +73,44 @@ mqtt_ssl = True
 web_portal_token = "replace-with-a-long-random-url-safe-token"
 ```
 
-### `device_settings.py`
+### `device_settings.json`
 
-`device_settings.py` selects the module settings file, certificate path, Home
-Assistant discovery behavior, and NTP servers:
+`device_settings.json` is required. The firmware stops at startup if this file
+is missing, is not valid JSON, or does not contain the required settings. It
+selects the module settings file, certificate path, Home Assistant discovery
+behavior, and NTP servers:
 
-```python
-moduleSettingsFile = "module_settings.json"
-ca_cert_path = "/certs/home-ca.der"
-ha_discovery = True
-ha_devicename = "Test1"
-ntp_servers = (
-    "pool.ntp.org",
-    "time.google.com",
-)
-loglevel = "INFO"
-watchdog_timeout_ms = 0
-web_portal_enabled = False
-web_portal_https = False
-web_portal_port = None
-web_portal_cert_path = "/certs/web.crt.der"
-web_portal_key_path = "/certs/web.key.der"
-web_portal_refresh_ms = 5000
-local_display = {
-    "enabled": False,
-    "type": "Waveshare-Pico-OLED-1.3",
-    "width": 128,
-    "height": 64,
-    "spi": 1,
-    "sck": 10,
-    "mosi": 11,
-    "cs": 9,
-    "dc": 8,
-    "rst": 12,
-    "refresh_ms": 1000,
-    "button_a": 15,
-    "button_b": 17,
-    "button_a_short": "next_page",
-    "button_a_long": "refresh_discovery",
-    "button_b_short": "previous_page",
-    "button_b_long": "toggle_loglevel",
+```json
+{
+  "device": {
+    "name": "Test1",
+    "module_settings_file": "module_settings.json",
+    "ca_cert_path": "/certs/home-ca.der",
+    "loglevel": "INFO",
+    "watchdog_timeout_ms": 0,
+    "ntp_servers": [
+      "pool.ntp.org",
+      "time.google.com"
+    ]
+  },
+  "ha": {
+    "discovery": true,
+    "discovery_cleanup_legacy_identity": false,
+    "discovery_cleanup_legacy": false,
+    "system_diagnostics": true,
+    "device_info": {
+      "mf": "Home",
+      "mdl": "PicoW",
+      "sw": "1.3-beta",
+      "hw": "1.0"
+    }
+  },
+  "web_portal": {
+    "enabled": false
+  },
+  "local_display": {
+    "enabled": false
+  }
 }
 ```
 
@@ -112,11 +119,13 @@ Pico. Set `watchdog_timeout_ms` to a positive value up to `8000` to enable the
 Pico hardware watchdog after MQTT connects; the RP2040 hardware limit is about
 `8388` ms. Leave it as `0` while developing over USB/REPL.
 
-### Web Log Portal
+### Web Portal
 
-The optional web portal exposes recent firmware logs and lets you change the
-runtime debug level remotely. It is disabled by default. To enable it, set
-`web_portal_enabled = True` and add `web_portal_token` to `secrets.py`. The
+The optional web portal exposes device status, loaded modules, module health,
+recent values, runtime log level, recent firmware logs, Home Assistant discovery
+triggering, and Grove AC voltage calibration. It is disabled by default. To
+enable it, set
+`"web_portal": {"enabled": true}` and add `web_portal_token` to `secrets.py`. The
 portal binds to all network interfaces by default and logs the actual WiFi IP
 address after startup.
 
@@ -126,16 +135,21 @@ Open the portal with:
 http://<pico-ip>:8080/?token=<web_portal_token>
 ```
 
-When `web_portal_port = None`, the firmware uses `8080` for HTTP and `8443`
-for HTTPS. Set `web_portal_port` to an integer only when you want a custom
+When `"web_portal": {"port": null}`, the firmware uses `8080` for HTTP and `8443`
+for HTTPS. Set `web_portal.port` to an integer only when you want a custom
 port.
 
 The portal accepts `ERROR`, `INFO`, and `DEBUG` log levels. Changes are runtime
-only and are not written back to `device_settings.py`, so rebooting restores the
+only and are not written back to `device_settings.json`, so rebooting restores the
 configured default. `DEBUG` also enables MQTT topic/payload logging and
 `mqtt_as` client debug output. The log pane refreshes automatically using
-`web_portal_refresh_ms` and remains scrollable so earlier buffered log events can
+`web_portal.refresh_ms` and remains scrollable so earlier buffered log events can
 be reviewed.
+
+For Grove AC voltage calibration, enter a known meter voltage in the portal.
+The firmware updates the in-memory calibration multiplier and reports the new
+value. Copy that value back to `module_settings.json` when you want it to
+survive a reboot.
 
 The portal defaults to HTTP because server-side TLS exhausted heap during Pico W
 testing. If HTTPS is required on Pico W hardware, terminate TLS on a reverse
@@ -145,13 +159,18 @@ portal on the trusted LAN.
 #### Pico 2 W HTTPS
 
 HTTPS has been tested successfully on Raspberry Pi Pico 2 W. Enable it in
-`device_settings.py`:
+`device_settings.json`:
 
-```python
-web_portal_https = True
-web_portal_port = None
-web_portal_cert_path = "/certs/web.crt.der"
-web_portal_key_path = "/certs/web.key.der"
+```json
+{
+  "web_portal": {
+    "enabled": true,
+    "https": true,
+    "port": null,
+    "cert_path": "/certs/web.crt.der",
+    "key_path": "/certs/web.key.der"
+  }
+}
 ```
 
 Create a small self-signed certificate and convert the files to DER:
@@ -173,10 +192,14 @@ when a browser connects, use HTTP mode or terminate HTTPS on a reverse proxy.
 
 `local_display.py` adds an optional status display for Waveshare Pico-OLED-1.3
 style SH1107 modules. It is disabled by default; enable it in
-`device_settings.py` by setting:
+`device_settings.json` by setting:
 
-```python
-local_display["enabled"] = True
+```json
+{
+  "local_display": {
+    "enabled": true
+  }
+}
 ```
 
 The default SPI and button pins match the Waveshare Pico-OLED-1.3 examples:
@@ -192,37 +215,55 @@ The default SPI and button pins match the Waveshare Pico-OLED-1.3 examples:
 | Key1 / button B | GP17 |
 
 When enabled, the display shows WiFi/MQTT status, the active config file, log
-level, web portal state, recent error alerts, and current device payload values.
-Short and long presses can page through screens, request Home Assistant
-discovery, or toggle the runtime log level.
+level, web portal state, uptime, last discovery count, recent error alerts,
+current device payload values, and module health fields. Short and long presses
+can page through screens, request Home Assistant discovery, or toggle the
+runtime log level.
 
 ### Module Settings Files
 
-`device_settings.py` points at the active module settings file through
-`moduleSettingsFile`. The default remains:
+`device_settings.json` points at the active module settings file through
+`device.module_settings_file`. The default remains:
 
-```python
-moduleSettingsFile = "module_settings.json"
+```json
+{
+  "device": {
+    "module_settings_file": "module_settings.json"
+  }
+}
 ```
+
+The selected module settings file is also required. The firmware stops at
+startup if it is missing, is not valid JSON, or fails module validation.
 
 The repo includes separate example configs for standalone Pico devices:
 
 | File | Sensor subclass | Purpose |
 | --- | --- | --- |
-| `module_settings.json` | `WHES` | Current WHES inverter RS485/Modbus setup |
-| `module_settings.ems.example.json` | `EMS-Boiler` | Worcester/Bosch EMS boiler broadcast monitor |
-| `module_settings.max31865_pt1000.example.json` | `MAX31865-PT1000` | PT1000 RTD probe through a MAX31865 amplifier |
-| `module_settings.grove_ac_voltage.example.json` | `Grove-AC-Voltage` | Grove MCP6002 AC voltage measurement and optional AC-present binary sensor |
-| `module_settings.dual_pt1000_voltage_display.example.json` | `MAX31865-PT1000`, `Grove-AC-Voltage` | Two PT1000 probes plus Grove AC voltage, intended for use with the local OLED display |
+| `examples/module_settings.whes.example.json` | `WHES` | WHES inverter RS485/Modbus setup |
+| `examples/module_settings.ems.example.json` | `EMS-Boiler` | Worcester/Bosch EMS boiler broadcast monitor |
+| `examples/module_settings.max31865_pt1000.example.json` | `MAX31865-PT1000` | PT1000 RTD probe through a MAX31865 amplifier |
+| `examples/module_settings.grove_ac_voltage.example.json` | `Grove-AC-Voltage` | Grove MCP6002 AC voltage measurement and optional AC-present binary sensor |
+| `examples/module_settings.dual_pt1000_voltage_display.example.json` | `MAX31865-PT1000`, `Grove-AC-Voltage` | Two PT1000 probes plus Grove AC voltage, intended for use with the local OLED display |
 
-Copy one of the example files or point `moduleSettingsFile` at it on the target
+Copy one of the example files or point `device.module_settings_file` at it on the target
 Pico. Each example assumes a dedicated Pico for that hardware role.
+
+Add `"retain_state": true` to a module if you want its state payload retained
+by MQTT. This is useful for slow-changing values after a Home Assistant restart,
+but it is intentionally opt-in.
 
 For the combined PT1000/voltage/display example, set:
 
-```python
-moduleSettingsFile = "module_settings.dual_pt1000_voltage_display.example.json"
-local_display["enabled"] = True
+```json
+{
+  "device": {
+    "module_settings_file": "examples/module_settings.dual_pt1000_voltage_display.example.json"
+  },
+  "local_display": {
+    "enabled": true
+  }
+}
 ```
 
 It allocates GPIOs this way:
@@ -363,7 +404,7 @@ values only after EMS CRC validation. It does not acknowledge polls, fetch
 telegrams, or write settings, so it is intentionally a monitor-only first
 implementation.
 
-The example [module_settings.ems.example.json](module_settings.ems.example.json) uses UART0 on
+The example [examples/module_settings.ems.example.json](examples/module_settings.ems.example.json) uses UART0 on
 GP0/GP1 at 9600 baud and includes common Greenstar 8000-style entities such as:
 
 - heating and tap-water active flags
@@ -380,7 +421,7 @@ for the Adafruit MAX31865 RTD amplifier and a PT1000 probe. It reads the
 MAX31865 over SPI and converts measured RTD resistance to temperature using the
 Callendar-Van Dusen curve.
 
-The example [module_settings.max31865_pt1000.example.json](module_settings.max31865_pt1000.example.json)
+The example [examples/module_settings.max31865_pt1000.example.json](examples/module_settings.max31865_pt1000.example.json)
 uses SPI0 with these default pins:
 
 | Signal | Pico GPIO |
@@ -412,7 +453,7 @@ board outputs a biased analogue AC waveform; the Pico samples it with ADC,
 removes the DC midpoint, calculates RMS, and applies a configurable calibration
 multiplier.
 
-The example [module_settings.grove_ac_voltage.example.json](module_settings.grove_ac_voltage.example.json)
+The example [examples/module_settings.grove_ac_voltage.example.json](examples/module_settings.grove_ac_voltage.example.json)
 uses GP26/ADC0 and is aimed at typical 240V AC monitoring. It publishes:
 
 - `voltage`, a calibrated RMS voltage sensor
@@ -430,11 +471,17 @@ Threshold behavior is configured under `ac_voltage`:
 Remove the `ac_present` entity from the example config if you only want the
 voltage sensor. The example includes a `_comment` field explaining calibration:
 compare the published value with a known meter reading at 240V AC and adjust
-`calibration` until the MQTT value matches reality.
+`calibration` until the MQTT value matches reality. The web portal can calculate
+this runtime calibration multiplier from the current reading and a known meter
+voltage.
 
 ## MQTT Topics
 
-The Pico derives its MQTT device id from `machine.unique_id()`.
+The Pico derives its raw hardware id from `machine.unique_id()`. The Home
+Assistant/MQTT device id combines that raw id with the safe form of
+`device.name` from `device_settings.json`, for example
+`fb1bd968b107ea19_htw`. This keeps entities separate when the same Pico is
+reconfigured as a different logical device name.
 
 State is published to:
 
@@ -456,9 +503,30 @@ homeassistant/binary_sensor/<deviceid><uuid>_<entity_id>/config
 ```
 
 For WHES, `<entity_id>` is based on the published key, such as `pv_p`,
-`grid_import_e`, or `rs485_last_latency_ms`. The firmware publishes empty
-retained payloads for the old numeric discovery topics so Home Assistant can
-remove stale entities from earlier firmware versions.
+`grid_import_e`, or `rs485_last_latency_ms`. When migrating from firmware that
+used only the raw Pico hardware id in discovery topics, set
+`"ha": {"discovery_cleanup_legacy_identity": true}` so the firmware publishes
+empty retained payloads for matching hardware-only config topics and Home
+Assistant can remove stale entities. It can also publish empty retained payloads
+for the old numeric discovery topics from earlier firmware versions when
+`"ha": {"discovery_cleanup_legacy": true}`. Both cleanup options are disabled by
+default to avoid unnecessary retained cleanup publishes after migration.
+
+Availability is published to:
+
+```text
+homeassistant/status/<deviceid>/availability
+```
+
+Discovery payloads reference that topic and the firmware sets an MQTT last will
+of `offline`; it publishes `online` after connecting.
+
+When `"ha": {"system_diagnostics": true}`, the firmware also publishes diagnostic
+entities for firmware version, active module settings file, loaded module count,
+WiFi IP, uptime, and the last Home Assistant discovery payload count. Each
+driver publishes module health diagnostics such as `module_last_ok`,
+`module_last_error`, `module_last_read_ms`, `module_last_publish_age_s`, and
+`module_consecutive_errors`.
 
 Devices that support command/set handling subscribe to:
 
@@ -520,11 +588,19 @@ Copy the project files to the Pico filesystem, including:
 - `main.py`
 - `HA-Device.py`
 - `module_settings.json`
-- `device_settings.py`
+- `device_settings.json`
+- `settings_loader.py`
 - `secrets.py`
 - `device_modules/`
 - `lib/`
 - any configured TLS certificate files
+
+If the Pico filesystem is mounted on the host, the helper below copies the
+runtime files and avoids caches/macOS metadata:
+
+```sh
+python3 tools/deploy.py /path/to/pico-mount
+```
 
 On boot, `main.py` runs `HA-Device.py`, connects WiFi/MQTT, loads device modules,
 subscribes to relevant topics, publishes Home Assistant discovery payloads, and
@@ -532,8 +608,8 @@ starts each sensor driver.
 
 ## V1 Deployment Checklist
 
-- Set `watchdog_timeout_ms = 0` while flashing or debugging over USB/REPL.
-- Set `watchdog_timeout_ms = 8000` for deployment.
+- Set `"device": {"watchdog_timeout_ms": 0}` while flashing or debugging over USB/REPL.
+- Set `"device": {"watchdog_timeout_ms": 8000}` for deployment.
 - Let the device connect to MQTT and publish Home Assistant discovery once.
 - Confirm Home Assistant shows these WHES entities:
   `serial_number`, `PV_p`, `battery_p`, `grid_p`, `home_p`, `battery_soc`,
@@ -552,8 +628,14 @@ python3 -m unittest discover -s tests
 
 The tests cover WHES presentation calculations, rounded daily energy values,
 EMS telegram decoding, MAX31865 PT1000 conversion, Grove AC voltage RMS and
-threshold behavior, local display rendering/actions, Home Assistant topic
-helpers, and config validation.
+threshold behavior/calibration, local display rendering/actions, Home Assistant
+topic/discovery helpers, web portal rendering, shared SPI handling, and config
+validation.
+
+`device_settings.schema.json` and `module_settings.schema.json` can be
+associated with `device_settings.json`, `module_settings.json`, and
+`examples/module_settings*.json` in your editor for lightweight host-side
+validation.
 
 ## Adding a Device Module
 

@@ -1,0 +1,177 @@
+import json
+
+
+DEVICE_SETTINGS_FILE = 'device_settings.json'
+
+
+def load_required_json(filename):
+    try:
+        with open(filename, 'rb') as settings_file:
+            data = json.loads(settings_file.read())
+    except OSError as exc:
+        raise RuntimeError('Required JSON settings file not found: ' + filename + ' - ' + str(exc))
+    except ValueError as exc:
+        raise RuntimeError('Invalid JSON in settings file: ' + filename + ' - ' + str(exc))
+
+    if not isinstance(data, dict):
+        raise RuntimeError('Invalid JSON settings file: ' + filename + ' must contain a JSON object')
+
+    return data
+
+
+def _section(config, key, required=False):
+    if key not in config:
+        if required:
+            raise RuntimeError('Invalid device_settings.json: missing ' + key)
+        return {}
+    section = config[key]
+    if not isinstance(section, dict):
+        raise RuntimeError('Invalid device_settings.json: ' + key + ' must be dict')
+    return section
+
+
+def _reject_unknown(config, allowed, path):
+    for key in config:
+        if key not in allowed:
+            raise RuntimeError('Invalid device_settings.json: unknown ' + path + '.' + str(key))
+
+
+def _require(config, key, expected_type, path):
+    if key not in config:
+        raise RuntimeError('Invalid device_settings.json: missing ' + path)
+    _validate_type(config, key, expected_type, path)
+    return config[key]
+
+
+def _optional(config, key, expected_type, default, path):
+    if key not in config:
+        return default
+    _validate_type(config, key, expected_type, path)
+    return config[key]
+
+
+def _validate_type(config, key, expected_type, path):
+    value = config[key]
+    if not _matches_type(value, expected_type):
+        raise RuntimeError(
+            'Invalid device_settings.json: ' + path +
+            ' must be ' + _type_label(expected_type)
+        )
+
+
+def _matches_type(value, expected_type):
+    if isinstance(expected_type, tuple):
+        for item in expected_type:
+            if _matches_type(value, item):
+                return True
+        return False
+    if expected_type is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    return isinstance(value, expected_type)
+
+
+def _type_label(expected_type):
+    if isinstance(expected_type, tuple):
+        labels = []
+        for item in expected_type:
+            labels.append(_type_label(item))
+        return ' or '.join(labels)
+    if expected_type is type(None):
+        return 'null'
+    return expected_type.__name__
+
+
+def _validate_ntp_servers(value):
+    if not isinstance(value, list) or not value:
+        raise RuntimeError('Invalid device_settings.json: device.ntp_servers must be a non-empty list')
+    for server in value:
+        if not isinstance(server, str) or not server:
+            raise RuntimeError('Invalid device_settings.json: device.ntp_servers entries must be non-empty strings')
+
+
+def _validate_loglevel(value):
+    if value not in ('ERROR', 'INFO', 'DEBUG'):
+        raise RuntimeError('Invalid device_settings.json: device.loglevel must be ERROR, INFO, or DEBUG')
+
+
+_settings = load_required_json(DEVICE_SETTINGS_FILE)
+_reject_unknown(_settings, ('device', 'ha', 'web_portal', 'local_display'), 'section')
+_device = _section(_settings, 'device', True)
+_ha = _section(_settings, 'ha')
+_web_portal = _section(_settings, 'web_portal')
+local_display = _section(_settings, 'local_display')
+
+_reject_unknown(_device, (
+    'name',
+    'module_settings_file',
+    'ca_cert_path',
+    'loglevel',
+    'watchdog_timeout_ms',
+    'ntp_servers'
+), 'device')
+_reject_unknown(_ha, (
+    'discovery',
+    'discovery_cleanup_legacy_identity',
+    'discovery_cleanup_legacy',
+    'discovery_cleanup_legacy_count',
+    'system_diagnostics',
+    'device_info'
+), 'ha')
+_reject_unknown(_web_portal, (
+    'enabled',
+    'https',
+    'host',
+    'port',
+    'cert_path',
+    'key_path',
+    'refresh_ms',
+    'log_lines',
+    'log_line_max'
+), 'web_portal')
+_reject_unknown(local_display, (
+    'enabled',
+    'type',
+    'width',
+    'height',
+    'spi',
+    'sck',
+    'mosi',
+    'cs',
+    'dc',
+    'rst',
+    'refresh_ms',
+    'button_a',
+    'button_b',
+    'button_a_short',
+    'button_a_long',
+    'button_b_short',
+    'button_b_long'
+), 'local_display')
+
+module_settings_file = _require(_device, 'module_settings_file', str, 'device.module_settings_file')
+ca_cert_path = _require(_device, 'ca_cert_path', str, 'device.ca_cert_path')
+ha_device_name = _require(_device, 'name', str, 'device.name')
+
+ntp_servers = _optional(_device, 'ntp_servers', list, ['pool.ntp.org'], 'device.ntp_servers')
+_validate_ntp_servers(ntp_servers)
+
+ha_device_info = _optional(_ha, 'device_info', dict, {}, 'ha.device_info')
+loglevel = _optional(_device, 'loglevel', str, 'INFO', 'device.loglevel')
+_validate_loglevel(loglevel)
+watchdog_timeout_ms = _optional(_device, 'watchdog_timeout_ms', int, 0, 'device.watchdog_timeout_ms')
+
+ha_discovery = _optional(_ha, 'discovery', bool, False, 'ha.discovery')
+ha_discovery_cleanup_legacy_identity = _optional(_ha, 'discovery_cleanup_legacy_identity', bool, False, 'ha.discovery_cleanup_legacy_identity')
+ha_discovery_cleanup_legacy = _optional(_ha, 'discovery_cleanup_legacy', bool, False, 'ha.discovery_cleanup_legacy')
+ha_discovery_cleanup_legacy_count = _optional(_ha, 'discovery_cleanup_legacy_count', int, 64, 'ha.discovery_cleanup_legacy_count')
+ha_system_diagnostics = _optional(_ha, 'system_diagnostics', bool, False, 'ha.system_diagnostics')
+
+web_portal_enabled = _optional(_web_portal, 'enabled', bool, False, 'web_portal.enabled')
+web_portal_https = _optional(_web_portal, 'https', bool, False, 'web_portal.https')
+web_portal_host = _optional(_web_portal, 'host', str, '0.0.0.0', 'web_portal.host')
+web_portal_port = _optional(_web_portal, 'port', (int, type(None)), None, 'web_portal.port')
+web_portal_cert_path = _optional(_web_portal, 'cert_path', str, '/certs/web.crt.der', 'web_portal.cert_path')
+web_portal_key_path = _optional(_web_portal, 'key_path', str, '/certs/web.key.der', 'web_portal.key_path')
+web_portal_refresh_ms = _optional(_web_portal, 'refresh_ms', int, 5000, 'web_portal.refresh_ms')
+web_log_lines = _optional(_web_portal, 'log_lines', int, 100, 'web_portal.log_lines')
+web_log_line_max = _optional(_web_portal, 'log_line_max', int, 300, 'web_portal.log_line_max')

@@ -1,11 +1,15 @@
 import unittest
 
+import device_modules.base as base
 from device_modules.base import ha_config_topic
+from device_modules.base import ha_availability_topic
 from device_modules.base import ha_response_topic
 from device_modules.base import ha_safe_id
 from device_modules.base import ha_set_topic
 from device_modules.base import ha_state_topic
 from device_modules.base import ha_unique_id
+from device_modules.base import sensor_discovery_payload
+from device_modules.base import DeviceDriver
 from device_modules.base import homeassistant_device_info
 from device_modules.validation import validate_device_config
 
@@ -44,18 +48,86 @@ class HelperTests(unittest.TestCase):
             ha_response_topic('sensor', 'abc', '0001'),
             'homeassistant/sensor/abc0001/response'
         )
+        self.assertEqual(
+            ha_availability_topic('abc'),
+            'homeassistant/status/abc/availability'
+        )
 
     def test_home_assistant_safe_ids(self):
         self.assertEqual(ha_safe_id('PowerLimitByBMSDisChg'), 'powerlimitbybmsdischg')
         self.assertEqual(ha_safe_id('grid import e'), 'grid_import_e')
+        self.assertEqual(ha_safe_id('AC Present?'), 'ac_present')
         self.assertEqual(ha_unique_id('abc', '0001', 'grid_import_e'), 'abc0001_grid_import_e')
 
     def test_home_assistant_device_info_uses_configured_name_and_pico_serial(self):
         info = homeassistant_device_info('abc123', 'Configured Device')
 
         self.assertEqual(info['name'], 'Configured Device')
-        self.assertEqual(info['identifiers'], ['Configured Device'])
+        self.assertEqual(info['ids'], ['abc123'])
         self.assertEqual(info['sn'], 'abc123')
+
+    def test_sensor_discovery_includes_availability_and_origin(self):
+        payload = sensor_discovery_payload(
+            {
+                'name': 'Probe',
+                'uuid': '0001',
+                'type': {'class': 'sensor'},
+                '_portal_url': 'http://192.168.1.50:8080/?token=abc'
+            },
+            {'class': 'temperature', 'key': 'temperature'},
+            'temperature',
+            '0',
+            'abc',
+            'Device'
+        )
+
+        self.assertEqual(payload['availability_topic'], 'homeassistant/status/abc/availability')
+        self.assertEqual(payload['payload_available'], 'online')
+        self.assertEqual(payload['payload_not_available'], 'offline')
+        self.assertEqual(payload['dev']['cu'], 'http://192.168.1.50:8080/?token=abc')
+        self.assertIn('o', payload)
+
+    def test_sensor_discovery_disables_diagnostics_by_default(self):
+        payload = sensor_discovery_payload(
+            {'name': 'Probe', 'uuid': '0001', 'type': {'class': 'sensor'}},
+            {'class': 'memory_value', 'entity_category': 'diagnostic'},
+            'module_last_error',
+            '0',
+            'abc',
+            'Device'
+        )
+
+        self.assertEqual(payload['entity_category'], 'diagnostic')
+        self.assertFalse(payload['en'])
+        self.assertNotIn('enabled_by_default', payload)
+        self.assertNotIn('entity_registry_enabled_default', payload)
+
+    def test_sensor_discovery_keeps_measurements_enabled_by_default(self):
+        payload = sensor_discovery_payload(
+            {'name': 'Probe', 'uuid': '0001', 'type': {'class': 'sensor'}},
+            {'class': 'temperature', 'key': 'temperature'},
+            'temperature',
+            '0',
+            'abc',
+            'Device'
+        )
+
+        self.assertNotIn('en', payload)
+        self.assertNotIn('enabled_by_default', payload)
+        self.assertNotIn('entity_registry_enabled_default', payload)
+
+    def test_discovery_cleanup_disabled_by_default(self):
+        driver = DeviceDriver(
+            {'name': 'Probe', 'uuid': '0001', 'type': {'class': 'sensor'}},
+            {}
+        )
+
+        original = base.device_settings.ha_discovery_cleanup_legacy
+        try:
+            base.device_settings.ha_discovery_cleanup_legacy = False
+            self.assertEqual(driver.discovery_cleanup_topics('abc', ['temperature']), [])
+        finally:
+            base.device_settings.ha_discovery_cleanup_legacy = original
 
     def test_config_validation_accepts_current_shape(self):
         config = {

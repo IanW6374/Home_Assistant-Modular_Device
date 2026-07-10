@@ -11,11 +11,13 @@ try:
     from .base import ha_safe_id
     from .base import sensor_discovery_payload
     from .logging import log_output
+    from .spi_bus import get_spi
 except ImportError:
     from base import DeviceDriver
     from base import ha_safe_id
     from base import sensor_discovery_payload
     from logging import log_output
+    from spi_bus import get_spi
 import asyncio
 
 
@@ -68,25 +70,19 @@ def supports(device):
     )
 
 
-def _as_pin(value):
-    if value is None:
-        return None
-    return Pin(value)
-
-
 def setup(device, index):
     cfg = device.get('max31865', {})
-    spi = SPI(
-        cfg.get('spi', DEFAULT_SPI),
-        baudrate=cfg.get('baudrate', DEFAULT_BAUDRATE),
-        polarity=0,
-        phase=1,
-        bits=8,
-        firstbit=SPI.MSB,
-        sck=_as_pin(cfg.get('sck', DEFAULT_SCK)),
-        mosi=_as_pin(cfg.get('mosi', DEFAULT_MOSI)),
-        miso=_as_pin(cfg.get('miso', DEFAULT_MISO))
-    )
+    spi = get_spi(cfg, {
+        'spi': DEFAULT_SPI,
+        'baudrate': DEFAULT_BAUDRATE,
+        'polarity': 0,
+        'phase': 1,
+        'bits': 8,
+        'firstbit': SPI.MSB,
+        'sck': DEFAULT_SCK,
+        'mosi': DEFAULT_MOSI,
+        'miso': DEFAULT_MISO
+    })
     cs = Pin(cfg.get('cs', DEFAULT_CS), Pin.OUT)
     cs.value(1)
 
@@ -148,10 +144,13 @@ class MAX31865PT1000Driver(DeviceDriver):
             self._configure()
             while True:
                 try:
+                    started = self._ticks_ms()
                     reading = self.read()
                     self._update_entities(reading)
+                    self.mark_read_ok(self._ticks_diff(self._ticks_ms(), started))
                     self.publish_state(publish_callable, deviceid)
                 except Exception as exc:
+                    self.mark_read_error(exc)
                     self._update_key('fault', str(exc))
                     self._log('Read error ' + str(exc), 'ERROR')
 
@@ -300,6 +299,24 @@ class MAX31865PT1000Driver(DeviceDriver):
                 time.sleep(ms / 1000)
         except Exception:
             pass
+
+    def _ticks_ms(self):
+        try:
+            import time
+            if hasattr(time, 'ticks_ms'):
+                return time.ticks_ms()
+            return int(time.time() * 1000)
+        except Exception:
+            return 0
+
+    def _ticks_diff(self, end, start):
+        try:
+            import time
+            if hasattr(time, 'ticks_diff'):
+                return time.ticks_diff(end, start)
+        except Exception:
+            pass
+        return end - start
 
     def _round(self, value):
         return round(value, self.precision)

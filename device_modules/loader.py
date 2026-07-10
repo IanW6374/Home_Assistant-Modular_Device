@@ -8,7 +8,9 @@ EXCLUDE_FILES = {
     "__init__.py",
     "loader.py",
     "base.py",
+    "logging.py",
     "sensor.py",
+    "spi_bus.py",
     "template.py",
     "validation.py"
 }
@@ -65,7 +67,7 @@ def _discover_modules():
                 'Local',
                 'Device loader',
                 {'log': 'Skipping "' + module_name + '" because it is not a device driver module'},
-                'INFO'
+                'DEBUG'
             )
 
     return modules

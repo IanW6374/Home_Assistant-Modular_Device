@@ -3,7 +3,7 @@ import time
 from binascii import hexlify
 import json
 import secrets
-import device_settings
+import settings_loader as device_settings
 try:
     import network
 except ImportError:
@@ -19,11 +19,16 @@ import asyncio
 from device_modules import setup_device
 from device_modules.loader import get_device_types
 from device_modules.base import (
+    ha_availability_topic,
     ha_config_topic,
+    ha_device_topic,
     ha_set_topic,
     ha_state_topic,
+    ha_safe_id,
+    ha_unique_id,
     handle_local_input,
-    homeassistant_device_info
+    homeassistant_device_info,
+    homeassistant_origin_info
 )
 from device_modules.validation import validate_device_config
 from device_modules.logging import set_log_output
@@ -50,44 +55,58 @@ config['user'] = secrets.mqtt_username
 config['password'] = secrets.mqtt_password
 config['ssl'] = secrets.mqtt_ssl
 
-moduleSettingsFile = getattr(
-    device_settings,
-    'moduleSettingsFile',
-    getattr(device_settings, 'deviceConfigFile', 'module_settings.json')
-)
+ha_discovery = device_settings.ha_discovery
+ha_devicename = device_settings.ha_device_name
+moduleSettingsFile = device_settings.module_settings_file
 
 
 # Module settings
 
-deviceid = hexlify(unique_id()).decode()
+hardware_deviceid = hexlify(unique_id()).decode()
+deviceid = hardware_deviceid + '_' + ha_safe_id(ha_devicename)
 
-ha_discovery = device_settings.ha_discovery
-ha_devicename = device_settings.ha_devicename
-ntp_servers = getattr(device_settings, 'ntp_servers', ('pool.ntp.org',))
+ntp_servers = device_settings.ntp_servers
+ha_system_diagnostics = device_settings.ha_system_diagnostics
+ha_discovery_cleanup_legacy_identity = device_settings.ha_discovery_cleanup_legacy_identity
 
 loglevels = ['ERROR', 'INFO', 'DEBUG']
-loglevel = getattr(device_settings, 'loglevel', 'INFO')
-if loglevel not in loglevels:
-    loglevel = 'INFO'
-watchdog_timeout_ms = getattr(device_settings, 'watchdog_timeout_ms', 0)
+loglevel = device_settings.loglevel
+watchdog_timeout_ms = device_settings.watchdog_timeout_ms
 watchdog_max_timeout_ms = 8000
 watchdog = None
+ntp_synced = False
 web_portal_server = None
-web_portal_enabled = getattr(device_settings, 'web_portal_enabled', False)
-web_portal_https = getattr(device_settings, 'web_portal_https', False)
-web_portal_host = getattr(device_settings, 'web_portal_host', '0.0.0.0')
-web_portal_port = getattr(device_settings, 'web_portal_port', None)
+web_portal_enabled = device_settings.web_portal_enabled
+web_portal_https = device_settings.web_portal_https
+web_portal_host = device_settings.web_portal_host
+web_portal_port = device_settings.web_portal_port
 if web_portal_port is None:
     web_portal_port = 8443 if web_portal_https else 8080
 web_portal_token = getattr(secrets, 'web_portal_token', '')
-web_portal_cert_path = getattr(device_settings, 'web_portal_cert_path', '/certs/web.crt.der')
-web_portal_key_path = getattr(device_settings, 'web_portal_key_path', '/certs/web.key.der')
-web_portal_refresh_ms = getattr(device_settings, 'web_portal_refresh_ms', 5000)
-web_log_lines = getattr(device_settings, 'web_log_lines', 100)
-web_log_line_max = getattr(device_settings, 'web_log_line_max', 300)
+web_portal_cert_path = device_settings.web_portal_cert_path
+web_portal_key_path = device_settings.web_portal_key_path
+web_portal_refresh_ms = device_settings.web_portal_refresh_ms
+web_log_lines = device_settings.web_log_lines
+web_log_line_max = device_settings.web_log_line_max
 log_buffer = []
-local_display_config = getattr(device_settings, 'local_display', {'enabled': False})
+local_display_config = device_settings.local_display
 local_display_service = None
+last_discovery_count = 0
+
+
+def ticks_ms():
+    if hasattr(time, 'ticks_ms'):
+        return time.ticks_ms()
+    return int(time.time() * 1000)
+
+
+def ticks_diff(end, start):
+    if hasattr(time, 'ticks_diff'):
+        return time.ticks_diff(end, start)
+    return end - start
+
+
+boot_ms = ticks_ms()
 
 # Device types will be loaded from device modules
 deviceTypes = []
@@ -199,6 +218,20 @@ def logOutput(mode, action, data, logtype):
         remember_log(log)
 
 
+def publish_logtype(msg):
+    if 'logtype' in msg:
+        return msg['logtype']
+
+    log = msg.get('log', '')
+    if log.startswith('HA Update:'):
+        return 'DEBUG'
+    if log.startswith('HA Discovery cleanup:'):
+        return 'DEBUG'
+    if log.startswith('HA Discovery entity:'):
+        return 'DEBUG'
+    return 'INFO'
+
+
 def remember_log(log):
     if len(log) > web_log_line_max:
         log = log[:web_log_line_max] + '...'
@@ -222,7 +255,25 @@ def set_loglevel(level):
         MQTTClient.DEBUG = loglevel == 'DEBUG'
 
 
+def start_task(name, coroutine):
+    async def runner():
+        try:
+            logOutput('Local', 'Task', {'log': 'Started ' + name}, 'DEBUG')
+            await coroutine
+        except Exception as exc:
+            logOutput('Local', 'Task', {'log': name + ' stopped - ' + str(exc)}, 'ERROR')
+
+    return asyncio.create_task(runner())
+
+
 set_log_output(logOutput)
+
+logOutput(
+    'Local',
+    'Device',
+    {'log': 'Imported device settings file: ' + device_settings.DEVICE_SETTINGS_FILE},
+    'INFO'
+)
 
 
 def wifi_ip_address():
@@ -250,6 +301,10 @@ def web_portal_url():
         scheme + '://' + host + ':' + str(web_portal_port) +
         '/?token=' + web_portal_token
     )
+
+
+def uptime_seconds():
+    return max(0, int(ticks_diff(ticks_ms(), boot_ms) / 1000))
 
 
 def mqtt_connection_status():
@@ -282,6 +337,8 @@ def local_display_status():
         'config': moduleSettingsFile,
         'loglevel': get_loglevel(),
         'web_portal': web_portal_enabled,
+        'uptime_s': uptime_seconds(),
+        'discovery_count': last_discovery_count,
         'alerts': alerts
     }
 
@@ -299,6 +356,8 @@ def local_display_snapshots():
 
         try:
             payload = device_char['driver'].get_state_payload()
+            if hasattr(device_char['driver'], 'diagnostics_payload'):
+                payload.update(device_char['driver'].diagnostics_payload())
         except Exception as exc:
             payload = {'error': str(exc)}
 
@@ -312,7 +371,7 @@ def local_display_snapshots():
 
 def request_homeassistant_discovery():
     try:
-        asyncio.create_task(homeassistant_discovery())
+        start_task('ha_discovery_manual', homeassistant_discovery())
         logOutput('Local', 'Display', {'log': 'Requested Home Assistant discovery'}, 'INFO')
     except Exception as exc:
         logOutput('Local', 'Display', {'log': 'Discovery request failed - ' + str(exc)}, 'ERROR')
@@ -350,6 +409,162 @@ def start_local_display():
         logOutput('Local', 'Display', {'log': 'Failed to start - ' + str(exc)}, 'ERROR')
 
 
+def portal_status():
+    return local_display_status()
+
+
+def module_summaries():
+    summaries = []
+    for device_char in outputDevices:
+        if device_char.get('uuid') == '0000':
+            continue
+
+        device = next((d for d in deviceObjects if d.get('uuid') == device_char.get('uuid')), None)
+        if not device:
+            continue
+
+        driver = device_char.get('driver')
+        state = {}
+        diagnostics = {}
+        calibratable = False
+        if driver:
+            try:
+                raw_state = driver.get_state_payload()
+            except Exception as exc:
+                raw_state = {'error': str(exc)}
+
+            diagnostic_keys = set()
+            for entity_id in device.get('entities', {}):
+                entity = device['entities'][str(entity_id)]
+                key = entity.get('key', entity.get('class', str(entity_id)))
+                if entity.get('entity_category') == 'diagnostic':
+                    diagnostic_keys.add(key)
+
+            for key in raw_state:
+                if key in diagnostic_keys:
+                    diagnostics[key] = raw_state[key]
+                else:
+                    state[key] = raw_state[key]
+
+            if hasattr(driver, 'diagnostics_payload'):
+                try:
+                    health = driver.diagnostics_payload()
+                except Exception:
+                    health = {}
+                for key in health:
+                    diagnostics['module_' + key] = health[key]
+            calibratable = hasattr(driver, 'set_calibration') and device.get('type', {}).get('subclass') == 'Grove-AC-Voltage'
+
+        summaries.append({
+            'uuid': device.get('uuid', ''),
+            'name': device.get('name', ''),
+            'type': device.get('type', {}).get('subclass', device.get('type', {}).get('class', '')),
+            'state': state,
+            'diagnostics': diagnostics,
+            'calibratable': calibratable
+        })
+    return summaries
+
+
+def system_info_payload():
+    return {
+        'firmware_version': device_settings.ha_device_info.get('sw', ''),
+        'module_settings_file': moduleSettingsFile,
+        'loaded_modules': len([d for d in deviceObjects if d.get('uuid') != '0000']),
+        'wifi_ip': wifi_ip_address(),
+        'uptime_s': uptime_seconds(),
+        'discovery_count': last_discovery_count
+    }
+
+
+def system_info_discovery():
+    payloads = {}
+    for key in system_info_payload():
+        payloads[key] = {
+            '~': ha_device_topic('sensor', deviceid, 'sys'),
+            'stat_t': '~/state',
+            'uniq_id': ha_unique_id(deviceid, 'sys', key),
+            'name': ha_devicename + ' ' + key,
+            'value_template': "{{ value_json[" + repr(key) + "] }}",
+            'availability_topic': ha_availability_topic(deviceid),
+            'payload_available': 'online',
+            'payload_not_available': 'offline',
+            'entity_category': 'diagnostic',
+            'en': False,
+            'dev': homeassistant_device_info(deviceid, ha_devicename, web_portal_url()),
+            'o': homeassistant_origin_info()
+        }
+    return payloads
+
+
+def module_health_payload(driver):
+    if not hasattr(driver, 'diagnostics_payload'):
+        return {}
+    try:
+        health = driver.diagnostics_payload()
+    except Exception:
+        return {}
+    payload = {}
+    for key in ('last_ok', 'last_error', 'last_read_ms', 'last_publish_age_s', 'consecutive_errors'):
+        payload['module_' + key] = health.get(key)
+    return payload
+
+
+def module_health_discovery(device):
+    payloads = {}
+    for key in ('module_last_ok', 'module_last_error', 'module_last_read_ms', 'module_last_publish_age_s', 'module_consecutive_errors'):
+        payloads[key] = {
+            '~': ha_device_topic(device['type']['class'], deviceid, device['uuid']),
+            'stat_t': '~/state',
+            'uniq_id': ha_unique_id(deviceid, device['uuid'], key),
+            'name': device['name'] + ' ' + key,
+            'value_template': "{{ value_json[" + repr(key) + "] }}",
+            'availability_topic': ha_availability_topic(deviceid),
+            'payload_available': 'online',
+            'payload_not_available': 'offline',
+            'entity_category': 'diagnostic',
+            'en': False,
+            'dev': homeassistant_device_info(deviceid, ha_devicename, device.get('_portal_url')),
+            'o': homeassistant_origin_info()
+        }
+    return payloads
+
+
+def legacy_identity_cleanup_topics(device, payload_discovery):
+    if not ha_discovery_cleanup_legacy_identity or hardware_deviceid == deviceid:
+        return []
+
+    topics = []
+    for entity_id, payload in payload_discovery.items():
+        component = payload.get('_component', device['type']['class'])
+        topics.append(ha_config_topic(component, hardware_deviceid, device['uuid'], entity_id))
+    return topics
+
+
+def portal_action(action, params):
+    if action == 'discover':
+        request_homeassistant_discovery()
+        return 'Discovery requested'
+
+    if action == 'calibrate':
+        uuid = params.get('uuid')
+        known_voltage = params.get('known_voltage')
+        device_char = next((d for d in outputDevices if d.get('uuid') == uuid), None)
+        if not device_char or 'driver' not in device_char:
+            return 'Calibration failed: module not found'
+        driver = device_char['driver']
+        if not hasattr(driver, 'set_calibration'):
+            return 'Calibration failed: module does not support calibration'
+        result = driver.set_calibration({'known_voltage': known_voltage})
+        if isinstance(result, dict) and result.get('ok'):
+            return 'Calibration set to ' + str(result.get('calibration')) + ' for module ' + str(uuid)
+        if isinstance(result, dict):
+            return 'Calibration failed: ' + str(result.get('error', result))
+        return 'Calibration failed'
+
+    return 'Unknown action'
+
+
 async def start_admin_portal():
     global web_portal_server
 
@@ -381,7 +596,16 @@ async def start_admin_portal():
     )
 
     try:
-        web_portal_server = await start_web_portal(settings, get_log_buffer, get_loglevel, set_loglevel, logOutput)
+        web_portal_server = await start_web_portal(
+            settings,
+            get_log_buffer,
+            get_loglevel,
+            set_loglevel,
+            logOutput,
+            portal_status,
+            module_summaries,
+            portal_action
+        )
     except Exception as exc:
         logOutput('Local', 'Web portal', {'log': 'Failed to start - ' + str(exc)}, 'ERROR')
         return None
@@ -400,16 +624,38 @@ async def publish_message(msg, qosValue, logOnly, retain=False):
     
     if not logOnly:
         outputDevices[0]['output']['0'].toggle()
-        if msg['payload'] is None:
-            payload = b''
-        else:
-            payload = json.dumps(msg['payload']).encode()
-        await client.publish(msg['topic'], payload, retain=retain, qos=qosValue)
-        logOutput ('MQTT', 'Publish', msg, 'INFO')
-        outputDevices[0]['output']['0'].toggle()
+        try:
+            if msg['payload'] is None:
+                payload = b''
+            elif isinstance(msg['payload'], bytes):
+                payload = msg['payload']
+            elif isinstance(msg['payload'], str):
+                payload = msg['payload'].encode()
+            else:
+                payload = json.dumps(msg['payload']).encode()
+            await client.publish(msg['topic'], payload, retain=retain, qos=qosValue)
+            logOutput ('MQTT', 'Publish', msg, publish_logtype(msg))
+        except Exception as exc:
+            logOutput(
+                'MQTT',
+                'Publish',
+                {
+                    'payload': msg.get('payload'),
+                    'topic': msg.get('topic'),
+                    'log': 'Failed topic ' + str(msg.get('topic')) + ' - ' + str(exc)
+                },
+                'ERROR'
+            )
+        finally:
+            outputDevices[0]['output']['0'].toggle()
 
 
 async def sync_ntp_time():
+    global ntp_synced
+
+    if ntp_synced:
+        return True
+
     if ntptime is None:
         logOutput('Local', 'NTP', {'log': 'ntptime module not available'}, 'ERROR')
         return False
@@ -426,6 +672,7 @@ async def sync_ntp_time():
         try:
             ntptime.host = server
             ntptime.settime()
+            ntp_synced = True
             logOutput('Local', 'NTP', {'log': 'Time synced from ' + server}, 'INFO')
             return True
         except Exception as exc:
@@ -442,10 +689,15 @@ def local_input(inputDevice):
 
 
 async def homeassistant_discovery():
+    global last_discovery_count
     if not ha_discovery:
+        logOutput('Local', 'HA Discovery', {'log': 'Skipped because ha_discovery is disabled'}, 'INFO')
         return
 
     device_info_added = False
+    discovery_count = 0
+
+    logOutput('Local', 'HA Discovery', {'log': 'Started'}, 'INFO')
 
     def find_device_char(uuid):
         for d in outputDevices:
@@ -475,21 +727,57 @@ async def homeassistant_discovery():
                     if hasattr(device_char['driver'], 'prepare_discovery'):
                         await device_char['driver'].prepare_discovery()
                     payload_discovery, payload_entities = device_char['driver'].get_discovery_payloads(deviceid, ha_devicename)
+                    health_payload = module_health_payload(device_char['driver'])
+                    if health_payload:
+                        payload_entities.update(health_payload)
+                        payload_discovery.update(module_health_discovery(device))
+                        cleanup_topics.append(ha_config_topic(
+                            device['type']['class'],
+                            deviceid,
+                            device['uuid'],
+                            'module_last_publish_ms'
+                        ))
+                        if ha_discovery_cleanup_legacy_identity:
+                            cleanup_topics.append(ha_config_topic(
+                                device['type']['class'],
+                                hardware_deviceid,
+                                device['uuid'],
+                                'module_last_publish_ms'
+                            ))
                     if hasattr(device_char['driver'], 'discovery_cleanup_topics'):
                         cleanup_topics = device_char['driver'].discovery_cleanup_topics(
                             deviceid,
                             payload_discovery.keys()
                         )
-                except Exception:
+                        if ha_discovery_cleanup_legacy_identity:
+                            cleanup_topics.extend(device_char['driver'].discovery_cleanup_topics(
+                                hardware_deviceid,
+                                payload_discovery.keys()
+                            ))
+                    cleanup_topics.extend(legacy_identity_cleanup_topics(device, payload_discovery))
+                except Exception as exc:
+                    logOutput(
+                        'Local',
+                        'HA Discovery',
+                        {'log': device['name'] + ' - ' + str(exc)},
+                        'ERROR'
+                    )
                     payload_discovery = {}
                     payload_entities = {}
                     cleanup_topics = []
+            else:
+                logOutput(
+                    'Local',
+                    'HA Discovery',
+                    {'log': device['name'] + ' - no driver available for discovery'},
+                    'ERROR'
+                )
 
             if not device_info_added and payload_discovery:
                 first_discovery_id = next(iter(payload_discovery))
                 if "dev" not in payload_discovery[first_discovery_id]:
                     payload_discovery[first_discovery_id].update({
-                        "dev": homeassistant_device_info(deviceid, ha_devicename)
+                        "dev": homeassistant_device_info(deviceid, ha_devicename, device.get('_portal_url'))
                     })
                 device_info_added = True
 
@@ -497,10 +785,11 @@ async def homeassistant_discovery():
                 data = {
                     'payload': None,
                     'topic': topic,
-                    'log': 'HA Discovery cleanup: ' + device['name']
+                    'log': 'HA Discovery cleanup: ' + device['name'] + ' - ' + topic
                 }
-                asyncio.create_task(publish_message(data, 0, False, True))
+                await publish_message(data, 0, False, True)
 
+            device_discovery_count = 0
             for i in payload_discovery:
                 payload = payload_discovery[i].copy()
                 topic = payload.pop('_topic', None)
@@ -510,9 +799,19 @@ async def homeassistant_discovery():
                 data = {
                     'payload': payload,
                     'topic': topic,
-                    'log': 'HA Discovery: ' + device['name']
+                    'log': 'HA Discovery entity: ' + device['name'] + ' ' + str(i)
                 }
-                asyncio.create_task(publish_message(data, 0, False, True))
+                await publish_message(data, 0, False, True)
+                discovery_count += 1
+                device_discovery_count += 1
+
+            if device_discovery_count:
+                logOutput(
+                    'Local',
+                    'HA Discovery',
+                    {'log': device['name'] + ' - ' + str(device_discovery_count) + ' config payloads'},
+                    'INFO'
+                )
 
             await asyncio.sleep(1)
 
@@ -521,7 +820,59 @@ async def homeassistant_discovery():
                 'topic': ha_state_topic(device['type']['class'], deviceid, device['uuid']),
                 'log': 'HA Update: ' + device['name']
             }
-            asyncio.create_task(publish_message(data, 0, False))
+            await publish_message(data, 0, False)
+
+    if ha_system_diagnostics:
+        system_discovery_count = 0
+        for key, payload in system_info_discovery().items():
+            if ha_discovery_cleanup_legacy_identity and hardware_deviceid != deviceid:
+                data = {
+                    'payload': None,
+                    'topic': ha_config_topic('sensor', hardware_deviceid, 'sys', key),
+                    'log': 'HA Discovery cleanup: system diagnostics - ' + str(key)
+                }
+                await publish_message(data, 0, False, True)
+            data = {
+                'payload': payload,
+                'topic': ha_config_topic('sensor', deviceid, 'sys', key),
+                'log': 'HA Discovery entity: system diagnostics ' + str(key)
+            }
+            await publish_message(data, 0, False, True)
+            discovery_count += 1
+            system_discovery_count += 1
+
+        data = {
+            'payload': system_info_payload(),
+            'topic': ha_state_topic('sensor', deviceid, 'sys'),
+            'log': 'HA Update: system diagnostics'
+        }
+        await publish_message(data, 0, False)
+        logOutput(
+            'Local',
+            'HA Discovery',
+            {'log': 'system diagnostics - ' + str(system_discovery_count) + ' config payloads'},
+            'INFO'
+        )
+
+    last_discovery_count = discovery_count
+    logOutput('Local', 'HA Discovery', {'log': 'Completed with ' + str(discovery_count) + ' config payloads'}, 'INFO')
+
+
+async def publish_availability(state):
+    if state == 'online' and ha_discovery_cleanup_legacy_identity and hardware_deviceid != deviceid:
+        data = {
+            'payload': 'offline',
+            'topic': ha_availability_topic(hardware_deviceid),
+            'log': 'Legacy availability: offline'
+        }
+        await publish_message(data, 0, True, True)
+
+    data = {
+        'payload': state,
+        'topic': ha_availability_topic(deviceid),
+        'log': 'Availability: ' + state
+    }
+    await publish_message(data, 0, False, True)
        
 def device_config(devicetype, uuid, command, payload):
     device = next((d for d in outputDevices if d['uuid'] == uuid), None)
@@ -568,7 +919,7 @@ async def handle_mqtt_message(topic, payload, retained):
             }
 
         if msg_payload_text == 'online':
-            asyncio.create_task(homeassistant_discovery())
+            start_task('ha_discovery_status', homeassistant_discovery())
 
         logOutput ('MQTT', 'Received', data, 'INFO')
         return
@@ -592,7 +943,7 @@ async def handle_mqtt_message(topic, payload, retained):
     if msg_topic_1 == 'homeassistant':
         data = device_config(msg_topic_2, msg_topic_3[len(deviceid):len(msg_topic_3)], msg_topic_4, msg_payload)
         if data:
-            asyncio.create_task(publish_message(data, 0, False))
+            start_task('mqtt_set_publish', publish_message(data, 0, False))
 
 
 async def messages(client):  # Respond to incoming messages
@@ -648,7 +999,8 @@ async def up(client):  # Respond to connectivity being (re)established
             
                 logOutput ('MQTT', 'Subscribe', {'log':'Topic: ' + topic, 'topic': topic, 'payload': None}, 'INFO')   
             
-        asyncio.create_task(homeassistant_discovery())
+        await publish_availability('online')
+        start_task('ha_discovery_connect', homeassistant_discovery())
 
         await asyncio.sleep(0)
 
@@ -693,7 +1045,7 @@ async def main(client):
         return
 
     for coroutine in (up, messages):
-        asyncio.create_task(coroutine(client))
+        start_task(coroutine.__name__, coroutine(client))
 
     if watchdog_timeout_ms and WDT:
         watchdog_timeout = min(watchdog_timeout_ms, watchdog_max_timeout_ms)
@@ -730,6 +1082,7 @@ logOutput ('MQTT', 'Connect', {'log':'Loaded CA Trust Certificate'}, 'INFO')
 deviceTypes = get_device_types()
 
 config['client_id'] = deviceid
+config['will'] = (ha_availability_topic(deviceid), b'offline', True, 0)
 config['ssl_params'] = {'server_side':False, 'key':None, 'cert':None, 'cadata':cacert, 'cert_reqs':ssl.CERT_REQUIRED, 'server_hostname': config['server']}
 # mqtt_as MsgQueue keeps one slot empty to distinguish full from empty, so a
 # queue_len of 1 has no usable capacity and subscribed messages are discarded.
@@ -776,9 +1129,9 @@ client.queue.put = trace_mqtt_queue_put
 
 
 # Helper for drivers to publish via main publish_message
-def publish_wrapper(data, qosValue, logOnly):
+def publish_wrapper(data, qosValue, logOnly, retain=False):
     try:
-        asyncio.create_task(publish_message(data, qosValue, logOnly))
+        start_task('driver_publish', publish_message(data, qosValue, logOnly, retain))
     except Exception:
         pass
 
@@ -788,14 +1141,20 @@ i = 1
 
 logOutput ('Local', 'Device', {'log':'Importing module settings file: ' + moduleSettingsFile}, 'INFO')
 
-with open(moduleSettingsFile, 'rb') as f:
-
-    moduleSettings = json.loads(f.read())
+try:
+    moduleSettings = device_settings.load_required_json(moduleSettingsFile)
+except RuntimeError as exc:
+    logOutput('Local', 'Device', {'log': str(exc)}, 'ERROR')
+    raise
     
 logOutput ('Local', 'Device', {'log':'Imported module settings file: ' + moduleSettingsFile}, 'INFO')
 
-for validation_error in validate_device_config(moduleSettings, deviceTypes):
+validation_errors = validate_device_config(moduleSettings, deviceTypes)
+for validation_error in validation_errors:
     logOutput('Local', 'Device validation', {'log': validation_error}, 'ERROR')
+
+if validation_errors:
+    raise RuntimeError('Invalid module settings file: ' + moduleSettingsFile)
         
 for device in moduleSettings['devices']:
     if deviceValidation(device):

@@ -276,7 +276,9 @@ def format_status_page(status):
         'MQTT ' + status.get('mqtt', 'unknown'),
         'Cfg ' + status.get('config', '-'),
         'Log ' + status.get('loglevel', '-'),
-        'Portal ' + ('on' if status.get('web_portal') else 'off')
+        'Portal ' + ('on' if status.get('web_portal') else 'off'),
+        'Up ' + str(status.get('uptime_s', '-')) + 's',
+        'Disc ' + str(status.get('discovery_count', '-'))
     ]
 
 

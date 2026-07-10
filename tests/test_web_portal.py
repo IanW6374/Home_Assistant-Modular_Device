@@ -54,8 +54,31 @@ class WebPortalTests(unittest.TestCase):
         self.assertEqual(render_log_text(['{"state": "ON"}']), '{"state": "ON"}')
 
     def test_render_page_has_auto_refresh_and_scrollable_logs(self):
-        html = render_page('abc', 'INFO', ('ERROR', 'INFO', 'DEBUG'), ['hello'], 3000)
+        html = render_page(
+            'abc',
+            'INFO',
+            ('ERROR', 'INFO', 'DEBUG'),
+            ['hello'],
+            3000,
+            {'device_name': 'Pico', 'mqtt': 'up'},
+            [{
+                'uuid': '0001',
+                'name': 'Probe',
+                'type': 'MAX31865',
+                'state': {'temperature': 21},
+                'diagnostics': {'module_last_ok': True, 'module_last_read_ms': 12, 'module_last_publish_age_s': 4},
+                'calibratable': True
+            }]
+        )
         self.assertIn('id="logs"', html)
+        self.assertIn('Device Portal', html)
+        self.assertIn('Probe', html)
+        self.assertIn('Diagnostics', html)
+        self.assertIn('module last read ms', html)
+        self.assertIn('Seconds since this module last published state.', html)
+        self.assertIn('title="Republish Home Assistant MQTT discovery config for all loaded entities."', html)
+        self.assertIn('title="ERROR is quiet, INFO is normal, DEBUG includes MQTT detail."', html)
+        self.assertIn('title="Calculate a new in-memory calibration multiplier for this module."', html)
         self.assertIn('overflow-y:auto', html)
         self.assertIn('refreshLogs();', html)
         self.assertIn('setInterval(refreshLogs,refreshMs)', html)
