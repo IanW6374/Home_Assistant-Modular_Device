@@ -124,9 +124,10 @@ _reject_unknown(_web_portal, (
     'port',
     'cert_path',
     'key_path',
-    'refresh_ms',
-    'log_lines',
-    'log_line_max'
+    'log_refresh_s',
+    'value_refresh_s',
+    'log_buffer_lines',
+    'log_line_max_chars'
 ), 'web_portal')
 _reject_unknown(local_display, (
     'enabled',
@@ -139,9 +140,14 @@ _reject_unknown(local_display, (
     'cs',
     'dc',
     'rst',
+    'baudrate',
+    'rotate',
     'refresh_ms',
+    'button_poll_ms',
+    'long_press_ms',
     'button_a',
     'button_b',
+    'button_active_low',
     'button_a_short',
     'button_a_long',
     'button_b_short',
@@ -172,6 +178,13 @@ web_portal_host = _optional(_web_portal, 'host', str, '0.0.0.0', 'web_portal.hos
 web_portal_port = _optional(_web_portal, 'port', (int, type(None)), None, 'web_portal.port')
 web_portal_cert_path = _optional(_web_portal, 'cert_path', str, '/certs/web.crt.der', 'web_portal.cert_path')
 web_portal_key_path = _optional(_web_portal, 'key_path', str, '/certs/web.key.der', 'web_portal.key_path')
-web_portal_refresh_ms = _optional(_web_portal, 'refresh_ms', int, 5000, 'web_portal.refresh_ms')
-web_log_lines = _optional(_web_portal, 'log_lines', int, 100, 'web_portal.log_lines')
-web_log_line_max = _optional(_web_portal, 'log_line_max', int, 300, 'web_portal.log_line_max')
+web_portal_log_refresh_s = _optional(
+    _web_portal,
+    'log_refresh_s',
+    int,
+    5,
+    'web_portal.log_refresh_s'
+)
+web_portal_value_refresh_s = _optional(_web_portal, 'value_refresh_s', int, 0, 'web_portal.value_refresh_s')
+web_log_buffer_lines = _optional(_web_portal, 'log_buffer_lines', int, 100, 'web_portal.log_buffer_lines')
+web_log_line_max_chars = _optional(_web_portal, 'log_line_max_chars', int, 300, 'web_portal.log_line_max_chars')

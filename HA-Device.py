@@ -85,9 +85,10 @@ if web_portal_port is None:
 web_portal_token = getattr(secrets, 'web_portal_token', '')
 web_portal_cert_path = device_settings.web_portal_cert_path
 web_portal_key_path = device_settings.web_portal_key_path
-web_portal_refresh_ms = device_settings.web_portal_refresh_ms
-web_log_lines = device_settings.web_log_lines
-web_log_line_max = device_settings.web_log_line_max
+web_portal_log_refresh_s = device_settings.web_portal_log_refresh_s
+web_portal_value_refresh_s = device_settings.web_portal_value_refresh_s
+web_log_buffer_lines = device_settings.web_log_buffer_lines
+web_log_line_max_chars = device_settings.web_log_line_max_chars
 log_buffer = []
 local_display_config = device_settings.local_display
 local_display_service = None
@@ -193,7 +194,7 @@ def logOutput(mode, action, data, logtype):
     
     timestamp = "{:04}{:02}{:02} {:02}{:02}{:02}".format(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5])
     
-    if loglevels.index(logtype) <= loglevels.index(loglevel):
+    if data.get('force') or loglevels.index(logtype) <= loglevels.index(loglevel):
         
         log = timestamp + '  ' + mode + ': ' + action + ' - ' + data['log']
         
@@ -233,10 +234,10 @@ def publish_logtype(msg):
 
 
 def remember_log(log):
-    if len(log) > web_log_line_max:
-        log = log[:web_log_line_max] + '...'
+    if len(log) > web_log_line_max_chars:
+        log = log[:web_log_line_max_chars] + '...'
     log_buffer.append(log)
-    while len(log_buffer) > web_log_lines:
+    while len(log_buffer) > web_log_buffer_lines:
         log_buffer.pop(0)
 
 
@@ -357,7 +358,9 @@ def local_display_snapshots():
         try:
             payload = device_char['driver'].get_state_payload()
             if hasattr(device_char['driver'], 'diagnostics_payload'):
-                payload.update(device_char['driver'].diagnostics_payload())
+                diagnostics = device_char['driver'].diagnostics_payload()
+                if not diagnostics.get('last_ok', True) and diagnostics.get('last_error'):
+                    payload['error'] = diagnostics.get('last_error')
         except Exception as exc:
             payload = {'error': str(exc)}
 
@@ -583,7 +586,8 @@ async def start_admin_portal():
         'cert_path': web_portal_cert_path,
         'key_path': web_portal_key_path,
         'levels': tuple(loglevels),
-        'refresh_ms': web_portal_refresh_ms
+        'log_refresh_ms': web_portal_log_refresh_s * 1000,
+        'value_refresh_ms': web_portal_value_refresh_s * 1000
     }
 
     scheme = 'https' if web_portal_https else 'http'

@@ -111,15 +111,19 @@
           "type": "string",
           "minLength": 1
         },
-        "refresh_ms": {
+        "log_refresh_s": {
           "type": "integer",
-          "minimum": 250
+          "minimum": 1
         },
-        "log_lines": {
+        "value_refresh_s": {
           "type": "integer",
           "minimum": 0
         },
-        "log_line_max": {
+        "log_buffer_lines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "log_line_max_chars": {
           "type": "integer",
           "minimum": 1
         }
@@ -168,9 +172,25 @@
           "type": "integer",
           "minimum": 0
         },
+        "baudrate": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rotate": {
+          "type": "integer",
+          "enum": [0, 180]
+        },
         "refresh_ms": {
           "type": "integer",
           "minimum": 250
+        },
+        "button_poll_ms": {
+          "type": "integer",
+          "minimum": 10
+        },
+        "long_press_ms": {
+          "type": "integer",
+          "minimum": 100
         },
         "button_a": {
           "type": ["integer", "null"],
@@ -179,6 +199,9 @@
         "button_b": {
           "type": ["integer", "null"],
           "minimum": 0
+        },
+        "button_active_low": {
+          "type": "boolean"
         },
         "button_a_short": {
           "type": "string"

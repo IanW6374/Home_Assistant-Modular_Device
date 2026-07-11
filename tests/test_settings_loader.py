@@ -18,6 +18,10 @@ class SettingsLoaderTests(unittest.TestCase):
         )
         self.assertEqual(settings_loader.ha_device_info.get('mdl'), config['ha']['device_info'].get('mdl'))
         self.assertEqual(settings_loader.web_portal_enabled, config['web_portal']['enabled'])
+        self.assertEqual(settings_loader.web_portal_log_refresh_s, config['web_portal']['log_refresh_s'])
+        self.assertEqual(settings_loader.web_portal_value_refresh_s, config['web_portal']['value_refresh_s'])
+        self.assertEqual(settings_loader.web_log_buffer_lines, config['web_portal']['log_buffer_lines'])
+        self.assertEqual(settings_loader.web_log_line_max_chars, config['web_portal']['log_line_max_chars'])
         self.assertEqual(settings_loader.local_display.get('enabled'), config['local_display']['enabled'])
         self.assertIn(settings_loader.loglevel, ('ERROR', 'INFO', 'DEBUG'))
 

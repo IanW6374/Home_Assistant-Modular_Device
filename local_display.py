@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
     'dc': 8,
     'rst': 12,
     'baudrate': 10000000,
+    'rotate': 180,
     'refresh_ms': 1000,
     'button_poll_ms': 50,
     'long_press_ms': 900,
@@ -42,6 +43,7 @@ class SH1107Display:
 
         self.width = int(cfg.get('width', DEFAULT_CONFIG['width']))
         self.height = int(cfg.get('height', DEFAULT_CONFIG['height']))
+        self.rotate = int(cfg.get('rotate', DEFAULT_CONFIG['rotate']))
         self.spi = SPI(
             cfg.get('spi', DEFAULT_CONFIG['spi']),
             baudrate=cfg.get('baudrate', DEFAULT_CONFIG['baudrate']),
@@ -53,9 +55,8 @@ class SH1107Display:
         self.cs = Pin(cfg.get('cs', DEFAULT_CONFIG['cs']), Pin.OUT)
         self.dc = Pin(cfg.get('dc', DEFAULT_CONFIG['dc']), Pin.OUT)
         self.rst = Pin(cfg.get('rst', DEFAULT_CONFIG['rst']), Pin.OUT)
-        self.pages = self.height // 8
-        self.buffer = bytearray(self.width * self.pages)
-        self.framebuf = framebuf.FrameBuffer(self.buffer, self.width, self.height, framebuf.MONO_HLSB)
+        self.buffer = bytearray(self.width * self.height // 8)
+        self.framebuf = framebuf.FrameBuffer(self.buffer, self.width, self.height, framebuf.MONO_HMSB)
         self._reset()
         self._init_display()
         self.fill(0)
@@ -68,12 +69,18 @@ class SH1107Display:
         self.framebuf.text(str(text), x, y, color)
 
     def show(self):
-        for page in range(self.pages):
-            self._command(0xB0 + page)
-            self._command(0x00)
-            self._command(0x10)
-            start = page * self.width
-            self._data(self.buffer[start:start + self.width])
+        bytes_per_column = self.width // 8
+        self._command(0xB0)
+        for column in range(self.height):
+            if self.rotate == 0:
+                ram_column = self.height - 1 - column
+            else:
+                ram_column = column
+
+            self._command(0x00 + (ram_column & 0x0f))
+            self._command(0x10 + (ram_column >> 4))
+            start = column * bytes_per_column
+            self._data(self.buffer[start:start + bytes_per_column])
 
     def power(self, on):
         self._command(0xAF if on else 0xAE)
@@ -89,18 +96,22 @@ class SH1107Display:
     def _init_display(self):
         for command in (
             0xAE,       # display off
-            0xD5, 0x50, # clock divide
-            0xA8, 0x3F, # multiplex for 64 visible rows
-            0xD3, 0x00, # display offset
-            0x40,       # display start line
-            0xA1,       # segment remap
-            0xC8,       # COM scan direction
-            0xDA, 0x12, # COM pins
-            0x81, 0x7F, # contrast
+            0x00,       # lower column address
+            0x10,       # higher column address
+            0xB0,       # page address
+            0xDC, 0x00, # display start line
+            0x81, 0x6F, # contrast
+            0x21,       # memory addressing mode
+            0xA0 if self.rotate == 0 else 0xA1,
+            0xC0,       # COM scan direction
             0xA4,       # display follows RAM
             0xA6,       # normal display
+            0xA8, 0x3F, # multiplex ratio
+            0xD3, 0x60, # display offset
+            0xD5, 0x41, # clock divide
             0xD9, 0x22, # pre-charge
             0xDB, 0x35, # vcomh
+            0xAD, 0x8A, # DC-DC enable
             0xAF        # display on
         ):
             self._command(command)
@@ -149,6 +160,7 @@ class LocalDisplayService:
         self._running = False
         self._buttons = {}
         self._last_render = 0
+        self._scroll_step = 0
 
     def start(self):
         if not self.cfg.get('enabled'):
@@ -189,8 +201,9 @@ class LocalDisplayService:
         max_chars = self.display.width // 8
         self.display.fill(0)
         for index, line in enumerate(lines[:max_lines]):
-            self.display.text(str(line)[:max_chars], 0, index * 8, 1)
+            self.display.text(display_line_text(line, max_chars, self._scroll_step), 0, index * 8, 1)
         self.display.show()
+        self._scroll_step += 1
         self._last_render = self._ticks_ms()
 
     def build_pages(self):
@@ -270,16 +283,16 @@ def merged_config(cfg):
 
 
 def format_status_page(status):
-    return [
+    lines = [
         status.get('device_name', 'Pico Device'),
         'WiFi ' + status.get('wifi_ip', '-'),
         'MQTT ' + status.get('mqtt', 'unknown'),
-        'Cfg ' + status.get('config', '-'),
-        'Log ' + status.get('loglevel', '-'),
-        'Portal ' + ('on' if status.get('web_portal') else 'off'),
-        'Up ' + str(status.get('uptime_s', '-')) + 's',
-        'Disc ' + str(status.get('discovery_count', '-'))
+        'Up ' + compact_duration(status.get('uptime_s')),
     ]
+    alerts = status.get('alerts', [])
+    if alerts:
+        lines.append('Alerts ' + str(len(alerts)))
+    return lines
 
 
 def format_alerts_page(status):
@@ -302,9 +315,9 @@ def format_device_pages(snapshot):
         return [[name, 'No values']]
 
     pages = []
-    for start in range(0, len(items), 6):
+    for start in range(0, len(items), 5):
         lines = [name]
-        for key, value in items[start:start + 6]:
+        for key, value in items[start:start + 5]:
             lines.append(short_line(key, value))
         pages.append(lines)
     return pages
@@ -324,3 +337,41 @@ def format_actions_page(page_index, page_count):
 def short_line(key, value):
     text = str(key) + ' ' + str(value)
     return text.replace('_', ' ')
+
+
+def scrolled_text(text, width, offset):
+    text = str(text)
+    if width <= 0:
+        return ''
+    if len(text) <= width:
+        return text
+
+    marquee = text + '   '
+    offset = int(offset) % len(marquee)
+    visible = (marquee + marquee)[offset:offset + width]
+    return visible
+
+
+def display_line_text(text, width, offset):
+    text = str(text)
+    if text.startswith('WiFi '):
+        prefix = 'WiFi '
+        return prefix + scrolled_text(text[len(prefix):], width - len(prefix), offset)
+    return scrolled_text(text, width, offset)
+
+
+def compact_duration(seconds):
+    try:
+        seconds = int(seconds)
+    except Exception:
+        return '-'
+
+    if seconds < 60:
+        return str(seconds) + 's'
+    minutes = seconds // 60
+    if minutes < 60:
+        return str(minutes) + 'm'
+    hours = minutes // 60
+    if hours < 48:
+        return str(hours) + 'h'
+    return str(hours // 24) + 'd'

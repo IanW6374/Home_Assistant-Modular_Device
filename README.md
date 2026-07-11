@@ -143,8 +143,12 @@ The portal accepts `ERROR`, `INFO`, and `DEBUG` log levels. Changes are runtime
 only and are not written back to `device_settings.json`, so rebooting restores the
 configured default. `DEBUG` also enables MQTT topic/payload logging and
 `mqtt_as` client debug output. The log pane refreshes automatically using
-`web_portal.refresh_ms` and remains scrollable so earlier buffered log events can
-be reviewed.
+`web_portal.log_refresh_s` and remains scrollable so earlier buffered log events can
+be reviewed. Set `web_portal.value_refresh_s` to a positive interval when you
+want status and module values to refresh in place automatically; leave it as
+`0` to refresh only the log pane. The recent log
+buffer is controlled by `web_portal.log_buffer_lines`, and very long individual
+entries are trimmed to `web_portal.log_line_max_chars`.
 
 For Grove AC voltage calibration, enter a known meter voltage in the portal.
 The firmware updates the in-memory calibration multiplier and reports the new
@@ -214,11 +218,11 @@ The default SPI and button pins match the Waveshare Pico-OLED-1.3 examples:
 | Key0 / button A | GP15 |
 | Key1 / button B | GP17 |
 
-When enabled, the display shows WiFi/MQTT status, the active config file, log
-level, web portal state, uptime, last discovery count, recent error alerts,
-current device payload values, and module health fields. Short and long presses
-can page through screens, request Home Assistant discovery, or toggle the
-runtime log level.
+When enabled, the display shows a compact status page with WiFi/MQTT state,
+uptime, and recent alert count, then pages through current device payload
+values. Module health details stay in the web portal; the OLED only shows a
+module error when one is active. Short and long presses can page through
+screens, request Home Assistant discovery, or toggle the runtime log level.
 
 ### Module Settings Files
 
@@ -266,15 +270,27 @@ For the combined PT1000/voltage/display example, set:
 }
 ```
 
-It allocates GPIOs this way:
+It allocates GPIOs this way. The two MAX31865 boards share the SPI0 clock/data
+signals; only the chip-select line is different for each board.
 
-| Hardware | Pico GPIOs |
-| --- | --- |
-| MAX31865 flow probe | SPI0 SCK GP2, MOSI GP3, MISO GP4, CS GP5 |
-| MAX31865 return probe | SPI0 SCK GP2, MOSI GP3, MISO GP4, CS GP6 |
-| Grove AC voltage sensor | ADC0 GP26 |
-| Waveshare Pico-OLED-1.3 display | SPI1 SCK GP10, MOSI GP11, CS GP9, DC GP8, RST GP12 |
-| Display Key0 / Key1 | GP15 / GP17 |
+| Hardware | Module pin/signal | Pico GPIO |
+| --- | --- | ---: |
+| MAX31865 flow probe | SCK | GP2 |
+| MAX31865 flow probe | SDI / MOSI | GP3 |
+| MAX31865 flow probe | SDO / MISO | GP4 |
+| MAX31865 flow probe | CS / CSN | GP5 |
+| MAX31865 return probe | SCK | GP2 |
+| MAX31865 return probe | SDI / MOSI | GP3 |
+| MAX31865 return probe | SDO / MISO | GP4 |
+| MAX31865 return probe | CS / CSN | GP6 |
+| Grove AC voltage sensor | OUT / ADC0 | GP26 |
+| Waveshare Pico-OLED-1.3 display | SCK | GP10 |
+| Waveshare Pico-OLED-1.3 display | MOSI | GP11 |
+| Waveshare Pico-OLED-1.3 display | CS | GP9 |
+| Waveshare Pico-OLED-1.3 display | DC | GP8 |
+| Waveshare Pico-OLED-1.3 display | RST | GP12 |
+| Display Key0 | Button input | GP15 |
+| Display Key1 | Button input | GP17 |
 
 ### WHES `module_settings.json`
 

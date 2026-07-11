@@ -23,8 +23,13 @@ class FakePin:
 
 
 class FakeSPI:
+    instances = []
+
     def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
         self.writes = []
+        FakeSPI.instances.append(self)
 
     def write(self, data):
         self.writes.append(bytes(data))
@@ -52,6 +57,7 @@ class FakeDisplay:
 
 
 def load_module():
+    FakeSPI.instances = []
     machine = types.ModuleType('machine')
     machine.Pin = FakePin
     machine.SPI = FakeSPI
@@ -59,10 +65,15 @@ def load_module():
 
     framebuf = types.ModuleType('framebuf')
     framebuf.MONO_HLSB = 1
+    framebuf.MONO_HMSB = 2
 
     class FrameBuffer:
+        instances = []
+
         def __init__(self, *args, **kwargs):
-            pass
+            self.args = args
+            self.kwargs = kwargs
+            FrameBuffer.instances.append(self)
 
         def fill(self, color):
             pass
@@ -88,13 +99,18 @@ class LocalDisplayTests(unittest.TestCase):
             'mqtt': 'up',
             'config': 'examples/module_settings.ems.example.json',
             'loglevel': 'INFO',
-            'web_portal': True
+            'web_portal': True,
+            'uptime_s': 3661,
+            'alerts': ['one']
         })
 
         self.assertEqual(page[0], 'Boiler Pico')
         self.assertIn('192.168.1.50', page[1])
         self.assertEqual(page[2], 'MQTT up')
-        self.assertEqual(page[5], 'Portal on')
+        self.assertEqual(page[3], 'Up 1h')
+        self.assertEqual(page[4], 'Alerts 1')
+        self.assertNotIn('Log INFO', page)
+        self.assertFalse(any(line.startswith('Cfg ') for line in page))
 
     def test_device_pages_are_chunked_and_sanitised(self):
         pages = self.module.format_device_pages({
@@ -102,7 +118,10 @@ class LocalDisplayTests(unittest.TestCase):
             'payload': {
                 'voltage': 241.2,
                 'ac_present': True,
-                'empty': None
+                'empty': None,
+                'module_last_ok': True,
+                'module_last_read_ms': 5,
+                'error': ''
             }
         })
 
@@ -110,6 +129,24 @@ class LocalDisplayTests(unittest.TestCase):
         self.assertIn('voltage 241.2', pages[0])
         self.assertIn('ac present True', pages[0])
         self.assertNotIn('empty None', pages[0])
+        self.assertIn('module last ok True', pages[0])
+
+    def test_device_pages_use_five_values_per_screen(self):
+        pages = self.module.format_device_pages({
+            'name': 'Probe',
+            'payload': {
+                'a': 1,
+                'b': 2,
+                'c': 3,
+                'd': 4,
+                'e': 5,
+                'f': 6
+            }
+        })
+
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(len(pages[0]), 6)
+        self.assertEqual(pages[1], ['Probe', 'f 6'])
 
     def test_service_renders_status_and_device_pages(self):
         display = FakeDisplay()
@@ -125,6 +162,68 @@ class LocalDisplayTests(unittest.TestCase):
         rendered_text = [line[0] for line in display.lines]
         self.assertIn('Pico', rendered_text)
         self.assertIn('MQTT up', rendered_text)
+
+    def test_service_scrolls_long_status_lines(self):
+        display = FakeDisplay()
+        service = self.module.LocalDisplayService(
+            {'enabled': True},
+            lambda: {
+                'device_name': 'Pico',
+                'wifi_ip': '192.168.100.123',
+                'mqtt': 'up'
+            },
+            lambda: [],
+            display=display
+        )
+
+        service.render()
+        first_wifi_line = display.lines[1][0]
+        service.render()
+        second_wifi_line = display.lines[1][0]
+
+        self.assertEqual(first_wifi_line, 'WiFi 192.168.100')
+        self.assertEqual(second_wifi_line, 'WiFi 92.168.100.')
+        self.assertTrue(first_wifi_line.startswith('WiFi '))
+        self.assertTrue(second_wifi_line.startswith('WiFi '))
+
+    def test_scrolled_text_wraps_long_lines(self):
+        self.assertEqual(self.module.scrolled_text('abcdef', 4, 0), 'abcd')
+        self.assertEqual(self.module.scrolled_text('abcdef', 4, 2), 'cdef')
+        self.assertEqual(self.module.scrolled_text('abc', 4, 10), 'abc')
+
+    def test_display_line_text_keeps_wifi_label_fixed(self):
+        self.assertEqual(
+            self.module.display_line_text('WiFi 192.168.100.123', 16, 2),
+            'WiFi 2.168.100.1'
+        )
+        self.assertEqual(
+            self.module.display_line_text('MQTT connected-long', 16, 2),
+            'TT connected-lon'
+        )
+
+    def test_sh1107_display_uses_waveshare_buffer_layout(self):
+        display = self.module.SH1107Display({'enabled': True})
+
+        self.assertEqual(display.width, 128)
+        self.assertEqual(display.height, 64)
+        self.assertEqual(len(display.buffer), 1024)
+        self.assertEqual(display.framebuf.args[3], self.module.framebuf.MONO_HMSB)
+
+        spi = FakeSPI.instances[0]
+        self.assertEqual(spi.kwargs['polarity'], 0)
+        self.assertEqual(spi.kwargs['phase'], 0)
+        self.assertIn(bytes([0xAD]), spi.writes)
+        self.assertIn(bytes([0x8A]), spi.writes)
+
+    def test_sh1107_show_writes_64_columns_of_16_bytes(self):
+        display = self.module.SH1107Display({'enabled': True})
+        spi = FakeSPI.instances[0]
+        spi.writes = []
+
+        display.show()
+
+        data_writes = [write for write in spi.writes if len(write) == 16]
+        self.assertEqual(len(data_writes), 64)
 
     def test_next_previous_and_toggle_display_actions(self):
         display = FakeDisplay()

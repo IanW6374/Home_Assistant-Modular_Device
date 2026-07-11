@@ -225,6 +225,12 @@ def _ticks_ms():
     return 0
 
 
+def _ticks_diff(end, start):
+    if time and hasattr(time, 'ticks_diff'):
+        return time.ticks_diff(end, start)
+    return end - start
+
+
 def handle_local_input(input_device, device_objects, device_config, publish_message):
     import asyncio
 

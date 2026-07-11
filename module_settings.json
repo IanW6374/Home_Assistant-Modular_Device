@@ -130,7 +130,7 @@
                 "adc_max": 65535,
                 "sample_count": 600,
                 "sample_delay_us": 200,
-                "calibration": 700,
+                "calibration": 188,
                 "offset": 0,
                 "precision": 1,
                 "threshold": 180,

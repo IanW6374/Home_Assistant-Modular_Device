@@ -2,6 +2,8 @@ import unittest
 
 import web_portal
 from web_portal import (
+    apply_loglevel_change,
+    apply_portal_action,
     is_authenticated,
     is_client_disconnect_error,
     make_tls_context,
@@ -31,6 +33,44 @@ class WebPortalTests(unittest.TestCase):
         levels = ('ERROR', 'INFO', 'DEBUG')
         self.assertEqual(requested_loglevel('/set-loglevel?level=debug&token=abc', levels), 'DEBUG')
         self.assertIsNone(requested_loglevel('/set-loglevel?level=TRACE&token=abc', levels))
+
+    def test_apply_loglevel_change_forces_audit_log(self):
+        levels = []
+        logs = []
+
+        apply_loglevel_change(
+            'ERROR',
+            lambda level: levels.append(level),
+            lambda mode, action, data, logtype: logs.append((mode, action, data, logtype))
+        )
+
+        self.assertEqual(levels, ['ERROR'])
+        self.assertEqual(logs[0][0], 'Local')
+        self.assertEqual(logs[0][1], 'Web portal')
+        self.assertEqual(logs[0][2]['log'], 'Log level changed to ERROR')
+        self.assertTrue(logs[0][2]['force'])
+        self.assertEqual(logs[0][3], 'INFO')
+
+    def test_apply_portal_action_logs_action_result_once(self):
+        actions = []
+        logs = []
+
+        result = apply_portal_action(
+            'calibrate',
+            '/calibrate?token=abc&uuid=0001&known_voltage=240',
+            lambda action, params: actions.append((action, params)) or 'Calibration set',
+            lambda mode, action, data, logtype: logs.append((mode, action, data, logtype))
+        )
+
+        self.assertEqual(result, 'Calibration set')
+        self.assertEqual(actions[0][0], 'calibrate')
+        self.assertEqual(actions[0][1]['uuid'], '0001')
+        self.assertEqual(actions[0][1]['known_voltage'], '240')
+        self.assertEqual(logs[0][0], 'Local')
+        self.assertEqual(logs[0][1], 'Web portal')
+        self.assertEqual(logs[0][2]['log'], 'Calibration set')
+        self.assertTrue(logs[0][2]['force'])
+        self.assertEqual(logs[0][3], 'INFO')
 
     def test_client_disconnect_errors_are_recognized(self):
         self.assertTrue(is_client_disconnect_error(OSError(-29312, 'MBEDTLS_ERR_SSL_CONN_EOF')))
@@ -68,9 +108,12 @@ class WebPortalTests(unittest.TestCase):
                 'state': {'temperature': 21},
                 'diagnostics': {'module_last_ok': True, 'module_last_read_ms': 12, 'module_last_publish_age_s': 4},
                 'calibratable': True
-            }]
+            }],
+            '',
+            12000
         )
         self.assertIn('id="logs"', html)
+        self.assertIn('id="live-sections"', html)
         self.assertIn('Device Portal', html)
         self.assertIn('Probe', html)
         self.assertIn('Diagnostics', html)
@@ -81,8 +124,29 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('title="Calculate a new in-memory calibration multiplier for this module."', html)
         self.assertIn('overflow-y:auto', html)
         self.assertIn('refreshLogs();', html)
-        self.assertIn('setInterval(refreshLogs,refreshMs)', html)
-        self.assertIn('var refreshMs=3000', html)
+        self.assertIn('class="badge good refresh-status"', html)
+        self.assertIn('class="badge good refresh-placeholder"', html)
+        self.assertIn('class="refresh-button-placeholder"', html)
+        self.assertIn('auto refresh', html)
+        self.assertIn('refresh paused', html)
+        self.assertIn('id="refresh-toggle"', html)
+        self.assertIn('.refresh-controls{display:grid;grid-template-columns:3.6rem 8rem 5rem;column-gap:.75rem', html)
+        self.assertIn('.refresh-controls .badge,#refresh-toggle,.refresh-button-placeholder{box-sizing:border-box;width:100%}', html)
+        self.assertIn('.refresh-status{justify-content:center}', html)
+        self.assertIn('.refresh-placeholder,.refresh-button-placeholder{visibility:hidden}', html)
+        self.assertIn('#refresh-toggle{text-align:center}', html)
+        self.assertIn('>Pause</button>', html)
+        self.assertIn("button.textContent=autoRefreshPaused?'Resume':'Pause'", html)
+        self.assertIn("statuses[i].className=autoRefreshPaused?'badge warn refresh-status':'badge good refresh-status'", html)
+        self.assertIn('setRefreshPaused(!autoRefreshPaused)', html)
+        self.assertIn("event.target&&event.target.id==='refresh-toggle'", html)
+        self.assertIn('updateRefreshControls();', html)
+        self.assertIn('logRefreshTimer=setInterval(refreshLogs,logRefreshMs)', html)
+        self.assertIn('var logRefreshMs=3000', html)
+        self.assertIn('var valueRefreshMs=12000', html)
+        self.assertIn("fetch('/partials?token='+encodeURIComponent(token)", html)
+        self.assertIn('valueRefreshTimer=setInterval(refreshValues,valueRefreshMs)', html)
+        self.assertIn('el.outerHTML=html', html)
         self.assertNotIn('hello', html)
 
     def test_make_tls_context_reports_missing_certificate_file(self):

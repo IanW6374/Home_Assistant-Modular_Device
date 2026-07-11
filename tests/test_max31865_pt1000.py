@@ -51,9 +51,18 @@ class FakeSPI:
         self.registers[0x02] = encoded & 0xff
 
 
+class FakeADC:
+    def __init__(self, pin=None):
+        self.pin = pin
+
+    def read_u16(self):
+        return 32768
+
+
 def load_module():
     machine = types.ModuleType('machine')
     machine.Pin = FakePin
+    machine.ADC = FakeADC
     machine.SPI = lambda *args, **kwargs: FakeSPI()
     machine.SPI.MSB = FakeSPI.MSB
     sys.modules['machine'] = machine

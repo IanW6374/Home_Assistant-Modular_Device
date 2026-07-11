@@ -87,6 +87,23 @@ def requested_loglevel(path, allowed_levels):
     return None
 
 
+def apply_loglevel_change(level, loglevel_setter, log_output):
+    loglevel_setter(level)
+    log_output('Local', 'Web portal', {'log': 'Log level changed to ' + level, 'force': True}, 'INFO')
+
+
+def apply_portal_action(action, path, action_handler, log_output):
+    notice = ''
+    if action_handler:
+        notice = str(action_handler(action, parse_query(path)))
+    else:
+        notice = action + ' request ignored'
+
+    if notice:
+        log_output('Local', 'Web portal', {'log': notice, 'force': True}, 'INFO')
+    return notice
+
+
 def query_value(path, key, default=''):
     return parse_query(path).get(key, default)
 
@@ -157,6 +174,27 @@ def diagnostic_help(key):
     return DIAGNOSTIC_HELP.get(key, 'Diagnostic value for module troubleshooting.')
 
 
+def render_refresh_controls_html():
+    return (
+        '<div class="refresh-controls">' +
+        render_badge('live', 'good') +
+        '<span class="badge good refresh-status">auto refresh</span>' +
+        '<button id="refresh-toggle" class="secondary compact" type="button" ' +
+        'title="Pause or resume log and value auto refresh.">Pause</button>' +
+        '</div>'
+    )
+
+
+def render_refresh_status_only_html():
+    return (
+        '<div class="refresh-controls">' +
+        '<span class="badge good refresh-placeholder">live</span>' +
+        '<span class="badge good refresh-status">auto refresh</span>' +
+        '<span class="refresh-button-placeholder"></span>' +
+        '</div>'
+    )
+
+
 def render_status_html(status):
     if not status:
         return ''
@@ -174,7 +212,7 @@ def render_status_html(status):
             )
     return (
         '<section class="panel"><div class="section-title"><h2>Status</h2>' +
-        render_badge('live', 'good') + '</div><div class="metrics">' +
+        render_refresh_controls_html() + '</div><div class="metrics">' +
         ''.join(cards) + '</div></section>'
     )
 
@@ -250,7 +288,16 @@ def render_modules_html(modules, token):
     )
 
 
-def render_page(token, current_loglevel, levels, logs=None, refresh_ms=5000, status=None, modules=None, notice=''):
+def render_live_sections_html(status, modules, token):
+    return (
+        '<div id="live-sections">' +
+        render_status_html(status or {}) +
+        render_modules_html(modules or [], token) +
+        '</div>'
+    )
+
+
+def render_page(token, current_loglevel, levels, logs=None, log_refresh_ms=5000, status=None, modules=None, notice='', value_refresh_ms=0):
     options = []
     for level in levels:
         selected = ' selected' if level == current_loglevel else ''
@@ -298,9 +345,16 @@ h3{font-size:.95rem;margin:0}
 form{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:0}
 .controls{display:flex;gap:.75rem;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .control-group{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.refresh-controls{display:grid;grid-template-columns:3.6rem 8rem 5rem;column-gap:.75rem;align-items:center;width:18.1rem;margin-left:auto}
 select,button,input{font:inherit;padding:.45rem .6rem;border:1px solid var(--line);border-radius:7px;background:white;color:var(--ink)}
 button{background:var(--accent);border-color:var(--accent);color:white;font-weight:650;cursor:pointer}
 button.secondary{background:white;color:var(--accent)}
+button.compact{padding:.25rem .55rem;font-size:.78rem}
+.refresh-controls .badge,#refresh-toggle,.refresh-button-placeholder{box-sizing:border-box;width:100%}
+.refresh-status{justify-content:center}
+.refresh-placeholder,.refresh-button-placeholder{visibility:hidden}
+.refresh-button-placeholder{display:block}
+#refresh-toggle{text-align:center}
 .calibration-form{border-top:1px solid var(--line);margin-top:.7rem;padding-top:.7rem}
 .notice{background:#eef8f0;border:1px solid #a9d8b4;color:#175c2c;border-radius:8px;padding:.65rem .8rem;margin:1rem 0}
 #logs{white-space:pre-wrap;overflow-wrap:anywhere;background:#111820;color:#dce7ef;padding:1rem;border-radius:8px;height:38vh;overflow-y:auto;border:1px solid #26313d}
@@ -309,10 +363,9 @@ button.secondary{background:white;color:var(--accent)}
 </head>
 <body>
 <main>
-<div class="topbar"><div><h1>Device Portal</h1><p>""" + html_escape((status or {}).get('device_name', 'Pico device')) + """</p></div></div>
+<div class="topbar"><div><h1>Device Portal</h1></div></div>
 """ + ('<p class="notice">' + html_escape(notice) + '</p>' if notice else '') + """
-""" + render_status_html(status or {}) + """
-""" + render_modules_html(modules or [], token) + """
+""" + render_live_sections_html(status or {}, modules or [], token) + """
 <section class="panel"><div class="section-title"><h2>Controls</h2></div>
 <div class="controls"><form action="/discover" method="get">
 <input type="hidden" name="token" value=\"""" + html_escape(token) + """\">
@@ -325,15 +378,20 @@ button.secondary{background:white;color:var(--accent)}
 <button class="secondary" type="submit" title="Apply the selected runtime log level until the device restarts.">Apply</button>
 </form></div>
 </section>
-<section class="panel"><div class="section-title"><h2>Logs</h2>""" + render_badge('auto refresh') + """</div>
+<section class="panel"><div class="section-title"><h2>Logs</h2>""" + render_refresh_status_only_html() + """</div>
 <pre id="logs"></pre>
 </section>
 </main>
 <script>
 var token='""" + js_escape(token) + """';
-var refreshMs=""" + str(refresh_ms) + """;
+var logRefreshMs=""" + str(log_refresh_ms) + """;
+var valueRefreshMs=""" + str(value_refresh_ms) + """;
+var autoRefreshPaused=false;
+var logRefreshTimer=null;
+var valueRefreshTimer=null;
 function nearBottom(el){return el.scrollHeight-el.scrollTop-el.clientHeight<48;}
 function refreshLogs(){
+  if(autoRefreshPaused){return;}
   var el=document.getElementById('logs');
   var keepBottom=nearBottom(el);
   fetch('/logs?token='+encodeURIComponent(token),{cache:'no-store'})
@@ -345,9 +403,48 @@ function refreshLogs(){
       }
     });
 }
+function refreshValues(){
+  if(autoRefreshPaused){return;}
+  fetch('/partials?token='+encodeURIComponent(token),{cache:'no-store'})
+    .then(function(r){if(r.ok){return r.text();}})
+    .then(function(html){
+      var el=document.getElementById('live-sections');
+      if(html!==undefined&&el&&el.outerHTML!==html){
+        el.outerHTML=html;
+        updateRefreshControls();
+      }
+    });
+}
+function scheduleRefresh(){
+  if(logRefreshTimer!==null){clearInterval(logRefreshTimer);logRefreshTimer=null;}
+  if(valueRefreshTimer!==null){clearInterval(valueRefreshTimer);valueRefreshTimer=null;}
+  if(autoRefreshPaused){return;}
+  if(logRefreshMs>0){logRefreshTimer=setInterval(refreshLogs,logRefreshMs);}
+  if(valueRefreshMs>0){valueRefreshTimer=setInterval(refreshValues,valueRefreshMs);}
+}
+function setRefreshPaused(paused){
+  autoRefreshPaused=paused;
+  updateRefreshControls();
+  scheduleRefresh();
+  if(!paused){refreshLogs();refreshValues();}
+}
+function updateRefreshControls(){
+  var button=document.getElementById('refresh-toggle');
+  var statuses=document.getElementsByClassName('refresh-status');
+  if(button){button.textContent=autoRefreshPaused?'Resume':'Pause';}
+  for(var i=0;i<statuses.length;i++){
+    statuses[i].textContent=autoRefreshPaused?'refresh paused':'auto refresh';
+    statuses[i].className=autoRefreshPaused?'badge warn refresh-status':'badge good refresh-status';
+  }
+}
 window.addEventListener('load',function(){
   refreshLogs();
-  if(refreshMs>0){setInterval(refreshLogs,refreshMs);}
+  refreshValues();
+  scheduleRefresh();
+  updateRefreshControls();
+});
+document.addEventListener('click',function(event){
+  if(event.target&&event.target.id==='refresh-toggle'){setRefreshPaused(!autoRefreshPaused);}
 });
 </script>
 </body>
@@ -389,7 +486,8 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
 
     token = settings.get('token', '')
     levels = settings.get('levels', ('ERROR', 'INFO', 'DEBUG'))
-    refresh_ms = settings.get('refresh_ms', 5000)
+    log_refresh_ms = settings.get('log_refresh_ms', 5000)
+    value_refresh_ms = settings.get('value_refresh_ms', 0)
 
     async def handle_client(reader, writer):
         if gc:
@@ -430,8 +528,7 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
             elif path.startswith('/set-loglevel'):
                 level = requested_loglevel(path, levels)
                 if level:
-                    loglevel_setter(level)
-                    log_output('Local', 'Web portal', {'log': 'Log level changed to ' + level}, 'INFO')
+                    apply_loglevel_change(level, loglevel_setter, log_output)
                     writer.write(redirect('/?token=' + token).encode())
                 else:
                     body = 'Invalid log level'
@@ -446,20 +543,21 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
                 }
                 body = json.dumps(payload) if json else '{}'
                 writer.write(response('200 OK', body, 'application/json').encode())
+            elif path.startswith('/partials'):
+                body = render_live_sections_html(
+                    status_getter() if status_getter else {},
+                    module_getter() if module_getter else [],
+                    token
+                )
+                writer.write(response('200 OK', body).encode())
             elif path.startswith('/discover'):
-                notice = 'Discovery requested'
-                if action_handler:
-                    notice = str(action_handler('discover', parse_query(path)))
-                body = render_page(token, loglevel_getter(), levels, log_getter(), refresh_ms, status_getter() if status_getter else {}, module_getter() if module_getter else [], notice)
-                writer.write(response('200 OK', body).encode())
+                apply_portal_action('discover', path, action_handler, log_output)
+                writer.write(redirect('/?token=' + token).encode())
             elif path.startswith('/calibrate'):
-                notice = 'Calibration request ignored'
-                if action_handler:
-                    notice = str(action_handler('calibrate', parse_query(path)))
-                body = render_page(token, loglevel_getter(), levels, log_getter(), refresh_ms, status_getter() if status_getter else {}, module_getter() if module_getter else [], notice)
-                writer.write(response('200 OK', body).encode())
+                apply_portal_action('calibrate', path, action_handler, log_output)
+                writer.write(redirect('/?token=' + token).encode())
             else:
-                body = render_page(token, loglevel_getter(), levels, log_getter(), refresh_ms, status_getter() if status_getter else {}, module_getter() if module_getter else [])
+                body = render_page(token, loglevel_getter(), levels, log_getter(), log_refresh_ms, status_getter() if status_getter else {}, module_getter() if module_getter else [], '', value_refresh_ms)
                 writer.write(response('200 OK', body).encode())
 
             await writer.drain()

@@ -1,6 +1,6 @@
 {
   "device": {
-    "name": "HTW",
+    "name": "HTWTest",
     "module_settings_file": "module_settings.json",
     "ca_cert_path": "/certs/home-ca.der",
     "loglevel": "INFO",
@@ -29,9 +29,10 @@
     "port": null,
     "cert_path": "/certs/web.crt.der",
     "key_path": "/certs/web.key.der",
-    "refresh_ms": 5000,
-    "log_lines": 100,
-    "log_line_max": 300
+    "value_refresh_s": 10,
+    "log_refresh_s": 5,
+    "log_buffer_lines": 100,
+    "log_line_max_chars": 300
   },
   "local_display": {
     "enabled": true,

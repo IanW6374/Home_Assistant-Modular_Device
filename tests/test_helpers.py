@@ -30,6 +30,14 @@ DEVICE_TYPES = [
 ]
 
 
+class TestDriver(DeviceDriver):
+    def get_discovery_payloads(self, deviceid, ha_devicename):
+        return {}, {}
+
+    def get_state_payload(self):
+        return {'temperature': 21}
+
+
 class HelperTests(unittest.TestCase):
     def test_home_assistant_topics(self):
         self.assertEqual(
@@ -128,6 +136,23 @@ class HelperTests(unittest.TestCase):
             self.assertEqual(driver.discovery_cleanup_topics('abc', ['temperature']), [])
         finally:
             base.device_settings.ha_discovery_cleanup_legacy = original
+
+    def test_publish_state_includes_health_after_mark_publish(self):
+        driver = TestDriver(
+            {'name': 'Probe', 'uuid': '0001', 'type': {'class': 'sensor'}},
+            {}
+        )
+        published = []
+
+        driver.mark_read_ok(12)
+        driver.publish_state(lambda data, qos, log_only, retain: published.append(data), 'abc')
+
+        payload = published[0]['payload']
+        self.assertEqual(payload['temperature'], 21)
+        self.assertTrue(payload['module_last_ok'])
+        self.assertEqual(payload['module_last_error'], '')
+        self.assertEqual(payload['module_last_read_ms'], 12)
+        self.assertIsInstance(payload['module_last_publish_age_s'], int)
 
     def test_config_validation_accepts_current_shape(self):
         config = {
