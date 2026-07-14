@@ -1,0 +1,33 @@
+{
+  "devices": [
+    {
+      "name": "Greenstar 8000",
+      "uuid": "0001",
+      "type": {
+        "class": "sensor",
+        "subclass": "EMS-Boiler"
+      },
+      "boiler_id": 8,
+      "ems": {
+        "uart": 1,
+        "tx": 17,
+        "rx": 18,
+        "baudrate": 9600,
+        "bits": 8,
+        "parity": null,
+        "stop": 1,
+        "frame_gap_ms": 5,
+        "poll_ms": 1,
+        "debug_frames": false
+      },
+      "entities": {
+        "0": {"class": "memory_value", "key": "heatingactive", "value": false},
+        "1": {"class": "temperature", "key": "curflowtemp", "value": null, "unit": "°C", "state_class": "measurement"},
+        "2": {"class": "temperature", "key": "rettemp", "value": null, "unit": "°C", "state_class": "measurement"},
+        "3": {"class": "memory_value", "key": "flameactive", "value": false},
+        "4": {"class": "memory_value", "key": "ems_frames", "value": 0, "entity_category": "diagnostic"},
+        "5": {"class": "memory_value", "key": "ems_crc_errors", "value": 0, "entity_category": "diagnostic"}
+      }
+    }
+  ]
+}

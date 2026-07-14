@@ -1,11 +1,15 @@
 """Grove MCP6002 AC voltage sensor module.
 
-Samples a biased AC waveform with the Pico ADC, removes the DC midpoint, and
+Samples a biased AC waveform with a MicroPython ADC, removes the DC midpoint, and
 publishes a calibrated RMS voltage. The optional threshold entity is exposed as
 a Home Assistant binary_sensor while sharing the same MQTT state payload.
 """
 
 from machine import ADC, Pin
+try:
+    import hardware_platform
+except ImportError:
+    hardware_platform = None
 try:
     from .base import DeviceDriver
     from .base import ha_device_topic
@@ -64,10 +68,23 @@ def supports(device):
 def setup(device, index):
     cfg = device.get('ac_voltage', {})
     adc_pin = cfg.get('adc_pin', device.get('adc_pin', DEFAULT_ADC_PIN))
+    adc = ADC(Pin(adc_pin))
+    if hardware_platform and hardware_platform.IS_ESP32 and hasattr(adc, 'atten'):
+        attenuation = int(cfg.get('atten_db', 11))
+        attenuation_values = {
+            0: getattr(ADC, 'ATTN_0DB', None),
+            2: getattr(ADC, 'ATTN_2_5DB', None),
+            6: getattr(ADC, 'ATTN_6DB', None),
+            11: getattr(ADC, 'ATTN_11DB', None)
+        }
+        value = attenuation_values.get(attenuation)
+        if value is None:
+            raise ValueError('unsupported ESP32 ADC attenuation: ' + str(attenuation))
+        adc.atten(value)
     return {
         'uuid': device['uuid'],
         'index': index,
-        'adc': ADC(Pin(adc_pin))
+        'adc': adc
     }
 
 

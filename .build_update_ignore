@@ -1,0 +1,14 @@
+# Development and host-only content
+examples/
+tests/
+.git/
+.vscode/
+
+# Generated and editor files
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.tmp
+*.bak
+*~

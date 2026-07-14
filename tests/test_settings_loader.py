@@ -22,6 +22,15 @@ class SettingsLoaderTests(unittest.TestCase):
         self.assertEqual(settings_loader.web_portal_value_refresh_s, config['web_portal']['value_refresh_s'])
         self.assertEqual(settings_loader.web_log_buffer_lines, config['web_portal']['log_buffer_lines'])
         self.assertEqual(settings_loader.web_log_line_max_chars, config['web_portal']['log_line_max_chars'])
+        self.assertEqual(settings_loader.web_portal_updates_enabled, config['web_portal']['updates_enabled'])
+        self.assertEqual(settings_loader.web_portal_update_max_bytes, config['web_portal']['update_max_bytes'])
+        self.assertEqual(
+            settings_loader.web_portal_allow_protected_updates,
+            config['web_portal']['allow_protected_updates']
+        )
+        self.assertFalse(settings_loader.web_portal_firmware_updates_enabled)
+        self.assertEqual(settings_loader.web_portal_firmware_update_max_bytes, 4194304)
+        self.assertIsNone(settings_loader.status_led_pin)
         self.assertEqual(settings_loader.local_display.get('enabled'), config['local_display']['enabled'])
         self.assertIn(settings_loader.loglevel, ('ERROR', 'INFO', 'DEBUG'))
 

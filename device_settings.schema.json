@@ -26,8 +26,10 @@
         },
         "watchdog_timeout_ms": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 8388
+          "minimum": 0
+        },
+        "status_led_pin": {
+          "type": ["integer", "string", "null"]
         },
         "ntp_servers": {
           "type": "array",
@@ -126,6 +128,23 @@
         "log_line_max_chars": {
           "type": "integer",
           "minimum": 1
+        },
+        "updates_enabled": {
+          "type": "boolean"
+        },
+        "update_max_bytes": {
+          "type": "integer",
+          "minimum": 1024
+        },
+        "allow_protected_updates": {
+          "type": "boolean"
+        },
+        "firmware_updates_enabled": {
+          "type": "boolean"
+        },
+        "firmware_update_max_bytes": {
+          "type": "integer",
+          "minimum": 1024
         }
       },
       "additionalProperties": false

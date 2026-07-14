@@ -107,6 +107,7 @@ _reject_unknown(_device, (
     'ca_cert_path',
     'loglevel',
     'watchdog_timeout_ms',
+    'status_led_pin',
     'ntp_servers'
 ), 'device')
 _reject_unknown(_ha, (
@@ -127,7 +128,12 @@ _reject_unknown(_web_portal, (
     'log_refresh_s',
     'value_refresh_s',
     'log_buffer_lines',
-    'log_line_max_chars'
+    'log_line_max_chars',
+    'updates_enabled',
+    'update_max_bytes',
+    'allow_protected_updates',
+    'firmware_updates_enabled',
+    'firmware_update_max_bytes'
 ), 'web_portal')
 _reject_unknown(local_display, (
     'enabled',
@@ -165,6 +171,7 @@ ha_device_info = _optional(_ha, 'device_info', dict, {}, 'ha.device_info')
 loglevel = _optional(_device, 'loglevel', str, 'INFO', 'device.loglevel')
 _validate_loglevel(loglevel)
 watchdog_timeout_ms = _optional(_device, 'watchdog_timeout_ms', int, 0, 'device.watchdog_timeout_ms')
+status_led_pin = _optional(_device, 'status_led_pin', (int, str, type(None)), None, 'device.status_led_pin')
 
 ha_discovery = _optional(_ha, 'discovery', bool, False, 'ha.discovery')
 ha_discovery_cleanup_legacy_identity = _optional(_ha, 'discovery_cleanup_legacy_identity', bool, False, 'ha.discovery_cleanup_legacy_identity')
@@ -178,6 +185,11 @@ web_portal_host = _optional(_web_portal, 'host', str, '0.0.0.0', 'web_portal.hos
 web_portal_port = _optional(_web_portal, 'port', (int, type(None)), None, 'web_portal.port')
 web_portal_cert_path = _optional(_web_portal, 'cert_path', str, '/certs/web.crt.der', 'web_portal.cert_path')
 web_portal_key_path = _optional(_web_portal, 'key_path', str, '/certs/web.key.der', 'web_portal.key_path')
+web_portal_updates_enabled = _optional(_web_portal, 'updates_enabled', bool, False, 'web_portal.updates_enabled')
+web_portal_update_max_bytes = _optional(_web_portal, 'update_max_bytes', int, 2097152, 'web_portal.update_max_bytes')
+web_portal_allow_protected_updates = _optional(_web_portal, 'allow_protected_updates', bool, False, 'web_portal.allow_protected_updates')
+web_portal_firmware_updates_enabled = _optional(_web_portal, 'firmware_updates_enabled', bool, False, 'web_portal.firmware_updates_enabled')
+web_portal_firmware_update_max_bytes = _optional(_web_portal, 'firmware_update_max_bytes', int, 4194304, 'web_portal.firmware_update_max_bytes')
 web_portal_log_refresh_s = _optional(
     _web_portal,
     'log_refresh_s',

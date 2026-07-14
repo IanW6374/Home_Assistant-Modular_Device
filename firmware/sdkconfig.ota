@@ -1,0 +1,3 @@
+# Required by firmware_update.py so an unconfirmed OTA image is rolled back.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+

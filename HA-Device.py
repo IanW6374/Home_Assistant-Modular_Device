@@ -1,14 +1,20 @@
 import ssl
 import time
+try:
+    import gc
+except ImportError:
+    gc = None
 from binascii import hexlify
 import json
 import secrets
+import app_update
+import firmware_update
+import hardware_platform
 import settings_loader as device_settings
 try:
     import network
 except ImportError:
     network = None
-from machine import Pin, unique_id
 try:
     from machine import WDT
 except ImportError:
@@ -62,7 +68,7 @@ moduleSettingsFile = device_settings.module_settings_file
 
 # Module settings
 
-hardware_deviceid = hexlify(unique_id()).decode()
+hardware_deviceid = hexlify(hardware_platform.unique_id()).decode()
 deviceid = hardware_deviceid + '_' + ha_safe_id(ha_devicename)
 
 ntp_servers = device_settings.ntp_servers
@@ -72,7 +78,6 @@ ha_discovery_cleanup_legacy_identity = device_settings.ha_discovery_cleanup_lega
 loglevels = ['ERROR', 'INFO', 'DEBUG']
 loglevel = device_settings.loglevel
 watchdog_timeout_ms = device_settings.watchdog_timeout_ms
-watchdog_max_timeout_ms = 8000
 watchdog = None
 ntp_synced = False
 web_portal_server = None
@@ -84,6 +89,11 @@ if web_portal_port is None:
     web_portal_port = 8443 if web_portal_https else 8080
 web_portal_token = getattr(secrets, 'web_portal_token', '')
 web_portal_cert_path = device_settings.web_portal_cert_path
+web_portal_updates_enabled = device_settings.web_portal_updates_enabled
+web_portal_update_max_bytes = device_settings.web_portal_update_max_bytes
+web_portal_allow_protected_updates = device_settings.web_portal_allow_protected_updates
+web_portal_firmware_updates_enabled = device_settings.web_portal_firmware_updates_enabled
+web_portal_firmware_update_max_bytes = device_settings.web_portal_firmware_update_max_bytes
 web_portal_key_path = device_settings.web_portal_key_path
 web_portal_log_refresh_s = device_settings.web_portal_log_refresh_s
 web_portal_value_refresh_s = device_settings.web_portal_value_refresh_s
@@ -119,7 +129,7 @@ deviceObjects = [
 
 outputDevices = [
     # System LED
-    {'uuid': '0000', 'index': 0, 'output': {'0': Pin('LED', Pin.OUT)}}    
+    {'uuid': '0000', 'index': 0, 'output': {'0': hardware_platform.status_output(device_settings.status_led_pin)}}
 ]
 
 inputDevices = []
@@ -331,7 +341,7 @@ def local_display_status():
                 if len(alerts) >= 3:
                     break
 
-    return {
+    status = {
         'device_name': ha_devicename,
         'wifi_ip': wifi_ip_address(),
         'mqtt': mqtt_connection_status(),
@@ -342,6 +352,24 @@ def local_display_status():
         'discovery_count': last_discovery_count,
         'alerts': alerts
     }
+    if gc and hasattr(gc, 'mem_free'):
+        status['heap_free_bytes'] = gc.mem_free()
+    if gc and hasattr(gc, 'mem_alloc'):
+        status['heap_allocated_bytes'] = gc.mem_alloc()
+    return status
+
+
+def log_heap(label):
+    if not gc or not hasattr(gc, 'mem_free'):
+        return
+    gc.collect()
+    allocated = gc.mem_alloc() if hasattr(gc, 'mem_alloc') else 0
+    logOutput(
+        'Local',
+        'Memory',
+        {'log': label + ' - free=' + str(gc.mem_free()) + ' allocated=' + str(allocated)},
+        'INFO'
+    )
 
 
 def local_display_snapshots():
@@ -413,7 +441,27 @@ def start_local_display():
 
 
 def portal_status():
-    return local_display_status()
+    status = local_display_status()
+    update = app_update.update_status()
+    status['running_version'] = app_update.running_version(
+        device_settings.ha_device_info.get('sw', '')
+    )
+    status['base_version'] = app_update.BASE_VERSION
+    status['update_status'] = update.get('status', 'idle')
+    status['update_version'] = update.get('version', '')
+    status['update_options'] = update.get('optional_groups', [])
+    firmware = firmware_update.update_status()
+    status['platform'] = hardware_platform.platform_id()
+    status['runtime_version'] = hardware_platform.runtime_version()
+    status['firmware_update_supported'] = bool(
+        web_portal_firmware_updates_enabled and firmware_update.supported()
+    )
+    status['firmware_update_status'] = firmware.get('status', 'idle')
+    status['firmware_update_version'] = firmware.get('version', '')
+    status['firmware_running_version'] = firmware_update.running_version(
+        hardware_platform.runtime_version()
+    )
+    return status
 
 
 def module_summaries():
@@ -458,13 +506,21 @@ def module_summaries():
                     diagnostics['module_' + key] = health[key]
             calibratable = hasattr(driver, 'set_calibration') and device.get('type', {}).get('subclass') == 'Grove-AC-Voltage'
 
+        debug_frames = None
+        if driver and hasattr(driver, 'debug_frames_enabled'):
+            try:
+                debug_frames = bool(driver.debug_frames_enabled())
+            except Exception:
+                debug_frames = None
+
         summaries.append({
             'uuid': device.get('uuid', ''),
             'name': device.get('name', ''),
             'type': device.get('type', {}).get('subclass', device.get('type', {}).get('class', '')),
             'state': state,
             'diagnostics': diagnostics,
-            'calibratable': calibratable
+            'calibratable': calibratable,
+            'debug_frames': debug_frames
         })
     return summaries
 
@@ -565,7 +621,89 @@ def portal_action(action, params):
             return 'Calibration failed: ' + str(result.get('error', result))
         return 'Calibration failed'
 
+    if action == 'ems-debug':
+        uuid = params.get('uuid')
+        enabled = str(params.get('enabled', '')).lower() in ('1', 'true', 'on')
+        device_char = next((d for d in outputDevices if d.get('uuid') == uuid), None)
+        if not device_char or 'driver' not in device_char:
+            return 'EMS debug change failed: module not found'
+        driver = device_char['driver']
+        if not hasattr(driver, 'set_debug_frames'):
+            return 'EMS debug change failed: module does not support frame debugging'
+        current = driver.set_debug_frames(enabled)
+        state = 'enabled' if current else 'disabled'
+        return 'EMS debug frames ' + state + ' for module ' + str(uuid)
+
+    if action == 'activate-update':
+        state = app_update.update_status()
+        if state.get('status') != 'ready':
+            return 'Application update activation failed: no staged update'
+        selections = {
+            'device_settings': str(params.get('device_settings', '')).lower() in ('1', 'true', 'on'),
+            'module_settings': str(params.get('module_settings', '')).lower() in ('1', 'true', 'on'),
+            'secrets': str(params.get('secrets', '')).lower() in ('1', 'true', 'on'),
+            'certificates': str(params.get('certificates', '')).lower() in ('1', 'true', 'on')
+        }
+        try:
+            app_update.configure_pending_update(selections)
+        except Exception as exc:
+            return 'Application update activation failed: ' + str(exc)
+
+        async def reboot_for_update():
+            await asyncio.sleep(1)
+            try:
+                hardware_platform.reset()
+            except Exception as exc:
+                logOutput('Local', 'Application update', {'log': 'Reboot failed: ' + str(exc)}, 'ERROR')
+
+        start_task('application_update_reboot', reboot_for_update())
+        return 'Application update staged; rebooting'
+
+    if action == 'activate-firmware':
+        if not web_portal_firmware_updates_enabled or not firmware_update.supported():
+            return 'Base firmware activation failed: firmware OTA is unavailable'
+        try:
+            firmware_update.activate_pending()
+        except Exception as exc:
+            return 'Base firmware activation failed: ' + str(exc)
+
+        async def reboot_for_firmware_update():
+            await asyncio.sleep(1)
+            hardware_platform.reset()
+
+        start_task('firmware_update_reboot', reboot_for_firmware_update())
+        return 'Base firmware staged; rebooting into trial partition'
+
     return 'Unknown action'
+
+
+async def portal_update_upload(reader, content_length, params):
+    if not web_portal_updates_enabled:
+        raise ValueError('application updates are disabled')
+    state = await app_update.receive_bundle(
+        reader,
+        content_length,
+        web_portal_allow_protected_updates,
+        web_portal_update_max_bytes
+    )
+    return (
+        'Update ' + str(state.get('version', '')) +
+        ' uploaded and verified; choose overwrite options before activation'
+    )
+
+
+async def portal_firmware_upload(reader, content_length, params):
+    if not web_portal_firmware_updates_enabled or not firmware_update.supported():
+        raise ValueError('base firmware updates are unavailable')
+    state = await firmware_update.receive_bundle(
+        reader,
+        content_length,
+        web_portal_firmware_update_max_bytes
+    )
+    return (
+        'Base firmware ' + str(state.get('version', '')) +
+        ' verified in inactive partition; activate when ready'
+    )
 
 
 async def start_admin_portal():
@@ -608,7 +746,9 @@ async def start_admin_portal():
             logOutput,
             portal_status,
             module_summaries,
-            portal_action
+            portal_action,
+            portal_update_upload if web_portal_updates_enabled else None,
+            portal_firmware_upload if web_portal_firmware_updates_enabled else None
         )
     except Exception as exc:
         logOutput('Local', 'Web portal', {'log': 'Failed to start - ' + str(exc)}, 'ERROR')
@@ -922,7 +1062,10 @@ async def handle_mqtt_message(topic, payload, retained):
             'log': 'HA Status: ' + msg_payload_text
             }
 
-        if msg_payload_text == 'online':
+        # Initial discovery is completed explicitly before the HTTPS portal is
+        # opened. Ignore the retained birth message delivered on subscription;
+        # live HA restarts still arrive with retained=False and trigger refresh.
+        if msg_payload_text == 'online' and not retained:
             start_task('ha_discovery_status', homeassistant_discovery())
 
         logOutput ('MQTT', 'Received', data, 'INFO')
@@ -979,33 +1122,27 @@ async def messages(client):  # Respond to incoming messages
 
 
 
+async def configure_mqtt_connection(client):
+    await sync_ntp_time()
+    await client.subscribe('homeassistant/status', 1)
+    logOutput('MQTT', 'Subscribe', {'log': 'Topic: homeassistant/status', 'topic': 'homeassistant/status', 'payload': None}, 'INFO')
+
+    for device in deviceObjects:
+        devicetype = find_device_type(device)
+        if device['uuid'] != '0000' and devicetype and devicetype['ha_subscribe']:
+            topic = ha_set_topic(device['type']['class'], deviceid, device['uuid'])
+            await client.subscribe(topic, 1)
+            logOutput('MQTT', 'Subscribe', {'log': 'Topic: ' + topic, 'topic': topic, 'payload': None}, 'INFO')
+
+    await publish_availability('online')
+    await homeassistant_discovery()
+
+
 async def up(client):  # Respond to connectivity being (re)established
-       
     while True:
-    
-        await client.up.wait()  # Wait on an Event
+        await client.up.wait()
         client.up.clear()
-
-        await sync_ntp_time()
-        
-        await client.subscribe('homeassistant/status', 1)
-        
-        logOutput ('MQTT', 'Subscribe', {'log':'Topic: homeassistant/status', 'topic': 'homeassistant/status', 'payload': None}, 'INFO')
-    
-        for device in deviceObjects:
-            
-            devicetype = find_device_type(device)
-
-            if device['uuid'] != '0000' and devicetype and devicetype['ha_subscribe']:
-            
-                topic = ha_set_topic(device['type']['class'], deviceid, device['uuid'])
-                await client.subscribe(topic, 1)
-            
-                logOutput ('MQTT', 'Subscribe', {'log':'Topic: ' + topic, 'topic': topic, 'payload': None}, 'INFO')   
-            
-        await publish_availability('online')
-        start_task('ha_discovery_connect', homeassistant_discovery())
-
+        await configure_mqtt_connection(client)
         await asyncio.sleep(0)
 
 
@@ -1039,8 +1176,23 @@ async def main(client):
         logOutput('MQTT', 'Connect', {'log': 'Connect WiFi before NTP sync'}, 'INFO')
         await client.wifi_connect(quick=True)
         await sync_ntp_time()
-        await start_admin_portal()
         await client.connect()
+        client.up.clear()
+        log_heap('Before HA discovery')
+        await configure_mqtt_connection(client)
+        log_heap('Before HTTPS portal')
+        portal_started = await start_admin_portal()
+        if web_portal_enabled and portal_started is None:
+            if app_update.update_status().get('status') == 'trial':
+                logOutput('Local', 'Application update', {'log': 'Portal health check failed; update will roll back'}, 'ERROR')
+                return
+        if app_update.confirm_update():
+            logOutput('Local', 'Application update', {'log': 'Update confirmed healthy'}, 'INFO')
+        try:
+            if firmware_update.confirm_update():
+                logOutput('Local', 'Base firmware', {'log': 'OTA partition confirmed healthy'}, 'INFO')
+        except Exception as exc:
+            logOutput('Local', 'Base firmware', {'log': 'Could not confirm OTA partition - ' + str(exc)}, 'ERROR')
     except ValueError as exc:
         logOutput('MQTT', 'Connect', {'log': 'SSL error: ' + ssl_error_message(exc)}, 'ERROR')
         return
@@ -1052,7 +1204,7 @@ async def main(client):
         start_task(coroutine.__name__, coroutine(client))
 
     if watchdog_timeout_ms and WDT:
-        watchdog_timeout = min(watchdog_timeout_ms, watchdog_max_timeout_ms)
+        watchdog_timeout = hardware_platform.watchdog_timeout(watchdog_timeout_ms)
         if watchdog_timeout != watchdog_timeout_ms:
             logOutput(
                 'Local',

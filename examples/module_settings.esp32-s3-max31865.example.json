@@ -1,0 +1,35 @@
+{
+  "devices": [
+    {
+      "name": "ESP32-S3 Test Temperature",
+      "uuid": "0001",
+      "type": {
+        "class": "sensor",
+        "subclass": "MAX31865-PT1000"
+      },
+      "pollinterval": 30,
+      "max31865": {
+        "spi": 1,
+        "sck": 12,
+        "mosi": 11,
+        "miso": 13,
+        "cs": 10,
+        "baudrate": 1000000,
+        "wires": 2,
+        "filter_hz": 50,
+        "rtd_nominal": 1000,
+        "ref_resistor": 4300,
+        "precision": 2
+      },
+      "entities": {
+        "0": {
+          "class": "temperature",
+          "key": "temperature",
+          "value": null,
+          "unit": "°C",
+          "state_class": "measurement"
+        }
+      }
+    }
+  ]
+}

@@ -16,8 +16,8 @@
                 "bits": 8,
                 "parity": null,
                 "stop": 1,
-                "frame_gap_ms": 20,
-                "poll_ms": 5,
+                "frame_gap_ms": 5,
+                "poll_ms": 1,
                 "debug_frames": false
             },
             "entities": {

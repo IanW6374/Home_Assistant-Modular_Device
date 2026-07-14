@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy the Pico runtime files to a mounted MicroPython filesystem."""
+"""Copy runtime files to a mounted MicroPython filesystem."""
 
 import argparse
 import shutil
@@ -8,6 +8,9 @@ from pathlib import Path
 
 FILES = (
     "main.py",
+    "app_update.py",
+    "firmware_update.py",
+    "hardware_platform.py",
     "HA-Device.py",
     "settings_loader.py",
     "device_settings.json",
@@ -37,8 +40,8 @@ def copy_tree(src, dst):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Deploy project files to a mounted Pico filesystem")
-    parser.add_argument("mount", help="Path to mounted Pico filesystem")
+    parser = argparse.ArgumentParser(description="Deploy project files to a mounted MicroPython filesystem")
+    parser.add_argument("mount", help="Path to mounted MicroPython filesystem")
     parser.add_argument("--secrets", action="store_true", help="Also copy secrets.py if present")
     args = parser.parse_args()
 

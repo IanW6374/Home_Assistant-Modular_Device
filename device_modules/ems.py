@@ -47,6 +47,7 @@ DEFAULT_POLL_MS = 5
 DEFAULT_MAX_FRAME_BYTES = 96
 
 BOILER_ID = 0x08
+MONITOR_TYPES = (0x18, 0x19, 0x34, 0xE4, 0xE5, 0xE9)
 
 
 EMS_CRC_TABLE = (
@@ -132,6 +133,9 @@ class EMSBoilerDriver(DeviceDriver):
         self._deviceid = None
         self._log_callable = None
         self._values = {}
+        self._debug_frames_enabled = bool(
+            self.device.get('ems', {}).get('debug_frames', False)
+        )
         self._diagnostics = {
             'ems_last_ok': None,
             'ems_last_type': '',
@@ -223,14 +227,29 @@ class EMSBoilerDriver(DeviceDriver):
 
     def _process_frame(self, frame):
         if len(frame) < 6:
+            self._debug_frame('short', frame)
             return False
 
-        if self._crc(frame[:-1]) != frame[-1]:
+        if not self._is_monitor_frame(frame):
+            self._debug_frame('bus activity', frame)
+            return False
+
+        calculated_crc = self._crc(frame[:-1])
+        if calculated_crc != frame[-1]:
             self._diagnostics['ems_crc_errors'] += 1
             self._diagnostics['ems_last_ok'] = False
             self._diagnostics['ems_last_error'] = 'crc mismatch'
-            self._log('crc mismatch', 'DEBUG')
+            self.mark_read_error('crc mismatch')
+            self._debug_frame(
+                'crc mismatch expected=' + self._hex_byte(calculated_crc) +
+                ' received=' + self._hex_byte(frame[-1]),
+                frame
+            )
+            if not self._debug_frames_enabled:
+                self._log('crc mismatch', 'DEBUG')
             return False
+
+        self._debug_frame('crc ok', frame)
 
         telegram = self._parse_telegram(frame)
         if not telegram:
@@ -245,9 +264,18 @@ class EMSBoilerDriver(DeviceDriver):
         self._diagnostics['ems_last_error'] = ''
         self._diagnostics['ems_last_src'] = self._hex_byte(telegram['src'])
         self._diagnostics['ems_last_type'] = self._hex_type(telegram['type'])
+        self.mark_read_ok()
 
         values = self._decode_values(telegram)
         return self._update_values(values)
+
+    def _is_monitor_frame(self, frame):
+        boiler_id = self.device.get('boiler_id', BOILER_ID)
+        return (
+            (frame[0] & 0x7f) == boiler_id and
+            frame[1] == 0x00 and
+            frame[2] in MONITOR_TYPES
+        )
 
     def _parse_telegram(self, frame):
         src = frame[0]
@@ -354,6 +382,7 @@ class EMSBoilerDriver(DeviceDriver):
         flags = self._u8(data, 11)
         if flags is not None:
             self._put(values, 'burngas', bool(flags & 0x01))
+            self._put(values, 'flameactive', bool(flags & 0x01))
             self._put(values, 'heatingactive', bool(flags & 0x02))
             self._put(values, 'tapwateractive', bool(flags & 0x04))
             self._put(values, 'dhw.3wayvalve', bool(flags & 0x04))
@@ -422,6 +451,7 @@ class EMSBoilerDriver(DeviceDriver):
     def _record_error(self, message):
         self._diagnostics['ems_last_ok'] = False
         self._diagnostics['ems_last_error'] = message
+        self.mark_read_error(message)
         self._log(message, 'ERROR')
 
     def _log(self, message, logtype='INFO'):
@@ -429,6 +459,25 @@ class EMSBoilerDriver(DeviceDriver):
             self._log_callable('Local', 'EMS-Boiler', {'log': message}, logtype)
         else:
             log_output('Local', 'EMS-Boiler', {'log': message}, logtype)
+
+    def _debug_frame(self, result, frame):
+        if not self._debug_frames_enabled:
+            return
+        self._log(
+            'rx ' + result + ' len=' + str(len(frame)) +
+            ' data=' + self._hex_frame(frame),
+            'INFO'
+        )
+
+    def _hex_frame(self, frame):
+        return ' '.join(self._hex_byte(byte) for byte in frame)
+
+    def debug_frames_enabled(self):
+        return self._debug_frames_enabled
+
+    def set_debug_frames(self, enabled):
+        self._debug_frames_enabled = bool(enabled)
+        return self._debug_frames_enabled
 
     def _crc(self, data):
         crc = 0
