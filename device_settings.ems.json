@@ -1,0 +1,59 @@
+{
+  "device": {
+    "name": "BoilerTest",
+    "module_settings_file": "module_settings.json",
+    "ca_cert_path": "/certs/home-ca.der",
+    "loglevel": "INFO",
+    "watchdog_timeout_ms": 8000,
+    "ntp_servers": [
+      "pool.ntp.org",
+      "time.google.com"
+    ]
+  },
+  "ha": {
+    "discovery": true,
+    "discovery_cleanup_legacy_identity": true,
+    "discovery_cleanup_legacy": true,
+    "system_diagnostics": true,
+    "device_info": {
+      "mf": "Home",
+      "mdl": "Pico2W",
+      "sw": "1.3-beta",
+      "hw": "1.0"
+    }
+  },
+  "web_portal": {
+    "enabled": true,
+    "https": true,
+    "host": "0.0.0.0",
+    "port": null,
+    "cert_path": "/certs/web.crt.der",
+    "key_path": "/certs/web.key.der",
+    "value_refresh_s": 15,
+    "log_refresh_s": 10,
+    "log_buffer_lines": 40,
+    "log_line_max_chars": 200,
+    "updates_enabled": true,
+    "update_max_bytes": 2097152,
+    "allow_protected_updates": true
+  },
+  "local_display": {
+    "enabled": true,
+    "type": "Waveshare-Pico-OLED-1.3",
+    "width": 128,
+    "height": 64,
+    "spi": 1,
+    "sck": 10,
+    "mosi": 11,
+    "cs": 9,
+    "dc": 8,
+    "rst": 12,
+    "refresh_ms": 1000,
+    "button_a": 15,
+    "button_b": 17,
+    "button_a_short": "next_page",
+    "button_a_long": "refresh_discovery",
+    "button_b_short": "previous_page",
+    "button_b_long": "toggle_loglevel"
+  }
+}

@@ -1,188 +1,35 @@
 {
-    "_comment": "Example for one Pico with two MAX31865/PT1000 probes on SPI0, a Grove AC voltage sensor on ADC0/GP26, and the local OLED display enabled in device_settings.json. The OLED display uses SPI1 pins from device_settings.json, not this module settings file.",
-    "devices": [
-        {
-            "name": "Flow Temperature",
-            "uuid": "0001",
-            "type": {
-                "class": "sensor",
-                "subclass": "MAX31865-PT1000"
-            },
-            "pollinterval": 30,
-            "max31865": {
-                "spi": 0,
-                "sck": 2,
-                "mosi": 3,
-                "miso": 4,
-                "cs": 5,
-                "baudrate": 1000000,
-                "wires": 2,
-                "filter_hz": 50,
-                "rtd_nominal": 1000,
-                "ref_resistor": 4300,
-                "precision": 2
-            },
-            "entities": {
-                "0": {
-                    "class": "temperature",
-                    "key": "temperature",
-                    "value": null,
-                    "unit": "\u00b0C",
-                    "state_class": "measurement"
-                },
-                "1": {
-                    "class": "memory_value",
-                    "key": "resistance",
-                    "value": null,
-                    "unit": "\u03a9",
-                    "state_class": "measurement",
-                    "entity_category": "diagnostic"
-                },
-                "2": {
-                    "class": "memory_value",
-                    "key": "rtd_raw",
-                    "value": null,
-                    "entity_category": "diagnostic"
-                },
-                "3": {
-                    "class": "memory_value",
-                    "key": "fault",
-                    "value": "",
-                    "entity_category": "diagnostic"
-                },
-                "4": {
-                    "class": "memory_value",
-                    "key": "fault_code",
-                    "value": 0,
-                    "entity_category": "diagnostic"
-                }
-            }
-        },
-        {
-            "name": "Return Temperature",
-            "uuid": "0002",
-            "type": {
-                "class": "sensor",
-                "subclass": "MAX31865-PT1000"
-            },
-            "pollinterval": 30,
-            "max31865": {
-                "spi": 0,
-                "sck": 2,
-                "mosi": 3,
-                "miso": 4,
-                "cs": 6,
-                "baudrate": 1000000,
-                "wires": 2,
-                "filter_hz": 50,
-                "rtd_nominal": 1000,
-                "ref_resistor": 4300,
-                "precision": 2
-            },
-            "entities": {
-                "0": {
-                    "class": "temperature",
-                    "key": "temperature",
-                    "value": null,
-                    "unit": "\u00b0C",
-                    "state_class": "measurement"
-                },
-                "1": {
-                    "class": "memory_value",
-                    "key": "resistance",
-                    "value": null,
-                    "unit": "\u03a9",
-                    "state_class": "measurement",
-                    "entity_category": "diagnostic"
-                },
-                "2": {
-                    "class": "memory_value",
-                    "key": "rtd_raw",
-                    "value": null,
-                    "entity_category": "diagnostic"
-                },
-                "3": {
-                    "class": "memory_value",
-                    "key": "fault",
-                    "value": "",
-                    "entity_category": "diagnostic"
-                },
-                "4": {
-                    "class": "memory_value",
-                    "key": "fault_code",
-                    "value": 0,
-                    "entity_category": "diagnostic"
-                }
-            }
-        },
-        {
-            "name": "AC Voltage",
-            "uuid": "0003",
-            "type": {
-                "class": "sensor",
-                "subclass": "Grove-AC-Voltage"
-            },
-            "pollinterval": 5,
-            "ac_voltage": {
-                "_comment": "Compare against a known meter reading at 240V AC and adjust calibration until the published voltage matches reality.",
-                "adc_pin": 26,
-                "vref": 3.3,
-                "adc_max": 65535,
-                "sample_count": 600,
-                "sample_delay_us": 200,
-                "calibration": 188,
-                "offset": 0,
-                "precision": 1,
-                "threshold": 180,
-                "hysteresis": 10,
-                "threshold_key": "ac_present"
-            },
-            "entities": {
-                "0": {
-                    "class": "voltage",
-                    "key": "voltage",
-                    "value": null,
-                    "unit": "V",
-                    "state_class": "measurement"
-                },
-                "1": {
-                    "class": "memory_value",
-                    "key": "ac_present",
-                    "value": false,
-                    "component": "binary_sensor",
-                    "device_class": "power"
-                },
-                "2": {
-                    "class": "memory_value",
-                    "key": "adc_rms",
-                    "value": null,
-                    "entity_category": "diagnostic"
-                },
-                "3": {
-                    "class": "memory_value",
-                    "key": "adc_midpoint",
-                    "value": null,
-                    "entity_category": "diagnostic"
-                },
-                "4": {
-                    "class": "memory_value",
-                    "key": "adc_min",
-                    "value": null,
-                    "entity_category": "diagnostic"
-                },
-                "5": {
-                    "class": "memory_value",
-                    "key": "adc_max",
-                    "value": null,
-                    "entity_category": "diagnostic"
-                },
-                "6": {
-                    "class": "memory_value",
-                    "key": "ac_voltage_error",
-                    "value": "",
-                    "entity_category": "diagnostic"
-                }
-            }
+  "devices": [
+    {
+      "name": "ESP32-S3 Test Temperature",
+      "uuid": "0001",
+      "type": {
+        "class": "sensor",
+        "subclass": "MAX31865-PT1000"
+      },
+      "pollinterval": 30,
+      "max31865": {
+        "spi": 1,
+        "sck": 12,
+        "mosi": 11,
+        "miso": 13,
+        "cs": 10,
+        "baudrate": 1000000,
+        "wires": 2,
+        "filter_hz": 50,
+        "rtd_nominal": 1000,
+        "ref_resistor": 4300,
+        "precision": 2
+      },
+      "entities": {
+        "0": {
+          "class": "temperature",
+          "key": "temperature",
+          "value": null,
+          "unit": "°C",
+          "state_class": "measurement"
         }
-    ]
+      }
+    }
+  ]
 }
