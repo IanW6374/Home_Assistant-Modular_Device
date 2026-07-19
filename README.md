@@ -21,7 +21,7 @@ points for EMS monitoring, RS485 devices, voltage sensing, and PT1000 sensing.
 - MAX31865/PT1000 RTD temperature sensor over SPI.
 - Grove MCP6002 AC voltage sensor over ADC, with optional threshold binary
   sensor.
-- Optional local Waveshare Pico-OLED-1.3 status display.
+- Optional local display service with an SH1107 SPI driver.
 - Lightweight web dashboard with logs, module health, discovery trigger, and
   Grove AC voltage calibration.
 - MQTT availability and diagnostic health entities for easier field debugging.
@@ -37,7 +37,7 @@ HA-Device.py                    WiFi, MQTT, discovery, and device orchestration
 module_settings.json            Module and register configuration
 device_settings.json            Local firmware settings
 settings_loader.py              Required JSON settings loader and validator
-local_display.py                Optional SH1107 OLED status display service
+display.py                      Generic local display service and driver registry
 examples/                       Example module settings and credential templates
 examples/module_settings.whes.example.json WHES inverter example configuration
 examples/module_settings.ems.example.json EMS boiler example configuration
@@ -243,8 +243,8 @@ Analyse a different device/module combination explicitly:
 
 ```sh
 python3 tools/build_update.py update.hamd --version 1.4-beta \
-  --device-settings device_settings.json \
-  --module-settings module_settings_EMS.json
+  --device-settings examples/device_settings.ems.json \
+  --module-settings examples/module_settings.ems.json
 ```
 
 When either `--device-settings` or `--module-settings` is supplied, both
@@ -478,23 +478,24 @@ module, EMS UART timing/CRC, Grove AC ADC/calibration, then the optional OLED.
 The example pin assignments are a starting point and must be checked against
 the carrier wiring before energising attached equipment.
 
-### Local OLED Display
+### Local Display
 
-`local_display.py` adds an optional status display for Waveshare Pico-OLED-1.3
-style SH1107 modules. It is disabled by default; enable it in
-`device_settings.json` by setting:
+`display.py` provides a generic, extensible status display service. The current
+driver supports 128x64 SH1107 displays connected over SPI. It is disabled by
+default; enable it in `device_settings.json` and select the driver by setting:
 
 ```json
 {
   "local_display": {
-    "enabled": true
+    "enabled": true,
+    "type": "SH1107-SPI"
   }
 }
 ```
 
-The OLED controller remains supported as an SPI peripheral, but GPIO numbers
-must be selected for the ESP32-S3 board and checked against module pin usage.
-The old RP2040 `GPxx` defaults are not valid deployment guidance.
+Configure `spi`, `sck`, `mosi`, `cs`, `dc`, and `rst` for the target ESP32-S3
+board and check them against all module pin assignments. New controller drivers
+can be added to `DISPLAY_DRIVERS` without changing the display service.
 
 When enabled, the display shows a compact status page with WiFi/MQTT state,
 uptime, and recent alert count, then pages through current device payload
@@ -794,7 +795,7 @@ homeassistant/binary_sensor/<deviceid><uuid>_<entity_id>/config
 
 For WHES, `<entity_id>` is based on the published key, such as `pv_p`,
 `grid_import_e`, or `rs485_last_latency_ms`. When migrating from firmware that
-used only the raw Pico hardware id in discovery topics, set
+used only the raw hardware id in discovery topics, set
 `"ha": {"discovery_cleanup_legacy_identity": true}` so the firmware publishes
 empty retained payloads for matching hardware-only config topics and Home
 Assistant can remove stale entities. It can also publish empty retained payloads

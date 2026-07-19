@@ -20,7 +20,7 @@ FILES = (
     "settings_loader.py",
     "device_settings.json",
     "module_settings.json",
-    "local_display.py",
+    "display.py",
     "web_portal.py",
 )
 

@@ -17,7 +17,7 @@ MAGIC = b'HAMD1\n'
 CORE_FILES = (
     'HA-Device.py',
     'settings_loader.py',
-    'local_display.py',
+    'display.py',
     'web_portal.py',
     'release_update.py',
 )

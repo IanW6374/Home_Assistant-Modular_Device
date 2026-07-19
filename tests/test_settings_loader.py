@@ -64,7 +64,7 @@ class SettingsLoaderTests(unittest.TestCase):
 
     def test_unknown_keys_are_rejected(self):
         with self.assertRaisesRegex(RuntimeError, 'unknown device.old_name'):
-            settings_loader._reject_unknown({'old_name': 'Pico'}, ('name',), 'device')
+            settings_loader._reject_unknown({'old_name': 'Controller'}, ('name',), 'device')
 
 
 if __name__ == '__main__':

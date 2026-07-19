@@ -191,7 +191,8 @@
           "type": "boolean"
         },
         "type": {
-          "type": "string"
+          "type": "string",
+          "enum": ["SH1107-SPI"]
         },
         "width": {
           "type": "integer",

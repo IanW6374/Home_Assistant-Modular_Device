@@ -203,7 +203,7 @@ class WebPortalTests(unittest.TestCase):
             ('ERROR', 'INFO', 'DEBUG'),
             ['hello'],
             3000,
-            {'device_name': 'Pico', 'mqtt': 'up', 'config': 'module_settings_EMS.json'},
+            {'device_name': 'Controller', 'mqtt': 'up', 'config': 'module_settings.ems.json'},
             [{
                 'uuid': '0001',
                 'name': 'Probe',
@@ -292,7 +292,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('.metric span{white-space:nowrap', html)
         self.assertIn('.metric.wide{grid-column:span 2}', html)
         self.assertIn('class="metric wide"', html)
-        self.assertIn('title="module_settings_EMS.json"', html)
+        self.assertIn('title="module_settings.ems.json"', html)
         self.assertIn('overflow-y:auto', html)
         self.assertIn('requests.push(refreshLogs())', html)
         self.assertIn('requests.push(refreshValues())', html)

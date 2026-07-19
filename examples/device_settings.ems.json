@@ -45,7 +45,7 @@
   },
   "local_display": {
     "enabled": true,
-    "type": "Waveshare-Pico-OLED-1.3",
+    "type": "SH1107-SPI",
     "width": 128,
     "height": 64,
     "spi": 1,

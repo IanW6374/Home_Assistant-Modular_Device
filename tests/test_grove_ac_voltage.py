@@ -128,7 +128,7 @@ class GroveACVoltageTests(unittest.TestCase):
         self.assertEqual(self.driver.device['ac_voltage']['calibration'], 2000)
 
     def test_binary_discovery_uses_binary_sensor_component(self):
-        discovery, _ = self.driver.get_discovery_payloads('abc', 'Voltage Pico')
+        discovery, _ = self.driver.get_discovery_payloads('abc', 'Voltage Monitor')
 
         self.assertEqual(discovery['ac_present']['_component'], 'binary_sensor')
         self.assertEqual(discovery['ac_present']['device_class'], 'power')

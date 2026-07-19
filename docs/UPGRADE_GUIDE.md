@@ -162,8 +162,8 @@ To build for non-default settings files:
 python3 tools/build_update.py \
   application-1.5.0-ems.hamd \
   --version application-1.5.0-ems \
-  --device-settings device_settings.ems.json \
-  --module-settings module_settings.ems.json \
+  --device-settings examples/device_settings.ems.json \
+  --module-settings examples/module_settings.ems.json \
   --signing-key "$UPDATE_SIGNING_KEY"
 ```
 
@@ -477,7 +477,7 @@ cd "$HAM_PROJECT_ROOT"
 mpremote connect "$DEVICE_PORT" fs cp \
   recovery_boot.py app_update.py firmware_update.py hardware_platform.py \
   update_security.py update_support.py wifi_recovery.py HA-Device.py \
-  release_update.py settings_loader.py local_display.py web_portal.py \
+  release_update.py settings_loader.py display.py web_portal.py \
   device_settings.json module_settings.json secrets.py :
 
 mpremote connect "$DEVICE_PORT" fs cp -r device_modules :

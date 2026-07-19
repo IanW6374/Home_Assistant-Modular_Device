@@ -84,17 +84,17 @@ def load_module():
     framebuf.FrameBuffer = FrameBuffer
     sys.modules['framebuf'] = framebuf
 
-    sys.modules.pop('local_display', None)
-    return importlib.import_module('local_display')
+    sys.modules.pop('display', None)
+    return importlib.import_module('display')
 
 
-class LocalDisplayTests(unittest.TestCase):
+class DisplayTests(unittest.TestCase):
     def setUp(self):
         self.module = load_module()
 
     def test_format_status_page_uses_key_status_fields(self):
         page = self.module.format_status_page({
-            'device_name': 'Boiler Pico',
+            'device_name': 'Boiler Controller',
             'wifi_ip': '192.168.1.50',
             'mqtt': 'up',
             'config': 'examples/module_settings.ems.example.json',
@@ -104,7 +104,7 @@ class LocalDisplayTests(unittest.TestCase):
             'alerts': ['one']
         })
 
-        self.assertEqual(page[0], 'Boiler Pico')
+        self.assertEqual(page[0], 'Boiler Controller')
         self.assertIn('192.168.1.50', page[1])
         self.assertEqual(page[2], 'MQTT up')
         self.assertEqual(page[3], 'Up 1h')
@@ -152,7 +152,7 @@ class LocalDisplayTests(unittest.TestCase):
         display = FakeDisplay()
         service = self.module.LocalDisplayService(
             {'enabled': True},
-            lambda: {'device_name': 'Pico', 'mqtt': 'up'},
+            lambda: {'device_name': 'Controller', 'mqtt': 'up'},
             lambda: [{'name': 'Temp', 'payload': {'temperature': 21.5}}],
             display=display
         )
@@ -160,7 +160,7 @@ class LocalDisplayTests(unittest.TestCase):
         service.render()
 
         rendered_text = [line[0] for line in display.lines]
-        self.assertIn('Pico', rendered_text)
+        self.assertIn('Controller', rendered_text)
         self.assertIn('MQTT up', rendered_text)
 
     def test_service_scrolls_long_status_lines(self):
@@ -168,7 +168,7 @@ class LocalDisplayTests(unittest.TestCase):
         service = self.module.LocalDisplayService(
             {'enabled': True},
             lambda: {
-                'device_name': 'Pico',
+                'device_name': 'Controller',
                 'wifi_ip': '192.168.100.123',
                 'mqtt': 'up'
             },
@@ -201,8 +201,8 @@ class LocalDisplayTests(unittest.TestCase):
             'TT connected-lon'
         )
 
-    def test_sh1107_display_uses_waveshare_buffer_layout(self):
-        display = self.module.SH1107Display({'enabled': True})
+    def test_sh1107_display_uses_controller_buffer_layout(self):
+        display = self.module.SH1107SPIDisplay({'enabled': True})
 
         self.assertEqual(display.width, 128)
         self.assertEqual(display.height, 64)
@@ -216,7 +216,7 @@ class LocalDisplayTests(unittest.TestCase):
         self.assertIn(bytes([0x8A]), spi.writes)
 
     def test_sh1107_show_writes_64_columns_of_16_bytes(self):
-        display = self.module.SH1107Display({'enabled': True})
+        display = self.module.SH1107SPIDisplay({'enabled': True})
         spi = FakeSPI.instances[0]
         spi.writes = []
 
@@ -229,7 +229,7 @@ class LocalDisplayTests(unittest.TestCase):
         display = FakeDisplay()
         service = self.module.LocalDisplayService(
             {'enabled': True},
-            lambda: {'device_name': 'Pico'},
+            lambda: {'device_name': 'Controller'},
             lambda: [{'name': 'Temp', 'payload': {'temperature': 21.5}}],
             display=display
         )
@@ -255,6 +255,15 @@ class LocalDisplayTests(unittest.TestCase):
         service.handle_action('refresh_discovery')
 
         self.assertEqual(calls, ['discover'])
+
+    def test_display_factory_selects_configured_driver(self):
+        display = self.module.create_display({'type': 'SH1107-SPI'})
+
+        self.assertIsInstance(display, self.module.SH1107SPIDisplay)
+
+    def test_display_factory_rejects_unknown_driver(self):
+        with self.assertRaisesRegex(ValueError, 'unsupported display type'):
+            self.module.create_display({'type': 'unknown'})
 
 
 if __name__ == '__main__':

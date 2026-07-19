@@ -344,7 +344,7 @@ class AppUpdateTests(unittest.TestCase):
             "DEVICE_TYPE={'class':'sensor','subclass':{'EMS-Boiler':{}}}\n"
         )
         for name in (
-            'settings_loader.py', 'hardware_platform.py', 'local_display.py', 'web_portal.py',
+            'settings_loader.py', 'hardware_platform.py', 'display.py', 'web_portal.py',
             'release_update.py',
             'device_modules/__init__.py', 'device_modules/loader.py',
             'device_modules/base.py', 'device_modules/logging.py',
@@ -408,7 +408,7 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIn('device_modules/spi_bus.py', names)
         self.assertIn('device_modules/whes.py', names)
         self.assertIn('device_modules/modbus_transport.py', names)
-        self.assertNotIn('device_modules/pico_2ch_rs485.py', names)
+        self.assertIn('device_modules/rs485_modbus.py', names)
         self.assertIn('device_modules/hcsr04.py', names)
         self.assertIn('lib/uhcsr04/hcsr04.py', names)
         self.assertIn('device_modules/switch_onoff.py', names)

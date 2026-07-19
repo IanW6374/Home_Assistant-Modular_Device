@@ -29,7 +29,6 @@ def load_module():
     machine.Pin = FakePin
     machine.UART = FakeUART
     sys.modules['machine'] = machine
-    sys.modules.pop('device_modules.pico_2ch_rs485', None)
     sys.modules.pop('device_modules.rs485_modbus', None)
     return importlib.import_module('device_modules.rs485_modbus')
 

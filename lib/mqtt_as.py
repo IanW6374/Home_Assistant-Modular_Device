@@ -2,7 +2,7 @@
 # (C) Copyright Peter Hinch 2017-2023.
 # Released under the MIT licence.
 
-# Pyboard D support added also RP2/default
+# Pyboard D support added.
 # Various improvements contributed by Kevin Köck.
 
 import gc
@@ -33,12 +33,9 @@ _SOCKET_POLL_DELAY = const(5)  # 100ms added greatly to publish latency
 
 # Legitimate errors while waiting on a socket. See uasyncio __init__.py open_connection().
 ESP32 = platform == "esp32"
-RP2 = platform == "rp2"
 if ESP32:
     # https://forum.micropython.org/viewtopic.php?f=16&t=3608&p=20942#p20942
     BUSY_ERRORS = [EINPROGRESS, ETIMEDOUT, 118, 119]  # Add in weird ESP32 errors
-elif RP2:
-    BUSY_ERRORS = [EINPROGRESS, ETIMEDOUT, -110]
 else:
     BUSY_ERRORS = [EINPROGRESS, ETIMEDOUT]
 
@@ -482,7 +479,7 @@ class MQTT_base:
         try:
             res = self._sock.read(1)  # Throws OSError on WiFi fail
         except OSError as e:
-            if e.args[0] in BUSY_ERRORS:  # Needed by RP2
+            if e.args[0] in BUSY_ERRORS:
                 await asyncio.sleep_ms(0)
                 return
             raise
@@ -596,10 +593,6 @@ class MQTTClient(MQTT_base):
                     await asyncio.sleep(1)
         else:
             s.active(True)
-            if RP2:  # Disable auto-sleep.
-                # https://datasheets.raspberrypi.com/picow/connecting-to-the-internet-with-pico-w.pdf
-                # para 3.6.3
-                s.config(pm=0xA11140)
             s.connect(self._ssid, self._wifi_pw)
             for _ in range(60):  # Break out on fail or success. Check once per sec.
                 await asyncio.sleep(1)
@@ -612,9 +605,6 @@ class MQTTClient(MQTT_base):
                     if s.status() < network.STAT_IDLE:  # Error statuses
                         break  # are in range 200..204
                 elif PYBOARD:  # No symbolic constants in network
-                    if not 1 <= s.status() <= 2:
-                        break
-                elif RP2:  # 1 is STAT_CONNECTING. 2 reported by user (No IP?)
                     if not 1 <= s.status() <= 2:
                         break
             else:  # Timeout: still in connecting state

@@ -157,11 +157,11 @@ class MAX31865PT1000Tests(unittest.TestCase):
         self.assertIsInstance(payload['rtd_raw'], int)
 
     def test_discovery_payload_uses_entity_keys(self):
-        discovery, payload = self.driver.get_discovery_payloads('abc', 'Pico Temperature')
+        discovery, payload = self.driver.get_discovery_payloads('abc', 'Temperature Monitor')
 
         self.assertIn('temperature', discovery)
         self.assertEqual(discovery['temperature']['uniq_id'], 'abc0001_temperature')
-        self.assertEqual(discovery['temperature']['dev']['name'], 'Pico Temperature')
+        self.assertEqual(discovery['temperature']['dev']['name'], 'Temperature Monitor')
         self.assertIn('temperature', payload)
 
     def test_setup_creates_spi_and_cs(self):

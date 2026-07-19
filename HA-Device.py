@@ -44,7 +44,7 @@ from device_modules.base import (
 from device_modules.validation import validate_device_config
 from device_modules.logging import set_log_output
 from web_portal import start_web_portal
-from local_display import LocalDisplayService
+from display import LocalDisplayService
 
 try:
     import ntptime
