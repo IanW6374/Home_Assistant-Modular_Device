@@ -1,6 +1,6 @@
 {
   "device": {
-    "name": "ESP32S3WHES",
+    "name": "ESP32S3WHES1",
     "module_settings_file": "module_settings.json",
     "ca_cert_path": "/certs/home-ca.der",
     "loglevel": "INFO",

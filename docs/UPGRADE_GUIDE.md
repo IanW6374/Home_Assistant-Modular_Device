@@ -34,7 +34,7 @@ export HAM_PROJECT_ROOT=/path/to/Home_Assistant-Modular_Device
 export MICROPYTHON_ROOT=/path/to/micropython
 export IDF_ROOT=/path/to/esp-idf
 export DEVICE_PORT=/dev/cu.usbmodem1101
-export UPDATE_SIGNING_KEY=/path/to/private/update.signing-key
+export UPDATE_SIGNING_KEY="$HOME/.ham-device/update.signing-key"
 cd "$HAM_PROJECT_ROOT"
 ```
 
@@ -82,13 +82,37 @@ Signing is optional only while no signing key has been provisioned on the
 device. Once `.update-signing-key` exists in the device VFS, both unsigned
 `.hamd` and unsigned `.hamf` bundles are rejected.
 
-Generate and validate a 32-byte key on the host:
+`UPDATE_SIGNING_KEY` contains the path to the private host key file; it does not
+contain the key itself. The `--signing-key "$UPDATE_SIGNING_KEY"` option used by
+the application and firmware builders reads this existing file—it does not
+generate a key.
+
+Generate the key once on the development computer. The helper uses Python's
+cryptographically secure random generator to create 32 random bytes, writes
+them as exactly 64 hexadecimal characters, creates the parent directory when
+needed, and restricts the file permissions where supported:
 
 ```sh
 cd "$HAM_PROJECT_ROOT"
+export UPDATE_SIGNING_KEY="$HOME/.ham-device/update.signing-key"
+
 python3 tools/provision_update_signing.py \
   --key "$UPDATE_SIGNING_KEY" \
   --generate
+```
+
+The helper refuses to overwrite an existing key. Do not delete or regenerate
+the key after provisioning devices: bundles signed with a replacement key will
+be rejected by devices that still hold the original. Keep the key outside the
+repository, do not put it in `secrets.py`, and store a secure backup. Every
+device intended to accept the same release bundles must be provisioned with the
+same key.
+
+Validate an existing host key without changing it:
+
+```sh
+python3 tools/provision_update_signing.py \
+  --key "$UPDATE_SIGNING_KEY"
 ```
 
 For a mounted VFS, provision it with:
@@ -105,6 +129,10 @@ For a normal serial-connected ESP32-S3, provision it with `mpremote`:
 mpremote connect "$DEVICE_PORT" fs cp \
   "$UPDATE_SIGNING_KEY" :.update-signing-key
 ```
+
+This copies the key to `/.update-signing-key` on the device. The leading dot is
+intentional. Provisioning is normally performed once over USB before relying on
+remote updates.
 
 The key and `secrets.py` are shared VFS files, not files inside application
 slot `a` or `b`. A protected application update backs up a shared file before
@@ -397,7 +425,9 @@ From the project root:
    settings, and watchdog in `device_settings.json`.
 2. Configure the physical modules in `module_settings.json`.
 3. Create `secrets.py` from `examples/secrets.example.py`, including Wi-Fi,
-   MQTT, `web_portal_token`, and `recovery_ap_password`.
+   MQTT, `web_portal_token`, and a dedicated `recovery_ap_password` of at least
+   eight characters. If `recovery_ap_password` is omitted, recovery mode falls
+   back to `web_portal_token`.
 4. Put any MQTT/portal certificates in a local `certs/` directory and make the
    configured device paths start with `/certs/`.
 5. Keep `watchdog_timeout_ms` at `0` during first bring-up; enable the intended
