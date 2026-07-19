@@ -1,0 +1,58 @@
+{
+    "_comment": "ESP32-S3 single-port RS485/Modbus example. GPIO16 controls DE/RE on a half-duplex transceiver; omit de when the transceiver switches direction automatically.",
+    "devices": [
+        {
+            "name": "RS485 Modbus Sensor",
+            "uuid": "0001",
+            "type": {
+                "class": "sensor",
+                "subclass": "RS485-Modbus"
+            },
+            "pollinterval": 30,
+            "rs485": {
+                "uart": 1,
+                "tx": 17,
+                "rx": 18,
+                "de": 16,
+                "baudrate": 9600,
+                "bits": 8,
+                "parity": null,
+                "stop": 1,
+                "tx_enable_active": 1,
+                "turnaround_ms": 5,
+                "timeout_ms": 500,
+                "max_group_registers": 32
+            },
+            "entities": {
+                "0": {
+                    "class": "memory_value",
+                    "key": "holding_register_0",
+                    "value": 0,
+                    "slave": 1,
+                    "function": 3,
+                    "address": 0,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "scale": 1,
+                    "offset": 0,
+                    "pollinterval": 30,
+                    "state_class": "measurement"
+                },
+                "1": {
+                    "class": "memory_value",
+                    "key": "input_register_0",
+                    "value": 0,
+                    "slave": 1,
+                    "function": 4,
+                    "address": 0,
+                    "count": 1,
+                    "data_type": "int16",
+                    "scale": 0.1,
+                    "offset": 0,
+                    "pollinterval": 30,
+                    "state_class": "measurement"
+                }
+            }
+        }
+    ]
+}

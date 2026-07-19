@@ -255,11 +255,11 @@ class EMSTests(unittest.TestCase):
         self.assertEqual(messages, ['rx short len=1 data=0x08'])
 
     def test_discovery_uses_configured_entities(self):
-        discovery, payload = self.driver.get_discovery_payloads('abc', 'Heating Pico')
+        discovery, payload = self.driver.get_discovery_payloads('abc', 'Heating Controller')
 
         self.assertIn('curflowtemp', discovery)
         self.assertEqual(discovery['curflowtemp']['uniq_id'], 'abc0001_curflowtemp')
-        self.assertEqual(discovery['curflowtemp']['dev']['name'], 'Heating Pico')
+        self.assertEqual(discovery['curflowtemp']['dev']['name'], 'Heating Controller')
         self.assertIn('curflowtemp', payload)
 
     def test_example_config_validates(self):

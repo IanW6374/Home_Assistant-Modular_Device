@@ -28,8 +28,20 @@
           "type": "integer",
           "minimum": 0
         },
+        "wifi_recovery_enabled": {
+          "type": "boolean"
+        },
+        "wifi_recovery_timeout_s": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400
+        },
         "status_led_pin": {
           "type": ["integer", "string", "null"]
+        },
+        "status_led_type": {
+          "type": "string",
+          "enum": ["auto", "digital", "neopixel"]
         },
         "ntp_servers": {
           "type": "array",
@@ -145,6 +157,28 @@
         "firmware_update_max_bytes": {
           "type": "integer",
           "minimum": 1024
+        },
+        "release_manifest_url": {
+          "type": "string"
+        },
+        "release_channel": {
+          "type": "string",
+          "enum": ["stable", "beta", "development"]
+        },
+        "release_check_interval_s": {
+          "type": "integer",
+          "minimum": 300
+        },
+        "release_auto_download": {
+          "type": "boolean"
+        },
+        "release_auto_activate": {
+          "type": "boolean"
+        },
+        "session_timeout_s": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 86400
         }
       },
       "additionalProperties": false
@@ -157,7 +191,8 @@
           "type": "boolean"
         },
         "type": {
-          "type": "string"
+          "type": "string",
+          "enum": ["SH1107-SPI"]
         },
         "width": {
           "type": "integer",

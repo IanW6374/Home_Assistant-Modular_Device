@@ -6,7 +6,7 @@ import unittest
 
 
 def load_whes_module():
-    rs485 = types.ModuleType('device_modules.pico_2ch_rs485')
+    rs485 = types.ModuleType('device_modules.rs485_modbus')
 
     class Base:
         def __init__(self, device, device_char):
@@ -16,10 +16,10 @@ def load_whes_module():
         def discovery_device_info(self, deviceid, ha_devicename):
             return {'name': ha_devicename}
 
-    rs485.Pico2CHRS485Driver = Base
+    rs485.RS485ModbusDriver = Base
     rs485.setup = lambda device, index: {'uuid': device['uuid'], 'index': index, 'ports': {}}
-    sys.modules['device_modules.pico_2ch_rs485'] = rs485
-    sys.modules['pico_2ch_rs485'] = rs485
+    sys.modules['device_modules.rs485_modbus'] = rs485
+    sys.modules['rs485_modbus'] = rs485
 
     spec = importlib.util.spec_from_file_location('device_modules.whes_test', 'device_modules/whes.py')
     module = importlib.util.module_from_spec(spec)

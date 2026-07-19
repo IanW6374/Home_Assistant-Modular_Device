@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 import asyncio
+import sys
 from pathlib import Path
 
 import app_update
@@ -17,10 +18,12 @@ from tools.build_update import normalized_device_settings
 class AppUpdateTests(unittest.TestCase):
     def setUp(self):
         self.previous_cwd = os.getcwd()
+        self.previous_sys_path = list(sys.path)
         self.temp = tempfile.TemporaryDirectory()
         os.chdir(self.temp.name)
 
     def tearDown(self):
+        sys.path[:] = self.previous_sys_path
         os.chdir(self.previous_cwd)
         self.temp.cleanup()
 
@@ -61,10 +64,10 @@ class AppUpdateTests(unittest.TestCase):
         )
 
     def test_recovery_files_cannot_be_updated(self):
-        self.make_bundle({'main.py': b'broken'})
-
-        with self.assertRaisesRegex(ValueError, 'recovery file'):
-            app_update.validate_bundle()
+        for path in app_update.RECOVERY_FILES:
+            self.make_bundle({path: b'broken'})
+            with self.assertRaisesRegex(ValueError, 'recovery file'):
+                app_update.validate_bundle()
 
     def test_activate_and_confirm_update(self):
         Path('HA-Device.py').write_bytes(b'old')
@@ -74,11 +77,14 @@ class AppUpdateTests(unittest.TestCase):
         result = app_update.activate_pending()
 
         self.assertIn('activated update test-1', result)
-        self.assertEqual(Path('HA-Device.py').read_bytes(), b'new')
-        self.assertEqual(Path('device_modules/new.py').read_bytes(), b'VALUE=2')
+        self.assertEqual(Path('HA-Device.py').read_bytes(), b'old')
+        self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'new')
+        self.assertEqual(Path('.app-slots/a/device_modules/new.py').read_bytes(), b'VALUE=2')
+        self.assertEqual(app_update.application_entry(), '.app-slots/a/HA-Device.py')
         self.assertEqual(app_update.update_status()['status'], 'trial')
         self.assertTrue(app_update.confirm_update())
         self.assertEqual(app_update.update_status()['status'], 'idle')
+        self.assertEqual(app_update.active_slot(), 'a')
         self.assertEqual(app_update.running_version('old-version'), 'test-1')
 
     def test_protected_update_does_not_change_running_version(self):
@@ -116,7 +122,7 @@ class AppUpdateTests(unittest.TestCase):
 
         app_update.activate_pending()
 
-        self.assertEqual(Path('HA-Device.py').read_bytes(), b'new-app')
+        self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'new-app')
         self.assertEqual(Path('device_settings.json').read_bytes(), b'new-device')
         self.assertEqual(Path('module_settings.json').read_bytes(), b'old-module')
         self.assertEqual(Path('secrets.py').read_bytes(), b'old-secrets')
@@ -135,12 +141,138 @@ class AppUpdateTests(unittest.TestCase):
         app_update.stage_bundle()
         app_update.activate_pending()
 
+        self.assertTrue(Path('.app-slots/a/HA-Device.py').exists())
+
         result = app_update.activate_pending()
 
         self.assertIn('rolled back', result)
         self.assertEqual(Path('HA-Device.py').read_bytes(), b'old')
         self.assertFalse(Path('new-file.py').exists())
+        self.assertFalse(Path('.app-slots/a').exists())
         self.assertEqual(app_update.update_status()['status'], 'idle')
+
+    def test_confirmed_updates_alternate_application_slots(self):
+        self.make_bundle({'HA-Device.py': b'app-a'}, 'version-a')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.confirm_update()
+
+        self.make_bundle({'HA-Device.py': b'app-b'}, 'version-b')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+
+        self.assertEqual(app_update.application_entry(), '.app-slots/b/HA-Device.py')
+        self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'app-a')
+        self.assertEqual(Path('.app-slots/b/HA-Device.py').read_bytes(), b'app-b')
+        app_update.confirm_update()
+        self.assertEqual(app_update.active_slot(), 'b')
+        self.assertEqual(app_update.running_version(), 'version-b')
+
+    def test_slot_integrity_detects_tampering_and_manual_rollback(self):
+        self.make_bundle({'HA-Device.py': b'app-a'}, 'version-a')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.confirm_update()
+        self.make_bundle({'HA-Device.py': b'app-b'}, 'version-b')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.confirm_update()
+
+        self.assertEqual(app_update.previous_slot(), 'a')
+        result = app_update.rollback_to_previous()
+        self.assertEqual(result['active'], 'a')
+        self.assertEqual(app_update.running_version(), 'version-a')
+
+        Path('.app-slots/a/HA-Device.py').write_bytes(b'tampered')
+        self.assertFalse(app_update.validate_slot_integrity('a'))
+        self.assertEqual(app_update.active_slot(), '')
+
+    def test_failed_second_slot_keeps_confirmed_slot_active(self):
+        self.make_bundle({'HA-Device.py': b'stable'}, 'stable')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.confirm_update()
+
+        self.make_bundle({'HA-Device.py': b'broken'}, 'broken')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.rollback_update()
+
+        self.assertEqual(app_update.active_slot(), 'a')
+        self.assertEqual(app_update.application_entry(), '.app-slots/a/HA-Device.py')
+        self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'stable')
+        self.assertFalse(Path('.app-slots/b').exists())
+
+    def test_bad_shared_secrets_roll_back_with_failed_trial_slot(self):
+        Path('secrets.py').write_bytes(b'wifi_password="working"')
+        self.make_bundle({'HA-Device.py': b'stable'}, 'stable')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.confirm_update()
+
+        self.make_bundle({
+            'HA-Device.py': b'trial',
+            'secrets.py': b'wifi_password="incorrect"'
+        }, 'trial')
+        app_update.stage_bundle(allow_protected=True)
+        app_update.configure_pending_update({'secrets': True})
+        app_update.activate_pending()
+        self.assertEqual(
+            Path('secrets.py').read_bytes(), b'wifi_password="incorrect"'
+        )
+
+        app_update.activate_pending()
+
+        self.assertEqual(
+            Path('secrets.py').read_bytes(), b'wifi_password="working"'
+        )
+        self.assertEqual(app_update.active_slot(), 'a')
+        self.assertFalse(Path('.app-slots/b').exists())
+
+    def test_prepare_application_path_prefers_active_slot_and_library(self):
+        self.make_bundle({'HA-Device.py': b'app', 'lib/example.py': b'VALUE=1'})
+        app_update.stage_bundle()
+        app_update.activate_pending()
+
+        root = app_update.prepare_application_path()
+
+        self.assertEqual(root, '.app-slots/a')
+        self.assertEqual(sys.path[0], '.app-slots/a')
+        self.assertEqual(sys.path[1], '.app-slots/a/lib')
+
+    def test_interrupted_confirmation_is_completed_on_boot(self):
+        self.make_bundle({'HA-Device.py': b'app'}, 'confirmed')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        state = app_update.update_status()
+        state['status'] = 'committing'
+        app_update._write_json_atomic(app_update.STATE_PATH, state)
+
+        result = app_update.activate_pending()
+
+        self.assertIn('completed interrupted', result)
+        self.assertEqual(app_update.active_slot(), 'a')
+        self.assertEqual(app_update.update_status()['status'], 'idle')
+
+    def test_rollback_repairs_slot_pointer_after_interrupted_commit(self):
+        self.make_bundle({'HA-Device.py': b'stable'}, 'stable')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.confirm_update()
+        self.make_bundle({'HA-Device.py': b'trial'}, 'trial')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        state = app_update.update_status()
+        state['status'] = 'committing'
+        app_update._write_json_atomic(app_update.STATE_PATH, state)
+        app_update._write_json_atomic(app_update.SLOT_STATE_PATH, {
+            'active': 'b', 'versions': {'a': 'stable', 'b': 'trial'}
+        })
+
+        app_update.rollback_update()
+
+        self.assertEqual(app_update.active_slot(), 'a')
+        self.assertFalse(Path('.app-slots/b').exists())
 
     def test_receive_bundle_streams_and_stages_upload(self):
         self.make_bundle({'HA-Device.py': b'new'})
@@ -161,6 +293,29 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(state['status'], 'ready')
         self.assertEqual(state['version'], 'test-1')
         self.assertEqual(Path(app_update.BUNDLE_PATH).read_bytes(), payload)
+
+    def test_receive_bundle_reports_verification_progress(self):
+        self.make_bundle({'HA-Device.py': b'new application' * 200})
+        payload = Path(app_update.BUNDLE_PATH).read_bytes()
+        Path(app_update.BUNDLE_PATH).unlink()
+        progress = []
+
+        class Reader:
+            def __init__(self, data):
+                self.data = data
+
+            async def read(self, size):
+                chunk = self.data[:size]
+                self.data = self.data[size:]
+                return chunk
+
+        asyncio.run(app_update.receive_bundle(
+            Reader(payload), len(payload), progress_callback=lambda *value: progress.append(value)
+        ))
+
+        self.assertEqual(progress[0][0], 'verification')
+        self.assertEqual(progress[0][1], 0)
+        self.assertEqual(progress[-1][1], progress[-1][2])
 
     def test_receive_bundle_enforces_size_limit(self):
         class Reader:
@@ -189,7 +344,8 @@ class AppUpdateTests(unittest.TestCase):
             "DEVICE_TYPE={'class':'sensor','subclass':{'EMS-Boiler':{}}}\n"
         )
         for name in (
-            'settings_loader.py', 'hardware_platform.py', 'local_display.py', 'web_portal.py',
+            'settings_loader.py', 'hardware_platform.py', 'display.py', 'web_portal.py',
+            'release_update.py',
             'device_modules/__init__.py', 'device_modules/loader.py',
             'device_modules/base.py', 'device_modules/logging.py',
             'device_modules/validation.py', 'lib/mqtt_as.py',
@@ -205,6 +361,7 @@ class AppUpdateTests(unittest.TestCase):
         ]
 
         self.assertIn('HA-Device.py', default_names)
+        self.assertNotIn('hardware_platform.py', default_names)
         self.assertNotIn('device_settings.json', default_names)
         self.assertNotIn('module_settings.json', default_names)
         self.assertIn('device_settings.json', settings_names)
@@ -250,7 +407,8 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIn('device_modules/max31865_pt1000.py', names)
         self.assertIn('device_modules/spi_bus.py', names)
         self.assertIn('device_modules/whes.py', names)
-        self.assertIn('device_modules/pico_2ch_rs485.py', names)
+        self.assertIn('device_modules/modbus_transport.py', names)
+        self.assertIn('device_modules/rs485_modbus.py', names)
         self.assertIn('device_modules/hcsr04.py', names)
         self.assertIn('lib/uhcsr04/hcsr04.py', names)
         self.assertIn('device_modules/switch_onoff.py', names)
@@ -282,6 +440,18 @@ class AppUpdateTests(unittest.TestCase):
             'module_settings.json'
         )
         self.assertTrue(normalized['web_portal']['enabled'])
+
+    def test_firmware_manifest_freezes_the_complete_recovery_layer(self):
+        manifest = (
+            Path(self.previous_cwd) / 'firmware' / 'manifest.py'
+        ).read_text()
+
+        self.assertIn('include("$(PORT_DIR)/boards/manifest.py")', manifest)
+        for path in (
+            'recovery_boot.py', 'app_update.py', 'firmware_update.py',
+            'hardware_platform.py'
+        ):
+            self.assertIn('module("' + path + '"', manifest)
 
 
 if __name__ == '__main__':

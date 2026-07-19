@@ -1,4 +1,4 @@
-"""Local OLED status display for Pico-OLED-1.3 style SH1107 modules."""
+"""Extensible local status display service for supported display controllers."""
 
 try:
     import framebuf
@@ -12,7 +12,7 @@ import time
 
 DEFAULT_CONFIG = {
     'enabled': False,
-    'type': 'Waveshare-Pico-OLED-1.3',
+    'type': 'SH1107-SPI',
     'width': 128,
     'height': 64,
     'spi': 1,
@@ -36,7 +36,7 @@ DEFAULT_CONFIG = {
 }
 
 
-class SH1107Display:
+class SH1107SPIDisplay:
     def __init__(self, cfg):
         if framebuf is None:
             raise RuntimeError('framebuf module not available')
@@ -167,7 +167,7 @@ class LocalDisplayService:
             return False
 
         if self.display is None:
-            self.display = SH1107Display(self.cfg)
+            self.display = create_display(self.cfg)
 
         self._setup_buttons()
         self.render()
@@ -191,7 +191,7 @@ class LocalDisplayService:
 
         pages = self.build_pages()
         if not pages:
-            pages = [['Pico Device', 'No data']]
+            pages = [['HAM Device', 'No data']]
 
         if self.page_index >= len(pages):
             self.page_index = 0
@@ -282,9 +282,23 @@ def merged_config(cfg):
     return merged
 
 
+DISPLAY_DRIVERS = {
+    'SH1107-SPI': SH1107SPIDisplay,
+}
+
+
+def create_display(cfg):
+    config = merged_config(cfg)
+    display_type = config.get('type', DEFAULT_CONFIG['type'])
+    driver = DISPLAY_DRIVERS.get(display_type)
+    if driver is None:
+        raise ValueError('unsupported display type: ' + str(display_type))
+    return driver(config)
+
+
 def format_status_page(status):
     lines = [
-        status.get('device_name', 'Pico Device'),
+        status.get('device_name', 'HAM Device'),
         'WiFi ' + status.get('wifi_ip', '-'),
         'MQTT ' + status.get('mqtt', 'unknown'),
         'Up ' + compact_duration(status.get('uptime_s')),

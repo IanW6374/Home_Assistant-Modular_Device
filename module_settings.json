@@ -1,186 +1,362 @@
 {
-    "_comment": "Example for one Pico with two MAX31865/PT1000 probes on SPI0, a Grove AC voltage sensor on ADC0/GP26, and the local OLED display enabled in device_settings.json. The OLED display uses SPI1 pins from device_settings.json, not this module settings file.",
     "devices": [
         {
-            "name": "Flow Temperature",
+            "name": "WHES",
             "uuid": "0001",
             "type": {
                 "class": "sensor",
-                "subclass": "MAX31865-PT1000"
+                "subclass": "WHES"
             },
-            "pollinterval": 30,
-            "max31865": {
-                "spi": 0,
-                "sck": 2,
-                "mosi": 3,
-                "miso": 4,
-                "cs": 5,
-                "baudrate": 1000000,
-                "wires": 2,
-                "filter_hz": 50,
-                "rtd_nominal": 1000,
-                "ref_resistor": 4300,
-                "precision": 2
+            "rs485": {
+                "uart": 1,
+                "tx": 17,
+                "rx": 18,
+                "de": 16,
+                "baudrate": 115200,
+                "timeout_ms": 500,
+                "turnaround_ms": 5
             },
             "entities": {
                 "0": {
-                    "class": "temperature",
-                    "key": "temperature",
-                    "value": null,
-                    "unit": "\u00b0C",
-                    "state_class": "measurement"
-                },
-                "1": {
                     "class": "memory_value",
-                    "key": "resistance",
-                    "value": null,
-                    "unit": "\u03a9",
-                    "state_class": "measurement",
-                    "entity_category": "diagnostic"
-                },
-                "2": {
-                    "class": "memory_value",
-                    "key": "rtd_raw",
-                    "value": null,
-                    "entity_category": "diagnostic"
-                },
-                "3": {
-                    "class": "memory_value",
-                    "key": "fault",
-                    "value": "",
-                    "entity_category": "diagnostic"
-                },
-                "4": {
-                    "class": "memory_value",
-                    "key": "fault_code",
+                    "key": "DeviceType",
                     "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36001,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 3600,
                     "entity_category": "diagnostic"
-                }
-            }
-        },
-        {
-            "name": "Return Temperature",
-            "uuid": "0002",
-            "type": {
-                "class": "sensor",
-                "subclass": "MAX31865-PT1000"
-            },
-            "pollinterval": 30,
-            "max31865": {
-                "spi": 0,
-                "sck": 2,
-                "mosi": 3,
-                "miso": 4,
-                "cs": 6,
-                "baudrate": 1000000,
-                "wires": 2,
-                "filter_hz": 50,
-                "rtd_nominal": 1000,
-                "ref_resistor": 4300,
-                "precision": 2
-            },
-            "entities": {
-                "0": {
-                    "class": "temperature",
-                    "key": "temperature",
-                    "value": null,
-                    "unit": "\u00b0C",
-                    "state_class": "measurement"
                 },
                 "1": {
                     "class": "memory_value",
-                    "key": "resistance",
-                    "value": null,
-                    "unit": "\u03a9",
-                    "state_class": "measurement",
-                    "entity_category": "diagnostic"
-                },
-                "2": {
-                    "class": "memory_value",
-                    "key": "rtd_raw",
-                    "value": null,
-                    "entity_category": "diagnostic"
-                },
-                "3": {
-                    "class": "memory_value",
-                    "key": "fault",
+                    "key": "Manufacturer",
                     "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36002,
+                    "count": 8,
+                    "data_type": "ascii",
+                    "pollinterval": 3600,
                     "entity_category": "diagnostic"
-                },
-                "4": {
-                    "class": "memory_value",
-                    "key": "fault_code",
-                    "value": 0,
-                    "entity_category": "diagnostic"
-                }
-            }
-        },
-        {
-            "name": "AC Voltage",
-            "uuid": "0003",
-            "type": {
-                "class": "sensor",
-                "subclass": "Grove-AC-Voltage"
-            },
-            "pollinterval": 5,
-            "ac_voltage": {
-                "_comment": "Compare against a known meter reading at 240V AC and adjust calibration until the published voltage matches reality.",
-                "adc_pin": 26,
-                "vref": 3.3,
-                "adc_max": 65535,
-                "sample_count": 600,
-                "sample_delay_us": 200,
-                "calibration": 188,
-                "offset": 0,
-                "precision": 1,
-                "threshold": 180,
-                "hysteresis": 10,
-                "threshold_key": "ac_present"
-            },
-            "entities": {
-                "0": {
-                    "class": "voltage",
-                    "key": "voltage",
-                    "value": null,
-                    "unit": "V",
-                    "state_class": "measurement"
-                },
-                "1": {
-                    "class": "memory_value",
-                    "key": "ac_present",
-                    "value": false,
-                    "component": "binary_sensor",
-                    "device_class": "power"
                 },
                 "2": {
                     "class": "memory_value",
-                    "key": "adc_rms",
-                    "value": null,
+                    "key": "SerialNumber_INV",
+                    "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36010,
+                    "count": 10,
+                    "data_type": "ascii",
+                    "pollinterval": 3600,
                     "entity_category": "diagnostic"
                 },
                 "3": {
                     "class": "memory_value",
-                    "key": "adc_midpoint",
-                    "value": null,
+                    "key": "DSP1_ver",
+                    "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36020,
+                    "count": 8,
+                    "data_type": "ascii",
+                    "pollinterval": 3600,
                     "entity_category": "diagnostic"
                 },
                 "4": {
                     "class": "memory_value",
-                    "key": "adc_min",
-                    "value": null,
+                    "key": "DSP2_ver",
+                    "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36028,
+                    "count": 8,
+                    "data_type": "ascii",
+                    "pollinterval": 3600,
                     "entity_category": "diagnostic"
                 },
                 "5": {
                     "class": "memory_value",
-                    "key": "adc_max",
-                    "value": null,
+                    "key": "EMS_ver",
+                    "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36036,
+                    "count": 8,
+                    "data_type": "ascii",
+                    "pollinterval": 3600,
                     "entity_category": "diagnostic"
                 },
                 "6": {
                     "class": "memory_value",
-                    "key": "ac_voltage_error",
+                    "key": "BMS_ver",
                     "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36044,
+                    "count": 16,
+                    "data_type": "ascii",
+                    "pollinterval": 3600,
                     "entity_category": "diagnostic"
+                },
+                "7": {
+                    "class": "memory_value",
+                    "key": "Hardware_Version",
+                    "value": "",
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36060,
+                    "count": 8,
+                    "data_type": "ascii",
+                    "pollinterval": 3600,
+                    "entity_category": "diagnostic"
+                },
+                "8": {
+                    "class": "power",
+                    "key": "RatedPower",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36068,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 3600,
+                    "unit": "W",
+                    "state_class": "measurement",
+                    "entity_category": "diagnostic"
+                },
+                "9": {
+                    "class": "memory_value",
+                    "key": "RunMode",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36101,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "entity_category": "diagnostic"
+                },
+                "10": {
+                    "class": "memory_value",
+                    "key": "BmsStatus",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36102,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "entity_category": "diagnostic"
+                },
+                "11": {
+                    "class": "memory_value",
+                    "key": "ErrCode_DSP",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36103,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "entity_category": "diagnostic"
+                },
+                "12": {
+                    "class": "memory_value",
+                    "key": "ErrCode_BAT",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36104,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "entity_category": "diagnostic"
+                },
+                "13": {
+                    "class": "memory_value",
+                    "key": "ErrCode_EMS",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36105,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "entity_category": "diagnostic"
+                },
+                "14": {
+                    "class": "temperature",
+                    "key": "INVSink_Temp",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36106,
+                    "count": 1,
+                    "data_type": "int16",
+                    "pollinterval": 60,
+                    "unit": "\u00b0C",
+                    "state_class": "measurement",
+                    "scale": 0.1
+                },
+                "15": {
+                    "class": "temperature",
+                    "key": "BatSink_Temp",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36107,
+                    "count": 1,
+                    "data_type": "int16",
+                    "pollinterval": 60,
+                    "unit": "\u00b0C",
+                    "state_class": "measurement",
+                    "scale": 0.1
+                },
+                "16": {
+                    "class": "memory_value",
+                    "key": "SlaveError",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 37500,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "entity_category": "diagnostic"
+                },
+                "17": {
+                    "class": "power",
+                    "key": "PowerLimitByBMSChg",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 37501,
+                    "count": 1,
+                    "data_type": "int16",
+                    "pollinterval": 60,
+                    "unit": "W",
+                    "state_class": "measurement",
+                    "entity_category": "diagnostic"
+                },
+                "18": {
+                    "class": "power",
+                    "key": "PowerLimitByBMSDisChg",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 37502,
+                    "count": 1,
+                    "data_type": "int16",
+                    "pollinterval": 60,
+                    "unit": "W",
+                    "state_class": "measurement",
+                    "entity_category": "diagnostic"
+                },
+                "19": {
+                    "class": "power",
+                    "key": "Ppv1",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36112,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "unit": "W",
+                    "state_class": "measurement"
+                },
+                "20": {
+                    "class": "power",
+                    "key": "Ppv2",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36113,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "unit": "W",
+                    "state_class": "measurement"
+                },
+                "21": {
+                    "class": "power",
+                    "key": "Power_Meter",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36131,
+                    "count": 2,
+                    "data_type": "int32",
+                    "pollinterval": 60,
+                    "unit": "W",
+                    "state_class": "measurement"
+                },
+                "22": {
+                    "class": "power",
+                    "key": "BatPower_BMS",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36153,
+                    "count": 2,
+                    "data_type": "int32",
+                    "pollinterval": 60,
+                    "unit": "W",
+                    "state_class": "measurement"
+                },
+                "23": {
+                    "class": "battery",
+                    "key": "BatSOC",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 4,
+                    "address": 36155,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "unit": "%",
+                    "state_class": "measurement"
+                },
+                "24": {
+                    "class": "battery",
+                    "key": "battery_min_cap",
+                    "value": 0,
+                    "port": "ch0",
+                    "slave": 1,
+                    "function": 3,
+                    "address": 60009,
+                    "count": 1,
+                    "data_type": "uint16",
+                    "pollinterval": 60,
+                    "unit": "%",
+                    "state_class": "measurement"
                 }
             }
         }

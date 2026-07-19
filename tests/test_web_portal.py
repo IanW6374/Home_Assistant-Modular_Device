@@ -6,9 +6,9 @@ from web_portal import (
     apply_loglevel_change,
     apply_portal_action,
     download_response,
-    encoded_length,
     friendly_label,
     is_authenticated,
+    has_portal_session,
     is_client_disconnect_error,
     make_tls_context,
     parse_request_line,
@@ -18,9 +18,9 @@ from web_portal import (
     render_page,
     render_page_parts,
     requested_loglevel,
+    url_decode,
     response,
-    write_streamed_response,
-    write_streamed_parts,
+    write_buffered_response,
 )
 
 
@@ -35,6 +35,9 @@ class WebPortalTests(unittest.TestCase):
         self.assertTrue(is_authenticated('/?token=abc123', 'abc123'))
         self.assertFalse(is_authenticated('/?token=wrong', 'abc123'))
         self.assertFalse(is_authenticated('/?token=abc123', ''))
+        self.assertTrue(has_portal_session({'cookie': 'a=1; ham_session=session'}, 'session'))
+        self.assertFalse(has_portal_session({'cookie': 'ham_session=wrong'}, 'session'))
+        self.assertEqual(url_decode('%7B%22name%22%3A+%22test%22%7D'), '{"name": "test"}')
 
     def test_requested_loglevel_must_be_allowed(self):
         levels = ('ERROR', 'INFO', 'DEBUG')
@@ -104,49 +107,49 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Content-Length: 12', raw)
         self.assertTrue(raw.endswith('\r\n\r\nfirst\nsecond'))
 
-    def test_streamed_response_writes_body_in_small_chunks(self):
+    def test_buffered_response_writes_complete_body_without_chunk_drains(self):
         class Writer:
             def __init__(self):
                 self.chunks = []
+                self.drains = 0
 
             def write(self, data):
                 self.chunks.append(data)
 
             async def drain(self):
-                return
+                self.drains += 1
 
         writer = Writer()
         body = '£' * 2000
 
-        asyncio.run(write_streamed_response(
-            writer,
-            '200 OK',
-            body,
-            'text/plain',
-            chunk_size=128
-        ))
+        asyncio.run(write_buffered_response(writer, '200 OK', body, 'text/plain'))
 
         raw = b''.join(writer.chunks)
         headers, payload = raw.split(b'\r\n\r\n', 1)
-        self.assertIn(
-            ('Content-Length: ' + str(encoded_length(body, 128))).encode(),
-            headers
-        )
+        self.assertIn(('Content-Length: ' + str(len(body.encode()))).encode(), headers)
         self.assertEqual(payload.decode(), body)
-        self.assertLessEqual(max(len(chunk) for chunk in writer.chunks[1:]), 256)
+        self.assertEqual(writer.drains, 1)
 
-    def test_page_fragments_stream_without_constructing_full_response(self):
+    def test_page_uses_parallel_fast_refresh(self):
+        html = render_page(
+            'abc', 'INFO', ('ERROR', 'INFO', 'DEBUG'), [], 3000,
+            {'device_name': 'ESP32-S3'}, [], '', 3000
+        )
+
+        self.assertIn('Promise.all(requests)', html)
+        self.assertIn('setTimeout(refreshAll,100)', html)
+
+    def test_page_parts_compose_the_complete_response(self):
         parts = render_page_parts(
             'abc', 'INFO', ('ERROR', 'INFO', 'DEBUG'), [], 3000,
-            {'device_name': 'Pico 2 W'}, [], '', 12000
+            {'device_name': 'ESP32-S3'}, [], '', 12000
         )
         self.assertGreater(len(parts), 5)
-        self.assertLess(max(len(part) for part in parts), 6000)
         self.assertEqual(
             ''.join(parts),
             render_page(
                 'abc', 'INFO', ('ERROR', 'INFO', 'DEBUG'), [], 3000,
-                {'device_name': 'Pico 2 W'}, [], '', 12000
+                {'device_name': 'ESP32-S3'}, [], '', 12000
             )
         )
 
@@ -200,7 +203,7 @@ class WebPortalTests(unittest.TestCase):
             ('ERROR', 'INFO', 'DEBUG'),
             ['hello'],
             3000,
-            {'device_name': 'Pico', 'mqtt': 'up', 'config': 'module_settings_EMS.json'},
+            {'device_name': 'Controller', 'mqtt': 'up', 'config': 'module_settings.ems.json'},
             [{
                 'uuid': '0001',
                 'name': 'Probe',
@@ -217,7 +220,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('id="live-sections"', html)
         self.assertIn('Device Portal', html)
         self.assertEqual(web_portal.render_label('running_version'), 'App version')
-        self.assertEqual(web_portal.render_label('base_version'), 'Base version')
+        self.assertEqual(web_portal.render_label('base_version'), 'MicroPython version')
         self.assertIn('Probe', html)
         self.assertIn('Diagnostics', html)
         self.assertIn('Read duration (ms)', html)
@@ -235,21 +238,47 @@ class WebPortalTests(unittest.TestCase):
             'title="Download the current in-memory device log as a text file."',
             html
         )
-        self.assertIn('Application update', html)
+        self.assertIn('Software update', html)
         self.assertIn('id="update-upload-form"', html)
-        self.assertIn('Upload and stage', html)
-        self.assertNotIn('Optional overwrite:', html)
+        self.assertIn('Upload and verify', html)
+        self.assertIn('application (.hamd) or base firmware (.hamf)', html)
+        self.assertNotIn('Application update options:', html)
         self.assertNotIn('action="/activate-update"', html)
         self.assertNotIn('Activate and reboot', html)
-        self.assertIn("var updateUrl='/update-upload?token='", html)
-        self.assertIn('fetch(updateUrl,{', html)
-        self.assertIn('Uploading and verifying...', html)
+        self.assertIn("isFirmware?'/firmware-upload':'/update-upload'", html)
+        self.assertIn("request.open('POST',updateUrl,true)", html)
+        self.assertIn('request.upload.onprogress=function(progressEvent)', html)
+        self.assertIn('request.send(file)', html)
+        self.assertIn('id="update-progress-bar"', html)
+        self.assertIn('id="update-progress-label"', html)
+        self.assertIn("progressLabel.textContent='Uploading '+percent+'%'", html)
+        self.assertIn("progressLabel.textContent='Verifying '+percent+'%'", html)
+        self.assertIn("state.phase==='verification'", html)
+        self.assertIn("fetch('/update-progress?id='", html)
+        self.assertNotIn("fetch('/update-progress?token='", html)
+        self.assertIn("request.setRequestHeader('X-CSRF-Token',csrfToken)", html)
+        self.assertIn("request.setRequestHeader('X-Update-ID',updateId)", html)
+        self.assertIn('action="/discover" method="post"', html)
+        self.assertIn('scheduleVerificationPoll(500)', html)
+        self.assertIn('if(request.status===202)', html)
+        self.assertIn("state.phase==='complete'", html)
+        self.assertIn("progressLabel.textContent='Verified 100%'", html)
+        self.assertIn('request.upload.onload=showVerificationWaiting', html)
+        self.assertIn("progressBar.removeAttribute('value')", html)
+        self.assertIn("progressLabel.textContent='Verifying...'", html)
+        self.assertNotIn('setInterval(pollVerificationProgress', html)
+        self.assertIn("progressLabel.textContent='Rejected'", html)
+        self.assertIn("progressLabel.textContent='Failed'", html)
+        self.assertIn('Upload complete; verifying update...', html)
+        self.assertIn('Uploading and verifying base firmware...', html)
+        self.assertIn('Uploading and verifying application update...', html)
+        self.assertIn('Choose a .hamd or .hamf update bundle.', html)
         self.assertIn('Waiting for current portal request...', html)
         self.assertIn('var refreshInProgress=Promise.resolve()', html)
         self.assertIn('var refreshBusy=false', html)
-        self.assertIn('setTimeout(refreshAll,1200)', html)
+        self.assertIn('setTimeout(refreshAll,100)', html)
         self.assertIn('refreshInProgress.then(function()', html)
-        self.assertIn('},400)', html)
+        self.assertIn('},0)', html)
         self.assertNotIn('Uploading and verifying…', html)
         self.assertIn('class="file-input-hidden" type="file"', html)
         self.assertIn('class="file-button" for="update-bundle"', html)
@@ -263,11 +292,11 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('.metric span{white-space:nowrap', html)
         self.assertIn('.metric.wide{grid-column:span 2}', html)
         self.assertIn('class="metric wide"', html)
-        self.assertIn('title="module_settings_EMS.json"', html)
+        self.assertIn('title="module_settings.ems.json"', html)
         self.assertIn('overflow-y:auto', html)
-        self.assertIn('chain=chain.then(refreshLogs)', html)
-        self.assertIn('if(refreshedLogs){chain=chain.then(settleConnection);}', html)
-        self.assertIn('chain=chain.then(refreshValues)', html)
+        self.assertIn('requests.push(refreshLogs())', html)
+        self.assertIn('requests.push(refreshValues())', html)
+        self.assertIn('Promise.all(requests)', html)
         self.assertIn('class="badge good refresh-status"', html)
         self.assertIn('auto refresh', html)
 
@@ -280,45 +309,79 @@ class WebPortalTests(unittest.TestCase):
                 'update_status': 'ready',
                 'update_options': ['device_settings', 'certificates'],
                 'firmware_update_supported': True,
+                'firmware_update_availability': 'ready',
                 'firmware_update_status': 'ready',
                 'firmware_update_version': 'mp-1.28.0',
                 'firmware_running_version': 'mp-1.27.0'
             }, [], '', 12000
         )
-        self.assertIn('Optional overwrite:', staged_html)
+        self.assertIn('Application update options:', staged_html)
         self.assertIn('name="device_settings"', staged_html)
         self.assertIn('name="certificates"', staged_html)
+        self.assertEqual(staged_html.count('class="update-switch"'), 2)
+        self.assertIn('.update-switch input[type="checkbox"]:checked', staged_html)
         self.assertNotIn('name="module_settings"', staged_html)
         self.assertNotIn('name="secrets"', staged_html)
-        self.assertIn('action="/activate-update"', staged_html)
+        self.assertIn('action="/activate-update" method="post"', staged_html)
         self.assertIn('Activate and reboot', staged_html)
-        self.assertIn('Base firmware update', staged_html)
-        self.assertIn('id="firmware-upload-form"', staged_html)
-        self.assertIn('Running firmware: <strong>mp-1.27.0</strong>', staged_html)
-        self.assertIn('accept=".hamf,application/octet-stream"', staged_html)
+        self.assertNotIn('Base firmware update', staged_html)
+        self.assertNotIn('id="firmware-upload-form"', staged_html)
         self.assertIn('Activate firmware and reboot', staged_html)
-        self.assertIn("fetch('/firmware-upload?token='", staged_html)
+        self.assertIn('App 1.1 / Firmware mp-1.28.0', staged_html)
+        self.assertIn('<span>OTA firmware availability</span>', staged_html)
+        self.assertIn('class="update-summary"', staged_html)
+        self.assertIn('metric ota-availability good', staged_html)
+        self.assertIn('title="ready">ready</strong>', staged_html)
+        self.assertIn('.metric.ota-availability{grid-column:1/-1}', staged_html)
+        self.assertIn('.metric.ota-availability strong{white-space:normal', staged_html)
+        self.assertIn("isFirmware?'/firmware-upload':'/update-upload'", staged_html)
         app_position = staged_html.index('<span>App version</span>')
-        base_position = staged_html.index('<span>Base version</span>')
+        base_position = staged_html.index('<span>MicroPython version</span>')
         staged_position = staged_html.index('<span>Staged version</span>')
         status_position = staged_html.index('<span>Update status</span>')
+        software_position = staged_html.index('<h2>Software update</h2>')
         self.assertLess(app_position, base_position)
-        self.assertLess(base_position, staged_position)
+        self.assertLess(base_position, software_position)
+        self.assertLess(software_position, staged_position)
         self.assertLess(staged_position, status_position)
         self.assertNotIn('metric-stack', staged_html)
         self.assertIn('class="metric version-app"', staged_html)
         self.assertIn('class="metric version-base"', staged_html)
-        self.assertIn('class="metric version-staged"', staged_html)
-        self.assertIn('class="metric version-status"', staged_html)
+        self.assertIn('class="metric update-staged"', staged_html)
+        self.assertIn('class="metric update-status"', staged_html)
         self.assertIn('.metric.version-app{grid-column:5;grid-row:2}', staged_html)
         self.assertIn('.metric.version-base{grid-column:6;grid-row:2}', staged_html)
-        self.assertIn('.metric.version-staged{grid-column:5;grid-row:3}', staged_html)
-        self.assertIn('.metric.version-status{grid-column:6;grid-row:3}', staged_html)
+        status_panel = staged_html.split('<h2>Status</h2>', 1)[1].split('</section>', 1)[0]
+        self.assertNotIn('Staged version', status_panel)
+        self.assertNotIn('Update status', status_panel)
+        self.assertNotIn('OTA firmware availability', status_panel)
 
-        idle_html = web_portal.render_status_html({
+        firmware_only_html = render_page(
+            'abc', 'INFO', ('INFO',), [], 3000,
+            {
+                'running_version': '1.0',
+                'base_version': '1.27.0',
+                'update_version': '',
+                'update_status': 'idle',
+                'firmware_update_supported': True,
+                'firmware_update_status': 'ready',
+                'firmware_update_version': 'micropython-1.28.0'
+            }, [], '', 12000
+        )
+        self.assertIn(
+            '<span>Staged version</span><strong title="micropython-1.28.0">micropython-1.28.0</strong>',
+            firmware_only_html
+        )
+        self.assertIn(
+            '<span>Update status</span><strong title="ready">ready</strong>',
+            firmware_only_html
+        )
+
+        idle_html = web_portal.render_update_summary_html({
             'running_version': '1.0', 'base_version': '1.1.0',
             'update_version': '', 'update_status': 'idle'
         })
+        self.assertIn('id="update-summary"', idle_html)
         self.assertIn('Not staged', idle_html)
         self.assertIn('refresh paused', html)
         self.assertIn('id="refresh-toggle"', html)
@@ -337,7 +400,13 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('refreshTimer=setInterval(refreshAll,Math.min.apply(Math,intervals))', html)
         self.assertIn('var logRefreshMs=3000', html)
         self.assertIn('var valueRefreshMs=12000', html)
-        self.assertIn("fetch('/partials?token='+encodeURIComponent(token)", html)
+        self.assertIn("fetch('/partials',{cache:'no-store',credentials:'same-origin'})", html)
+        self.assertNotIn('/partials?token=', html)
+        self.assertIn('payload.live_sections', html)
+        self.assertIn('payload.update_summary', html)
+        self.assertIn('payload.update_actions', html)
+        self.assertIn("document.getElementById('update-summary')", html)
+        self.assertIn("document.getElementById('update-actions')", html)
         self.assertIn('lastValueRefresh=0', html)
         self.assertIn('el.outerHTML=html', html)
         self.assertNotIn('hello', html)

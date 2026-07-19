@@ -10,8 +10,8 @@
             "boiler_id": 8,
             "ems": {
                 "uart": 0,
-                "tx": 0,
-                "rx": 1,
+                "tx": 17,
+                "rx": 18,
                 "baudrate": 9600,
                 "bits": 8,
                 "parity": null,

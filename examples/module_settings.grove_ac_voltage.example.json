@@ -10,7 +10,7 @@
             "pollinterval": 5,
             "ac_voltage": {
                 "_comment": "The calibration value is intentionally configurable. Once connected, compare against a known meter reading at 240V AC and adjust this multiplier until the published voltage matches reality.",
-                "adc_pin": 26,
+                "adc_pin": 1,
                 "vref": 3.3,
                 "adc_max": 65535,
                 "sample_count": 600,

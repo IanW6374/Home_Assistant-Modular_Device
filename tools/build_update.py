@@ -6,16 +6,20 @@ import ast
 import fnmatch
 import hashlib
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from update_security import SIGNATURE_SCHEME, sign_manifest
 
 
 MAGIC = b'HAMD1\n'
 CORE_FILES = (
     'HA-Device.py',
-    'hardware_platform.py',
     'settings_loader.py',
-    'local_display.py',
+    'display.py',
     'web_portal.py',
+    'release_update.py',
 )
 CORE_DEVICE_MODULES = (
     'device_modules/__init__.py',
@@ -240,7 +244,24 @@ def collect_files(
     return sorted(deduplicated.items())
 
 
-def build_bundle(output, version, files, content_overrides=None):
+def load_signing_key(path):
+    if not path:
+        return b''
+    try:
+        value = Path(path).read_bytes().strip()
+    except OSError as exc:
+        raise ValueError('signing key could not be read: ' + str(exc))
+    if len(value) == 64:
+        try:
+            value = bytes.fromhex(value.decode())
+        except ValueError:
+            pass
+    if len(value) < 32:
+        raise ValueError('signing key must contain at least 32 bytes')
+    return value
+
+
+def build_bundle(output, version, files, content_overrides=None, signing_key=b''):
     output.parent.mkdir(parents=True, exist_ok=True)
     content_overrides = content_overrides or {}
     entries = []
@@ -253,8 +274,21 @@ def build_bundle(output, version, files, content_overrides=None):
             'size': len(data),
             'sha256': hashlib.sha256(data).hexdigest()
         })
+    manifest_object = {
+        'format_version': 2,
+        'target_board': 'esp32-s3',
+        'min_recovery_api': 2,
+        'max_recovery_api': 2,
+        'version': version,
+        'files': entries
+    }
+    if signing_key:
+        manifest_object['signature_scheme'] = SIGNATURE_SCHEME
+        manifest_object['signature'] = sign_manifest(
+            'hamd', manifest_object, signing_key
+        )
     manifest = json.dumps(
-        {'version': version, 'files': entries},
+        manifest_object,
         separators=(',', ':')
     ).encode()
     with output.open('wb') as bundle:
@@ -285,6 +319,10 @@ def main():
     parser.add_argument('--device-settings', help='Device settings JSON used to select the active module settings file')
     parser.add_argument('--module-settings', help='Module settings JSON to analyse instead of the filename in device settings')
     parser.add_argument('--certificate', action='append', default=[], help='Certificate/key file to place under certs/')
+    parser.add_argument(
+        '--signing-key',
+        help='32-byte raw or 64-character hex HMAC key; signed bundles are required once the same key is provisioned on the device'
+    )
     args = parser.parse_args()
 
     if args.protected_only and (
@@ -300,6 +338,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     include_protected = args.include_protected or args.protected_only or bool(args.certificate)
     try:
+        signing_key = load_signing_key(args.signing_key)
         files = collect_files(
             root,
             include_protected,
@@ -332,11 +371,13 @@ def main():
         Path(args.output),
         args.version,
         files,
-        content_overrides
+        content_overrides,
+        signing_key
     )
     print('created', args.output, 'with', len(entries), 'files')
     for entry in entries:
         print('  ', entry['path'])
+    print('signature:', 'hmac-sha256' if signing_key else 'unsigned development bundle')
 
 
 if __name__ == '__main__':

@@ -67,7 +67,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(ha_safe_id('AC Present?'), 'ac_present')
         self.assertEqual(ha_unique_id('abc', '0001', 'grid_import_e'), 'abc0001_grid_import_e')
 
-    def test_home_assistant_device_info_uses_configured_name_and_pico_serial(self):
+    def test_home_assistant_device_info_uses_configured_name_and_serial(self):
         info = homeassistant_device_info('abc123', 'Configured Device')
 
         self.assertEqual(info['name'], 'Configured Device')

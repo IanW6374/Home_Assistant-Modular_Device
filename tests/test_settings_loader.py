@@ -28,9 +28,16 @@ class SettingsLoaderTests(unittest.TestCase):
             settings_loader.web_portal_allow_protected_updates,
             config['web_portal']['allow_protected_updates']
         )
-        self.assertFalse(settings_loader.web_portal_firmware_updates_enabled)
-        self.assertEqual(settings_loader.web_portal_firmware_update_max_bytes, 4194304)
-        self.assertIsNone(settings_loader.status_led_pin)
+        self.assertEqual(
+            settings_loader.web_portal_firmware_updates_enabled,
+            config['web_portal']['firmware_updates_enabled']
+        )
+        self.assertEqual(
+            settings_loader.web_portal_firmware_update_max_bytes,
+            config['web_portal']['firmware_update_max_bytes']
+        )
+        self.assertEqual(settings_loader.status_led_pin, config['device']['status_led_pin'])
+        self.assertEqual(settings_loader.status_led_type, config['device']['status_led_type'])
         self.assertEqual(settings_loader.local_display.get('enabled'), config['local_display']['enabled'])
         self.assertIn(settings_loader.loglevel, ('ERROR', 'INFO', 'DEBUG'))
 
@@ -57,7 +64,7 @@ class SettingsLoaderTests(unittest.TestCase):
 
     def test_unknown_keys_are_rejected(self):
         with self.assertRaisesRegex(RuntimeError, 'unknown device.old_name'):
-            settings_loader._reject_unknown({'old_name': 'Pico'}, ('name',), 'device')
+            settings_loader._reject_unknown({'old_name': 'Controller'}, ('name',), 'device')
 
 
 if __name__ == '__main__':

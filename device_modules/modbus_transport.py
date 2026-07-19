@@ -1,6 +1,6 @@
-"""Pico 2-channel RS485 sensor module.
+"""Generic multi-port Modbus RTU sensor transport.
 
-Polls multiple Modbus RTU memory/register addresses over one or more Pico UARTs
+Polls multiple Modbus RTU memory/register addresses over one or more UARTs
 and publishes readings to MQTT. Also accepts ad-hoc read/write requests via the
 device's MQTT ``/set`` topic and publishes replies to ``/response``.
 """
@@ -30,7 +30,7 @@ import time
 DEVICE_TYPE = {
     'class': 'sensor',
     'subclass': {
-        'Pico-2CH-RS485': {
+        'RS485-Modbus-Multiport': {
             'entities': {
                 'battery',
                 'memory_value',
@@ -66,7 +66,7 @@ def _timestamp():
 def supports(device):
     return (
         device['type']['class'] == 'sensor' and
-        device['type']['subclass'] == 'Pico-2CH-RS485'
+        device['type']['subclass'] == 'RS485-Modbus-Multiport'
     )
 
 
@@ -119,7 +119,7 @@ def setup(device, index):
         except Exception as exc:
             log_output(
                 'Local',
-                'Pico-2CH-RS485',
+                'RS485-Modbus-Multiport',
                 {'log': 'Setup port error ' + str(name) + ' ' + str(exc)},
                 'ERROR'
             )
@@ -128,10 +128,10 @@ def setup(device, index):
 
 
 def create_driver(device, device_char):
-    return Pico2CHRS485Driver(device, device_char)
+    return ModbusRTUDriver(device, device_char)
 
 
-class Pico2CHRS485Driver(DeviceDriver):
+class ModbusRTUDriver(DeviceDriver):
     def __init__(self, device, device_char):
         super().__init__(device, device_char)
         self._publish_callable = None
@@ -281,9 +281,9 @@ class Pico2CHRS485Driver(DeviceDriver):
 
     def _log(self, message, logtype='INFO'):
         if self._log_callable:
-            self._log_callable('Local', 'Pico-2CH-RS485', {'log': message}, logtype)
+            self._log_callable('Local', 'RS485-Modbus', {'log': message}, logtype)
         else:
-            log_output('Local', 'Pico-2CH-RS485', {'log': message}, logtype)
+            log_output('Local', 'RS485-Modbus', {'log': message}, logtype)
 
     async def _handle_pending(self):
         while self._pending:

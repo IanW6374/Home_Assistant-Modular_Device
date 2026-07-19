@@ -50,12 +50,12 @@ class FakeUART:
                 value = address + offset
                 raw += bytes([(value >> 8) & 0xff, value & 0xff])
             body = bytes([data[0], function, count * 2]) + raw
-            self.reply = body + PicoModuleTest.driver._crc_bytes(body)
+            self.reply = body + ModbusTransportTests.driver._crc_bytes(body)
         elif function == 6:
             self.reply = data
         elif function == 16:
             body = data[:6]
-            self.reply = body + PicoModuleTest.driver._crc_bytes(body)
+            self.reply = body + ModbusTransportTests.driver._crc_bytes(body)
 
     def flush(self):
         pass
@@ -70,15 +70,15 @@ def load_module():
     if not hasattr(asyncio, 'sleep_ms'):
         asyncio.sleep_ms = sleep_ms
 
-    sys.modules.pop('device_modules.pico_2ch_rs485', None)
-    module = importlib.import_module('device_modules.pico_2ch_rs485')
+    sys.modules.pop('device_modules.modbus_transport', None)
+    module = importlib.import_module('device_modules.modbus_transport')
     module.time.ticks_ms = lambda: int(time.monotonic() * 1000)
     module.time.ticks_add = lambda ticks, delta: ticks + delta
     module.time.ticks_diff = lambda end, start: end - start
     return module
 
 
-class PicoModuleTest(unittest.TestCase):
+class ModbusTransportTests(unittest.TestCase):
     driver = None
 
     def setUp(self):
@@ -87,7 +87,7 @@ class PicoModuleTest(unittest.TestCase):
         device = {
             'name': 'RS485',
             'uuid': '0002',
-            'type': {'class': 'sensor', 'subclass': 'Pico-2CH-RS485'},
+            'type': {'class': 'sensor', 'subclass': 'RS485-Modbus-Multiport'},
             'entities': {}
         }
         devchar = {
@@ -100,8 +100,8 @@ class PicoModuleTest(unittest.TestCase):
                 }
             }
         }
-        PicoModuleTest.driver = self.module.Pico2CHRS485Driver(device, devchar)
-        self.driver = PicoModuleTest.driver
+        ModbusTransportTests.driver = self.module.ModbusRTUDriver(device, devchar)
+        self.driver = ModbusTransportTests.driver
 
     def test_write_request_uses_function_6_for_single_register(self):
         response = asyncio.run(self.driver._write_request({
