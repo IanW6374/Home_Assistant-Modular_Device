@@ -16,17 +16,34 @@ except ImportError:
     import binascii
 
 import os
+import sys
+import update_security
+import update_support
+
+try:
+    import asyncio
+except ImportError:
+    asyncio = None
 
 
 MAGIC = b'HAMD1\n'
-BASE_VERSION = '2.0.0'
 BUNDLE_PATH = '.app-update.bundle'
 STATE_PATH = '.app-update-state.json'
 BACKUP_ROOT = '.app-update-backup'
 VERSION_PATH = '.app-version'
+SLOT_ROOT = '.app-slots'
+SLOT_STATE_PATH = '.app-slot-state.json'
+SLOT_NAMES = ('a', 'b')
+APPLICATION_ENTRY = 'HA-Device.py'
+SLOT_INTEGRITY_FILE = '.slot-integrity.json'
 CHUNK_SIZE = 1024
 DEFAULT_MAX_BUNDLE_BYTES = 2 * 1024 * 1024
-RECOVERY_FILES = ('main.py', 'app_update.py', 'firmware_update.py')
+RECOVERY_FILES = (
+    'main.py', 'recovery_boot.py', 'app_update.py', 'firmware_update.py',
+    'hardware_platform.py', 'update_security.py', 'update_support.py',
+    'wifi_recovery.py',
+    '.update-signing-key'
+)
 
 
 def _hex_digest(hasher):
@@ -46,6 +63,89 @@ def _safe_path(path):
 def is_protected_path(path):
     path = str(path).replace('\\', '/').lstrip('/')
     return path == 'secrets.py' or path.startswith('certs/')
+
+
+def is_shared_path(path):
+    path = str(path).replace('\\', '/').lstrip('/')
+    return (
+        path in ('device_settings.json', 'module_settings.json') or
+        is_protected_path(path)
+    )
+
+
+def _slot_path(slot, path=''):
+    if slot not in SLOT_NAMES:
+        raise ValueError('invalid application slot: ' + str(slot))
+    root = SLOT_ROOT + '/' + slot
+    return root + '/' + path if path else root
+
+
+def slot_status():
+    try:
+        state = _read_json(SLOT_STATE_PATH)
+    except Exception:
+        return {'active': '', 'versions': {}}
+    active = state.get('active', '')
+    if active not in SLOT_NAMES:
+        active = ''
+    versions = state.get('versions', {})
+    if not isinstance(versions, dict):
+        versions = {}
+    return {'active': active, 'versions': versions}
+
+
+def active_slot():
+    state = slot_status()
+    active = state.get('active', '')
+    if (
+        active and _file_exists(_slot_path(active, APPLICATION_ENTRY)) and
+        validate_slot_integrity(active, entry_only=True)
+    ):
+        return active
+    return ''
+
+
+def previous_slot():
+    slots = slot_status()
+    current = slots.get('active', '')
+    candidate = 'b' if current == 'a' else 'a'
+    if candidate in SLOT_NAMES and _file_exists(_slot_path(candidate, APPLICATION_ENTRY)):
+        return candidate
+    return ''
+
+
+def application_root():
+    update = update_status()
+    if update.get('status') in ('trial', 'committing'):
+        trial = update.get('target_slot', '')
+        if (
+            trial in SLOT_NAMES and
+            _file_exists(_slot_path(trial, APPLICATION_ENTRY)) and
+            validate_slot_integrity(trial)
+        ):
+            return _slot_path(trial)
+    active = active_slot()
+    return _slot_path(active) if active else ''
+
+
+def application_entry():
+    root = application_root()
+    return root + '/' + APPLICATION_ENTRY if root else APPLICATION_ENTRY
+
+
+def prepare_application_path():
+    root = application_root()
+    if not root:
+        return ''
+    for path in list(sys.path):
+        if str(path).startswith(SLOT_ROOT + '/'):
+            try:
+                sys.path.remove(path)
+            except ValueError:
+                pass
+    sys.path.insert(0, root + '/lib')
+    sys.path.insert(0, root)
+    return root
 
 
 def _read_exact(stream, size):
@@ -70,6 +170,7 @@ def read_manifest(stream):
     manifest = json.loads(_read_exact(stream, length).decode())
     if not isinstance(manifest, dict) or not isinstance(manifest.get('files'), list):
         raise ValueError('invalid update manifest')
+    update_security.validate_manifest('hamd', manifest)
     return manifest
 
 
@@ -96,6 +197,53 @@ def validate_bundle(path=BUNDLE_PATH, allow_protected=False):
                     raise ValueError('truncated update file: ' + file_path)
                 hasher.update(chunk)
                 remaining -= len(chunk)
+            if _hex_digest(hasher) != expected:
+                raise ValueError('SHA-256 mismatch: ' + file_path)
+        if stream.read(1):
+            raise ValueError('unexpected data after update files')
+    return manifest
+
+
+async def _report_progress(callback, phase, completed, total):
+    if not callback:
+        return
+    result = callback(phase, completed, total)
+    if result is not None:
+        await result
+
+
+async def validate_bundle_async(path=BUNDLE_PATH, allow_protected=False, progress_callback=None):
+    with open(path, 'rb') as stream:
+        manifest = read_manifest(stream)
+        total = sum(max(0, int(entry.get('size', 0))) for entry in manifest['files'])
+        verified = 0
+        await _report_progress(progress_callback, 'verification', verified, total)
+        seen = set()
+        for entry in manifest['files']:
+            file_path = _safe_path(entry.get('path', ''))
+            if file_path in seen:
+                raise ValueError('duplicate update path: ' + file_path)
+            seen.add(file_path)
+            if is_protected_path(file_path) and not allow_protected:
+                raise ValueError('protected file requires explicit authorization: ' + file_path)
+            size = int(entry.get('size', -1))
+            expected = str(entry.get('sha256', '')).lower()
+            if size < 0 or len(expected) != 64:
+                raise ValueError('invalid update entry: ' + file_path)
+            hasher = hashlib.sha256()
+            remaining = size
+            while remaining:
+                chunk = stream.read(min(CHUNK_SIZE, remaining))
+                if not chunk:
+                    raise ValueError('truncated update file: ' + file_path)
+                hasher.update(chunk)
+                remaining -= len(chunk)
+                verified += len(chunk)
+                await _report_progress(
+                    progress_callback, 'verification', verified, total
+                )
+                if asyncio:
+                    await asyncio.sleep(0)
             if _hex_digest(hasher) != expected:
                 raise ValueError('SHA-256 mismatch: ' + file_path)
         if stream.read(1):
@@ -136,8 +284,8 @@ def optional_bundle_groups(manifest):
     return groups
 
 
-def stage_bundle(path=BUNDLE_PATH, allow_protected=False, selections=None):
-    manifest = validate_bundle(path, allow_protected)
+def stage_bundle(path=BUNDLE_PATH, allow_protected=False, selections=None, manifest=None):
+    manifest = manifest or validate_bundle(path, allow_protected)
     selected_paths = selected_bundle_paths(manifest, selections)
     has_application = any(
         path not in ('device_settings.json', 'module_settings.json') and
@@ -189,14 +337,17 @@ async def receive_bundle(
     content_length,
     allow_protected=False,
     max_bytes=DEFAULT_MAX_BUNDLE_BYTES,
-    selections=None
+    selections=None,
+    progress_callback=None
 ):
     content_length = int(content_length)
     if content_length < len(MAGIC) + 4 or content_length > int(max_bytes):
         raise ValueError('update bundle size is not allowed')
+    update_support.acquire_update_lock()
     temp_path = BUNDLE_PATH + '.upload'
     received = 0
     try:
+        update_support.require_free_space(content_length * 2)
         with open(temp_path, 'wb') as output:
             while received < content_length:
                 chunk = await reader.read(min(CHUNK_SIZE, content_length - received))
@@ -204,12 +355,24 @@ async def receive_bundle(
                     raise ValueError('update upload ended early')
                 output.write(chunk)
                 received += len(chunk)
-        validate_bundle(temp_path, allow_protected)
+        manifest = await validate_bundle_async(
+            temp_path, allow_protected, progress_callback
+        )
         _replace_file(temp_path, BUNDLE_PATH)
-        return stage_bundle(BUNDLE_PATH, allow_protected, selections)
-    except Exception:
+        state = stage_bundle(
+            BUNDLE_PATH, allow_protected, selections, manifest=manifest
+        )
+        update_support.record_update_event(
+            'application', 'staged', state.get('version', ''),
+            digest=str(manifest.get('signature', ''))
+        )
+        return state
+    except Exception as exc:
         _remove_if_exists(temp_path)
+        update_support.record_update_event('application', 'rejected', detail=str(exc))
         raise
+    finally:
+        update_support.release_update_lock()
 
 
 def update_status():
@@ -220,6 +383,14 @@ def update_status():
 
 
 def activate_pending():
+    update_support.acquire_update_lock()
+    try:
+        return _activate_pending_locked()
+    finally:
+        update_support.release_update_lock()
+
+
+def _activate_pending_locked():
     state = update_status()
     if state.get('status') == 'trial':
         rollback_update()
@@ -227,13 +398,38 @@ def activate_pending():
     if state.get('status') == 'activating':
         rollback_update()
         return 'rolled back interrupted update'
+    if state.get('status') == 'committing':
+        _finish_commit(state)
+        return 'completed interrupted update confirmation'
     if state.get('status') != 'ready':
         return ''
 
     manifest = validate_bundle(BUNDLE_PATH, state.get('allow_protected', False))
+    selected_paths_for_update = set(state.get('selected_paths', ()))
+    selected_size = sum(
+        int(entry.get('size', 0)) for entry in manifest.get('files', [])
+        if _safe_path(entry.get('path', '')) in selected_paths_for_update
+    )
+    backup_size = 0
+    for path in selected_paths_for_update:
+        if is_shared_path(path) and _file_exists(path):
+            try:
+                backup_size += int(os.stat(path)[6])
+            except Exception:
+                pass
+    update_support.require_free_space(selected_size + backup_size)
+    current_slot = active_slot()
+    target_slot = ''
+    if state.get('has_application'):
+        target_slot = 'b' if current_slot == 'a' else 'a'
     state['status'] = 'activating'
     state['applied'] = []
+    state['previous_slot'] = current_slot
+    state['target_slot'] = target_slot
     _write_json_atomic(STATE_PATH, state)
+
+    if target_slot:
+        _remove_tree(_slot_path(target_slot))
 
     with open(BUNDLE_PATH, 'rb') as stream:
         read_manifest(stream)
@@ -251,38 +447,130 @@ def activate_pending():
             if path not in selected_paths:
                 _skip_stream(stream, size, path)
                 continue
-            backup_path = BACKUP_ROOT + '/' + path
-            existed = _file_exists(path)
-            if existed:
-                _copy_file(path, backup_path)
-            state['applied'].append({'path': path, 'existed': existed})
-            _write_json_atomic(STATE_PATH, state)
-            _write_stream_file(stream, size, path)
+            if is_shared_path(path):
+                backup_path = BACKUP_ROOT + '/' + path
+                existed = _file_exists(path)
+                if existed:
+                    _copy_file(path, backup_path)
+                state['applied'].append({'path': path, 'existed': existed})
+                _write_json_atomic(STATE_PATH, state)
+                _write_stream_file(stream, size, path)
+            elif target_slot:
+                _write_stream_file(stream, size, _slot_path(target_slot, path))
+            else:
+                _skip_stream(stream, size, path)
+
+    if target_slot and not _file_exists(
+        _slot_path(target_slot, APPLICATION_ENTRY)
+    ):
+        raise ValueError('application bundle has no ' + APPLICATION_ENTRY)
+
+    if target_slot:
+        integrity_entries = []
+        for entry in manifest.get('files', []):
+            entry_path = _safe_path(entry.get('path', ''))
+            if entry_path in selected_paths and not is_shared_path(entry_path):
+                integrity_entries.append({
+                    'path': entry_path,
+                    'size': int(entry.get('size', 0)),
+                    'sha256': str(entry.get('sha256', '')).lower()
+                })
+        _write_json_atomic(
+            _slot_path(target_slot, SLOT_INTEGRITY_FILE),
+            {'files': integrity_entries}
+        )
+        if not validate_slot_integrity(target_slot):
+            raise ValueError('application slot integrity verification failed')
 
     state['status'] = 'trial'
     _write_json_atomic(STATE_PATH, state)
+    update_support.record_update_event(
+        'application', 'trial', state.get('version', ''),
+        digest=str(manifest.get('signature', ''))
+    )
     return 'activated update ' + str(state.get('version', ''))
 
 
 def confirm_update():
     state = update_status()
-    if state.get('status') != 'trial':
+    if state.get('status') not in ('trial', 'committing'):
         return False
-    if state.get('has_application') and state.get('version'):
-        _write_text_atomic(VERSION_PATH, str(state.get('version')))
-    _remove_tree(BACKUP_ROOT)
-    _remove_if_exists(BUNDLE_PATH)
-    _remove_if_exists(STATE_PATH)
+    if state.get('status') == 'trial':
+        target = state.get('target_slot', '')
+        if target and not validate_slot_integrity(target):
+            raise ValueError('trial application slot failed integrity verification')
+        state['status'] = 'committing'
+        _write_json_atomic(STATE_PATH, state)
+    _finish_commit(state)
     return True
 
 
+def _finish_commit(state):
+    target_slot = state.get('target_slot', '')
+    if state.get('has_application'):
+        if target_slot not in SLOT_NAMES or not _file_exists(
+            _slot_path(target_slot, APPLICATION_ENTRY)
+        ):
+            raise ValueError('confirmed application slot is unavailable')
+        slots = slot_status()
+        versions = slots.get('versions', {})
+        versions[target_slot] = str(state.get('version', ''))
+        _write_json_atomic(SLOT_STATE_PATH, {
+            'active': target_slot,
+            'versions': versions
+        })
+        if state.get('version'):
+            _write_text_atomic(VERSION_PATH, str(state.get('version')))
+    _remove_tree(BACKUP_ROOT)
+    _remove_if_exists(BUNDLE_PATH)
+    _remove_if_exists(STATE_PATH)
+    update_support.record_update_event(
+        'application', 'confirmed', state.get('version', '')
+    )
+
+
 def running_version(fallback=''):
+    slots = slot_status()
+    active = slots.get('active', '')
+    version = slots.get('versions', {}).get(active, '')
+    if version:
+        return str(version)
     try:
         with open(VERSION_PATH, 'r') as stream:
             value = stream.read().strip()
             return value or fallback
     except Exception:
         return fallback
+
+
+def rollback_to_previous():
+    update_support.acquire_update_lock()
+    try:
+        return _rollback_to_previous_locked()
+    finally:
+        update_support.release_update_lock()
+
+
+def _rollback_to_previous_locked():
+    if update_status().get('status') != 'idle':
+        raise ValueError('cannot select a previous slot while an update is pending')
+    current = active_slot()
+    target = previous_slot()
+    if not current or not target:
+        raise ValueError('no previous application slot is available')
+    slots = slot_status()
+    _write_json_atomic(SLOT_STATE_PATH, {
+        'active': target,
+        'versions': slots.get('versions', {})
+    })
+    version = slots.get('versions', {}).get(target, '')
+    if version:
+        _write_text_atomic(VERSION_PATH, version)
+    update_support.record_update_event(
+        'application', 'manual_rollback', version,
+        detail='from slot ' + current + ' to slot ' + target
+    )
+    return {'active': target, 'version': version, 'previous': current}
 
 
 def rollback_update():
@@ -295,10 +583,73 @@ def rollback_update():
             _copy_file(backup_path, path)
         elif not entry.get('existed'):
             _remove_if_exists(path)
+    target_slot = state.get('target_slot', '')
+    if target_slot in SLOT_NAMES:
+        slots = slot_status()
+        if slots.get('active') == target_slot:
+            previous_slot = state.get('previous_slot', '')
+            if previous_slot not in SLOT_NAMES or not _file_exists(
+                _slot_path(previous_slot, APPLICATION_ENTRY)
+            ):
+                previous_slot = ''
+            _write_json_atomic(SLOT_STATE_PATH, {
+                'active': previous_slot,
+                'versions': slots.get('versions', {})
+            })
+        _remove_tree(_slot_path(target_slot))
     _remove_tree(BACKUP_ROOT)
     _remove_if_exists(BUNDLE_PATH)
     _remove_if_exists(STATE_PATH)
-    return bool(applied)
+    if applied or target_slot:
+        update_support.record_update_event(
+            'application', 'rolled_back', state.get('version', ''),
+            detail='unconfirmed or interrupted ' + str(state.get('status', 'update'))
+        )
+    return bool(applied or target_slot)
+
+
+def cleanup_interrupted():
+    return update_support.cleanup_interrupted_files((
+        BUNDLE_PATH + '.upload', STATE_PATH + '.tmp', SLOT_STATE_PATH + '.tmp',
+        VERSION_PATH + '.tmp'
+    ))
+
+
+def validate_slot_integrity(slot, entry_only=False):
+    path = _slot_path(slot, SLOT_INTEGRITY_FILE)
+    if not _file_exists(path):
+        # Slots created before integrity manifests were introduced remain
+        # bootable and will be replaced on their next update.
+        return True
+    try:
+        manifest = _read_json(path)
+        entries = manifest.get('files', [])
+        if not isinstance(entries, list) or not entries:
+            return False
+        checked_entry = False
+        for entry in entries:
+            relative = _safe_path(entry.get('path', ''))
+            if entry_only and relative != APPLICATION_ENTRY:
+                continue
+            source = _slot_path(slot, relative)
+            hasher = hashlib.sha256()
+            size = 0
+            with open(source, 'rb') as stream:
+                while True:
+                    chunk = stream.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    hasher.update(chunk)
+            if size != int(entry.get('size', -1)):
+                return False
+            if _hex_digest(hasher) != str(entry.get('sha256', '')).lower():
+                return False
+            if relative == APPLICATION_ENTRY:
+                checked_entry = True
+        return checked_entry if entry_only else True
+    except Exception:
+        return False
 
 
 def _write_stream_file(stream, size, path):

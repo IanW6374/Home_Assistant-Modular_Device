@@ -8,10 +8,15 @@ from pathlib import Path
 
 FILES = (
     "main.py",
+    "recovery_boot.py",
     "app_update.py",
     "firmware_update.py",
     "hardware_platform.py",
+    "update_security.py",
+    "update_support.py",
+    "wifi_recovery.py",
     "HA-Device.py",
+    "release_update.py",
     "settings_loader.py",
     "device_settings.json",
     "module_settings.json",
@@ -23,7 +28,6 @@ DIRS = (
     "device_modules",
     "lib",
 )
-
 
 def copy_file(src, dst):
     dst.parent.mkdir(parents=True, exist_ok=True)

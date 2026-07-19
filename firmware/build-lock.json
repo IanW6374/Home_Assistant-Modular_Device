@@ -1,0 +1,7 @@
+{
+  "micropython": "v1.28.0",
+  "esp_idf": "v5.5.1",
+  "board": "HAM_ESP32_S3",
+  "variant": "SPIRAM_OCT",
+  "ota_partition_bytes": 2097152
+}

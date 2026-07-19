@@ -9,14 +9,24 @@ except ImportError:
     asyncio = None
 
 try:
-    import gc
-except ImportError:
-    gc = None
-
-try:
     import json
 except ImportError:
     json = None
+
+try:
+    import os
+except ImportError:
+    os = None
+
+try:
+    import ubinascii as binascii
+except ImportError:
+    import binascii
+
+try:
+    import time
+except ImportError:
+    time = None
 
 
 HTML_ESCAPE = {
@@ -63,8 +73,25 @@ def parse_query(path):
             key, value = pair.split('=', 1)
         else:
             key, value = pair, ''
-        params[key] = value.replace('+', ' ')
+        params[url_decode(key)] = url_decode(value)
     return params
+
+
+def url_decode(value):
+    value = str(value).replace('+', ' ')
+    result = []
+    index = 0
+    while index < len(value):
+        if value[index] == '%' and index + 2 < len(value):
+            try:
+                result.append(chr(int(value[index + 1:index + 3], 16)))
+                index += 3
+                continue
+            except ValueError:
+                pass
+        result.append(value[index])
+        index += 1
+    return ''.join(result)
 
 
 def parse_request_line(line):
@@ -74,10 +101,60 @@ def parse_request_line(line):
     return parts[0], parts[1]
 
 
+async def read_exact_body(reader, size):
+    result = bytearray()
+    while len(result) < int(size):
+        chunk = await reader.read(int(size) - len(result))
+        if not chunk:
+            raise ValueError('request body ended early')
+        result.extend(chunk)
+    return bytes(result)
+
+
 def is_authenticated(path, token):
     if not token:
         return False
     return parse_query(path).get('token') == token
+
+
+def parse_cookies(headers):
+    cookies = {}
+    for item in (headers or {}).get('cookie', '').split(';'):
+        if '=' in item:
+            key, value = item.strip().split('=', 1)
+            cookies[key] = value
+    return cookies
+
+
+def has_portal_session(headers, session_id):
+    return bool(session_id) and parse_cookies(headers).get('ham_session') == session_id
+
+
+def new_session_id():
+    if os and hasattr(os, 'urandom'):
+        return binascii.hexlify(os.urandom(24)).decode()
+    try:
+        import time
+        seed = str(time.ticks_us()) + ':' + str(id(object()))
+    except Exception:
+        seed = str(id(object()))
+    try:
+        import uhashlib as hashlib
+    except ImportError:
+        import hashlib
+    return binascii.hexlify(hashlib.sha256(seed.encode()).digest()).decode()[:48]
+
+
+def monotonic_ms():
+    if time and hasattr(time, 'ticks_ms'):
+        return time.ticks_ms()
+    return int(time.time() * 1000) if time else 0
+
+
+def elapsed_ms(start):
+    if time and hasattr(time, 'ticks_diff'):
+        return time.ticks_diff(monotonic_ms(), start)
+    return monotonic_ms() - start
 
 
 def requested_loglevel(path, allowed_levels):
@@ -145,76 +222,27 @@ def download_response(body, filename='ha-device-logs.txt'):
     )
 
 
-def encoded_length(value, chunk_size=512):
-    text = str(value)
-    total = 0
-    for offset in range(0, len(text), chunk_size):
-        total += len(text[offset:offset + chunk_size].encode())
-    return total
-
-
-async def write_streamed_response(
+async def write_buffered_response(
     writer,
     status,
     body,
     content_type='text/html; charset=utf-8',
-    extra_headers=None,
-    chunk_size=1024
+    extra_headers=None
 ):
-    body = str(body)
+    """Send one encoded response, favouring throughput over minimum heap use."""
+    body_bytes = str(body).encode()
     headers = (
         'HTTP/1.1 ' + status + '\r\n'
         'Content-Type: ' + content_type + '\r\n'
         'Cache-Control: no-store\r\n'
         'Connection: close\r\n'
-        'Content-Length: ' + str(encoded_length(body, chunk_size)) + '\r\n'
+        'Content-Length: ' + str(len(body_bytes)) + '\r\n'
     )
     if extra_headers:
         for name, value in extra_headers:
             headers += str(name) + ': ' + str(value) + '\r\n'
-    writer.write((headers + '\r\n').encode())
+    writer.write((headers + '\r\n').encode() + body_bytes)
     await writer.drain()
-    for offset in range(0, len(body), chunk_size):
-        writer.write(body[offset:offset + chunk_size].encode())
-        await writer.drain()
-
-
-async def write_streamed_parts(
-    writer,
-    status,
-    parts,
-    content_type='text/html; charset=utf-8',
-    chunk_size=1024
-):
-    content_length = 0
-    for part in parts:
-        content_length += encoded_length(part, chunk_size)
-    headers = (
-        'HTTP/1.1 ' + status + '\r\n'
-        'Content-Type: ' + content_type + '\r\n'
-        'Cache-Control: no-store\r\n'
-        'Connection: close\r\n'
-        'Content-Length: ' + str(content_length) + '\r\n\r\n'
-    )
-    writer.write(headers.encode())
-    await writer.drain()
-    for part in parts:
-        text = str(part)
-        for offset in range(0, len(text), chunk_size):
-            writer.write(text[offset:offset + chunk_size].encode())
-            await writer.drain()
-        if gc:
-            gc.collect()
-
-
-async def write_streamed_redirect(writer, location):
-    await write_streamed_response(
-        writer,
-        '303 See Other',
-        'Redirecting',
-        'text/plain',
-        (('Location', location),)
-    )
 
 
 def redirect(location):
@@ -249,11 +277,20 @@ FRIENDLY_LABELS = {
     'update_status': 'Update status',
     'update_version': 'Staged version',
     'running_version': 'App version',
-    'base_version': 'Base version',
+    'base_version': 'MicroPython version',
     'platform': 'Platform',
     'runtime_version': 'MicroPython version',
+    'firmware_update_availability': 'OTA firmware availability',
     'heap_free_bytes': 'Free heap (bytes)',
     'heap_allocated_bytes': 'Allocated heap (bytes)',
+    'storage_free_bytes': 'Free storage (bytes)',
+    'storage_total_bytes': 'Total storage (bytes)',
+    'active_slot': 'Active app slot',
+    'previous_slot': 'Previous app slot',
+    'recovery_api': 'Recovery API',
+    'signed_updates': 'Signed updates',
+    'release_channel': 'Release channel',
+    'release_available_version': 'Available release',
     'module_last_ok': 'Last operation OK',
     'module_last_error': 'Last error',
     'module_last_read_ms': 'Read duration (ms)',
@@ -325,12 +362,47 @@ def render_refresh_controls_html(button_id='refresh-toggle'):
     )
 
 
+def staged_version_text(status):
+    application = str(status.get('update_version', '') or '')
+    firmware = str(status.get('firmware_update_version', '') or '')
+    application_ready = status.get('update_status') == 'ready' and application
+    firmware_ready = status.get('firmware_update_status') == 'ready' and firmware
+    if application_ready and firmware_ready:
+        return 'App ' + application + ' / Firmware ' + firmware
+    if firmware_ready:
+        return firmware
+    if application_ready:
+        return application
+    return 'Not staged'
+
+
+def combined_update_status_text(status):
+    application = str(status.get('update_status', 'idle') or 'idle')
+    firmware = str(status.get('firmware_update_status', 'idle') or 'idle')
+    active = []
+    if application != 'idle':
+        active.append(('App', application))
+    if firmware != 'idle':
+        active.append(('Firmware', firmware))
+    if not active:
+        return 'idle'
+    if len(active) == 1:
+        return active[0][1]
+    if active[0][1] == active[1][1]:
+        return active[0][1]
+    return active[0][0] + ' ' + active[0][1] + ' / ' + active[1][0] + ' ' + active[1][1]
+
+
 def render_status_html(status):
     if not status:
         return ''
 
     cards = []
-    for key in ('device_name', 'wifi_ip', 'mqtt', 'config', 'loglevel', 'uptime_s', 'discovery_count', 'heap_free_bytes', 'heap_allocated_bytes'):
+    for key in (
+        'device_name', 'wifi_ip', 'mqtt', 'config', 'loglevel', 'uptime_s',
+        'discovery_count', 'heap_free_bytes', 'heap_allocated_bytes',
+        'storage_free_bytes', 'active_slot', 'recovery_api', 'signed_updates'
+    ):
         if key in status:
             value = status[key]
             tone = ''
@@ -342,16 +414,12 @@ def render_status_html(status):
                 '<div class="metric' + tone + '"><span>' + render_label(key) +
                 '</span><strong title="' + html_escape(value) + '">' + html_escape(value) + '</strong></div>'
             )
-    for key in ('running_version', 'base_version', 'update_version', 'update_status'):
+    for key in ('running_version', 'base_version'):
         if key in status:
             value = status[key]
-            if key == 'update_version' and not value:
-                value = 'Not staged'
             version_class = {
                 'running_version': ' version-app',
-                'base_version': ' version-base',
-                'update_version': ' version-staged',
-                'update_status': ' version-status'
+                'base_version': ' version-base'
             }[key]
             cards.append(
                 '<div class="metric' + version_class + '"><span>' + render_label(key) +
@@ -421,8 +489,8 @@ def render_modules_parts(modules, token):
         calibration = ''
         if module.get('calibratable'):
             calibration = (
-                '<form class="calibration-form" action="/calibrate" method="get">' +
-                '<input type="hidden" name="token" value="' + html_escape(token) + '">' +
+                '<form class="calibration-form" action="/calibrate" method="post">' +
+                '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
                 '<input type="hidden" name="uuid" value="' + html_escape(module.get('uuid', '')) + '">' +
                 '<label title="Enter the voltage measured with a trusted meter.">Known voltage ' +
                 '<input name="known_voltage" inputmode="decimal" size="6" placeholder="240" title="Voltage currently measured at the sensor input."></label>' +
@@ -435,8 +503,8 @@ def render_modules_parts(modules, token):
             next_value = 'false' if enabled else 'true'
             label = 'Disable debug frames' if enabled else 'Enable debug frames'
             debug_frames = (
-                '<form class="calibration-form" action="/ems-debug" method="get">' +
-                '<input type="hidden" name="token" value="' + html_escape(token) + '">' +
+                '<form class="calibration-form" action="/ems-debug" method="post">' +
+                '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
                 '<input type="hidden" name="uuid" value="' + html_escape(module.get('uuid', '')) + '">' +
                 '<input type="hidden" name="enabled" value="' + next_value + '">' +
                 '<button type="submit" title="Enable or disable verbose EMS UART frame logging.">' +
@@ -477,6 +545,43 @@ def render_live_sections_html(status, modules, token):
     return ''.join(render_live_sections_parts(status, modules, token))
 
 
+def render_update_summary_html(status):
+    status = status or {}
+    staged = staged_version_text(status)
+    update_status = combined_update_status_text(status)
+    availability = str(
+        status.get('firmware_update_availability', 'Unknown') or 'Unknown'
+    )
+    availability_tone = ' good' if availability.lower() == 'ready' else ' warn'
+    history = status.get('update_history', [])
+    history_html = ''
+    if history:
+        rows = []
+        for entry in list(history)[-5:][::-1]:
+            rows.append(
+                '<li><strong>' + html_escape(entry.get('event', '')) + '</strong> ' +
+                html_escape(entry.get('kind', '')) + ' ' +
+                html_escape(entry.get('version', '')) +
+                (' — ' + html_escape(entry.get('detail', '')) if entry.get('detail') else '') +
+                '</li>'
+            )
+        history_html = '<details class="update-history"><summary>Recent update history</summary><ul>' + ''.join(rows) + '</ul></details>'
+    return (
+        '<div id="update-summary" class="update-summary">' +
+        '<div class="metric update-staged"><span>' + render_label('update_version') +
+        '</span><strong title="' + html_escape(staged) + '">' + html_escape(staged) + '</strong></div>' +
+        '<div class="metric update-status"><span>' + render_label('update_status') +
+        '</span><strong title="' + html_escape(update_status) + '">' + html_escape(update_status) + '</strong></div>' +
+        '<div class="metric ota-availability' + availability_tone + '"><span>' +
+        render_label('firmware_update_availability') + '</span><strong title="' +
+        html_escape(availability) + '">' + html_escape(availability) + '</strong></div>' +
+        history_html +
+        ('<p class="muted">Available ' + html_escape(status.get('release_available_type', '')) +
+         ' release: ' + html_escape(status.get('release_available_version', '')) + '</p>'
+         if status.get('release_available_version') else '') + '</div>'
+    )
+
+
 def render_update_activation_html(status, token):
     if not status or status.get('update_status') != 'ready':
         return ''
@@ -492,18 +597,18 @@ def render_update_activation_html(status, token):
     for key in ('device_settings', 'module_settings', 'secrets', 'certificates'):
         if key in available:
             option_html.append(
-                '<label><input name="' + key + '" type="checkbox" value="true"> ' +
-                labels[key] + '</label>'
+                '<label class="update-switch"><input name="' + key +
+                '" type="checkbox" value="true"><span>' + labels[key] + '</span></label>'
             )
     options = ''
     if option_html:
         options = (
-            '<span class="update-options"><span class="update-options-label">Optional overwrite:</span>' +
+            '<span class="update-options"><span class="update-options-label">Application update options:</span>' +
             ''.join(option_html) + '</span>'
         )
     return (
-        '<form action="/activate-update" method="get" class="update-activate">' +
-        '<input type="hidden" name="token" value="' + html_escape(token) + '">' +
+        '<form action="/activate-update" method="post" class="update-activate">' +
+        '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
         options +
         '<button class="secondary" type="submit" title="Apply the selected overwrite options and reboot into the staged update. The previous application is retained for rollback.">Activate and reboot</button>' +
         '</form>'
@@ -513,29 +618,47 @@ def render_update_activation_html(status, token):
 def render_firmware_update_html(status, token):
     if not status or not status.get('firmware_update_supported'):
         return ''
-    staged = status.get('firmware_update_version', '') or 'Not staged'
-    running = status.get('firmware_running_version', '') or 'Unknown'
     update_status = status.get('firmware_update_status', 'idle')
-    activation = ''
     if update_status == 'ready':
-        activation = (
-            '<form action="/activate-firmware" method="get">' +
-            '<input type="hidden" name="token" value="' + html_escape(token) + '">' +
+        return (
+            '<form action="/activate-firmware" method="post">' +
+            '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
             '<button class="secondary" type="submit" title="Boot the verified inactive firmware partition and require a healthy startup confirmation.">Activate firmware and reboot</button>' +
             '</form>'
         )
+    return ''
+
+
+def render_application_rollback_html(status, token):
+    if not status or not status.get('previous_slot'):
+        return ''
+    version = status.get('previous_slot_version', '')
     return (
-        '<section class="panel"><div class="section-title"><h2>Base firmware update</h2></div>' +
-        '<div class="update-layout"><form id="firmware-upload-form" class="update-upload">' +
-        '<span class="update-file"><input id="firmware-bundle" class="file-input-hidden" type="file" accept=".hamf,application/octet-stream" required>' +
-        '<label class="file-button" for="firmware-bundle" title="Upload a bundle created by tools/build_firmware_update.py.">Choose firmware file</label>' +
-        '<span id="firmware-file-name" class="file-name">No file selected</span></span>' +
-        '<button type="submit" title="Write and verify the image in the inactive ESP32 OTA partition.">Upload and verify</button>' +
-        '</form>' + activation + '</div>' +
-        '<p class="muted update-result">Running firmware: <strong>' + html_escape(running) +
-        '</strong> &middot; Staged firmware: <strong>' + html_escape(staged) +
-        '</strong> &middot; Status: <strong>' + html_escape(update_status) + '</strong></p>' +
-        '<p id="firmware-update-result" class="muted update-result"></p></section>'
+        '<form action="/rollback-application" method="post">' +
+        '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
+        '<button class="secondary" type="submit" title="Select the retained previous application slot and reboot.">Rollback application' +
+        (' to ' + html_escape(version) if version else '') + '</button></form>'
+    )
+
+
+def render_release_check_html(status, token):
+    if not status or not status.get('release_checks_enabled'):
+        return ''
+    return (
+        '<form action="/check-release" method="post">' +
+        '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
+        '<button class="secondary" type="submit" title="Check the configured signed release channel now.">Check for updates</button></form>'
+    )
+
+
+def render_update_actions_html(status, token):
+    return (
+        '<div id="update-actions" class="update-actions">' +
+        render_update_activation_html(status, token) +
+        render_firmware_update_html(status, token) +
+        render_application_rollback_html(status, token) +
+        render_release_check_html(status, token) +
+        '</div>'
     )
 
 
@@ -544,8 +667,8 @@ def render_page_parts(token, current_loglevel, levels, logs=None, log_refresh_ms
     for level in levels:
         selected = ' selected' if level == current_loglevel else ''
         options.append('<option value="' + level + '"' + selected + '>' + level + '</option>')
-    update_activation = render_update_activation_html(status or {}, token)
-    firmware_update = render_firmware_update_html(status or {}, token)
+    update_actions = render_update_actions_html(status or {}, token)
+    update_summary = render_update_summary_html(status or {})
     live_parts = render_live_sections_parts(status or {}, modules or [], token)
 
     parts = ("""<!doctype html>
@@ -569,13 +692,15 @@ h3{font-size:.95rem;margin:0}
 .metric{border:1px solid var(--line);border-radius:7px;padding:.65rem;background:#fbfcfd;min-width:0}
 .metric.version-app{grid-column:5;grid-row:2}
 .metric.version-base{grid-column:6;grid-row:2}
-.metric.version-staged{grid-column:5;grid-row:3}
-.metric.version-status{grid-column:6;grid-row:3}
 .metric span,.state-row span{display:block;color:var(--muted);font-size:.76rem;text-transform:uppercase;letter-spacing:.04em}
 .metric span{white-space:nowrap;font-size:.72rem}
 .metric strong{display:block;font-size:1rem;margin-top:.15rem;overflow-wrap:anywhere}
 .metric.wide{grid-column:span 2}
 .metric.wide strong{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.metric.ota-availability{grid-column:1/-1}
+.metric.ota-availability strong{white-space:normal;overflow:visible;text-overflow:clip}
+.update-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem;margin-bottom:1rem}
+.update-history,.update-summary>p{grid-column:1/-1}
 .metric.good{border-color:#9ed6bd;background:#f1fbf6}
 .metric.warn{border-color:#efcf92;background:#fff8eb}
 .badge{display:inline-flex;align-items:center;border-radius:999px;border:1px solid var(--line);padding:.15rem .55rem;font-size:.76rem;font-weight:650;color:var(--muted);background:#f8fafc;white-space:nowrap}
@@ -598,6 +723,7 @@ h3{font-size:.95rem;margin:0}
 form{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:0}
 .controls{display:flex;gap:.75rem;align-items:center;justify-content:space-between;flex-wrap:wrap}
 .control-group{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.config-validator{width:100%;margin-top:.75rem}.config-validator textarea{width:100%;min-height:8rem;font-family:ui-monospace,monospace}
 .refresh-controls{display:grid;grid-template-columns:8rem 5rem;column-gap:.75rem;align-items:center;width:13.75rem;margin-left:auto}
 select,button,input{font:inherit;padding:.45rem .6rem;border:1px solid var(--line);border-radius:7px;background:white;color:var(--ink)}
 input[type="checkbox"]{padding:0;width:1rem;height:1rem;border-radius:3px;vertical-align:middle}
@@ -608,12 +734,23 @@ button.compact{padding:.25rem .55rem;font-size:.78rem}
 .file-button{display:inline-flex;align-items:center;font-weight:650;padding:.45rem .65rem;border:1px solid var(--accent);border-radius:7px;background:white;color:var(--accent);cursor:pointer;white-space:nowrap}
 .file-name{color:var(--ink);overflow-wrap:anywhere;min-width:7rem}
 .update-layout{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1rem;align-items:center}
+.update-actions{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center}
 .update-upload{display:flex;gap:.75rem 1rem;align-items:center;flex-wrap:wrap;min-width:0}
 .update-file{display:flex;gap:.6rem;align-items:center;min-width:0}
 .update-options{display:flex;gap:.45rem 1rem;align-items:center;flex-wrap:wrap;padding:.4rem .55rem;border:1px solid var(--line);border-radius:7px;background:#f8fafc}
 .update-options-label{color:var(--muted);font-size:.78rem;font-weight:650}
 .update-options label{font-size:.86rem;white-space:nowrap}
+.update-switch{display:inline-flex;align-items:center;gap:.4rem;cursor:pointer}
+.update-switch input[type="checkbox"]{appearance:none;-webkit-appearance:none;position:relative;width:2.15rem;height:1.2rem;margin:0;border:1px solid #aab4c0;border-radius:999px;background:#dfe5eb;transition:background .15s,border-color .15s}
+.update-switch input[type="checkbox"]:after{content:"";position:absolute;top:.12rem;left:.12rem;width:.82rem;height:.82rem;border-radius:50%;background:white;box-shadow:0 1px 2px rgba(20,28,38,.25);transition:left .15s}
+.update-switch input[type="checkbox"]:checked{background:var(--accent);border-color:var(--accent)}
+.update-switch input[type="checkbox"]:checked:after{left:1.08rem}
+.update-switch input[type="checkbox"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .update-result{margin:.7rem 0 0;min-height:1.4em}
+.update-progress{display:flex;align-items:center;gap:.7rem;margin-top:.7rem;max-width:32rem}
+.update-progress[hidden]{display:none}
+.update-progress progress{width:100%;height:1rem;accent-color:var(--accent)}
+.update-progress span{min-width:8.5rem;text-align:right;font-variant-numeric:tabular-nums}
 .log-header-actions{display:flex;align-items:center;gap:.75rem;margin-left:auto}
 .log-header-actions form{flex-wrap:nowrap}
 .refresh-controls .badge,.refresh-toggle{box-sizing:border-box;width:100%}
@@ -622,9 +759,9 @@ button.compact{padding:.25rem .55rem;font-size:.78rem}
 .calibration-form{border-top:1px solid var(--line);margin-top:.7rem;padding-top:.7rem}
 .notice{background:#eef8f0;border:1px solid #a9d8b4;color:#175c2c;border-radius:8px;padding:.65rem .8rem;margin:1rem 0}
 #logs{white-space:pre-wrap;overflow-wrap:anywhere;background:#111820;color:#dce7ef;padding:1rem;border-radius:8px;height:38vh;overflow-y:auto;border:1px solid #26313d}
-@media(max-width:1000px){.metrics{grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr))}.metric.version-app,.metric.version-base,.metric.version-staged,.metric.version-status{grid-column:auto;grid-row:auto}}
+@media(max-width:1000px){.metrics{grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr))}.metric.version-app,.metric.version-base{grid-column:auto;grid-row:auto}}
 @media(max-width:700px){.update-layout{grid-template-columns:1fr}.update-layout>form{justify-self:start}.log-header-actions{gap:.4rem}.metrics{grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr))}.metric.wide{grid-column:span 1}}
-@media(max-width:560px){main{padding:.7rem}.topbar{align-items:flex-start;flex-direction:column}.module-grid{grid-template-columns:1fr}.controls{align-items:stretch}.control-group,form{width:100%}button,select,input{max-width:100%}.log-header-actions{align-items:flex-end;flex-direction:column}.log-header-actions form{width:auto}}
+@media(max-width:560px){main{padding:.7rem}.topbar{align-items:flex-start;flex-direction:column}.module-grid,.update-summary{grid-template-columns:1fr}.controls{align-items:stretch}.control-group,form{width:100%}button,select,input{max-width:100%}.log-header-actions{align-items:flex-end;flex-direction:column}.log-header-actions form{width:auto}}
 </style>
 </head>
 <body>
@@ -633,38 +770,49 @@ button.compact{padding:.25rem .55rem;font-size:.78rem}
 """, ('<p class="notice">' + html_escape(notice) + '</p>' if notice else ''), """
 """, live_parts, """
 <section class="panel"><div class="section-title"><h2>Controls</h2></div>
-<div class="controls"><form action="/discover" method="get">
-<input type="hidden" name="token" value=\"""", html_escape(token), """\">
+<div class="controls"><form action="/discover" method="post">
+<input type="hidden" name="csrf" value=\"""", html_escape(token), """\">
 <button type="submit" title="Republish Home Assistant MQTT discovery config for all loaded entities.">Publish Discovery</button>
 </form>
-<form action="/set-loglevel" method="get" class="control-group">
-<input type="hidden" name="token" value=\"""", html_escape(token), """\">
+<form action="/set-loglevel" method="post" class="control-group">
+<input type="hidden" name="csrf" value=\"""", html_escape(token), """\">
 <label for="level" title="Controls how much firmware logging is shown and published.">Debug level</label>
 <select id="level" name="level" title="ERROR is quiet, INFO is normal, DEBUG includes MQTT detail.">""", ''.join(options), """</select>
 <button class="secondary" type="submit" title="Apply the selected runtime log level until the device restarts.">Apply</button>
 </form>
 </div>
+<details class="config-validator"><summary>Module configuration validator</summary>
+<form action="/validate-configuration" method="post">
+<input type="hidden" name="csrf" value=\"""", html_escape(token), """\">
+<textarea name="config_json" placeholder='Paste module_settings.json here' required></textarea>
+<button class="secondary" type="submit" title="Check JSON structure, module types, pins, and shared-bus conflicts without saving.">Validate configuration</button>
+</form></details>
 </section>
-<section class="panel"><div class="section-title"><h2>Application update</h2></div>
+<section class="panel"><div class="section-title"><h2>Software update</h2></div>
+""", update_summary, """
 <div class="update-layout"><form id="update-upload-form" class="update-upload">
-<span class="update-file"><input id="update-bundle" class="file-input-hidden" type="file" accept=".hamd,application/octet-stream" required>
-<label class="file-button" for="update-bundle" title="Upload a bundle created by tools/build_update.py. Application files are staged and verified before reboot.">Choose update file</label>
+<span class="update-file"><input id="update-bundle" class="file-input-hidden" type="file" required>
+<label class="file-button" for="update-bundle" title="Choose an application (.hamd) or base firmware (.hamf) update bundle.">Choose update file</label>
 <span id="update-file-name" class="file-name">No file selected</span></span>
-<button type="submit" title="Upload, verify, and stage this application bundle.">Upload and stage</button>
+<button type="submit" title="Upload, verify, and stage the selected update bundle.">Upload and verify</button>
 </form>
-""", update_activation, """</div>
+""", update_actions, """</div>
+<p class="muted update-result">Select an application (.hamd) or base firmware (.hamf) bundle.</p>
+<div id="update-progress" class="update-progress" hidden><progress id="update-progress-bar" max="100" value="0"></progress><span id="update-progress-label">0%</span></div>
 <p id="update-result" class="muted update-result"></p>
 </section>
-""", firmware_update, """
 <section class="panel"><div class="section-title"><h2>Logs</h2><div class="log-header-actions"><form action="/download-logs" method="get">
-<input type="hidden" name="token" value=\"""", html_escape(token), """\">
 <button class="secondary compact" type="submit" title="Download the current in-memory device log as a text file.">Download logs</button>
+</form><form action="/download-diagnostics" method="get">
+<button class="secondary compact" type="submit" title="Download sanitised device status, module diagnostics, update history, and recent logs.">Download diagnostics</button>
+</form><form action="/download-configuration" method="get">
+<button class="secondary compact" type="submit" title="Download device and module settings without passwords or private keys.">Download configuration</button>
 </form>""", render_refresh_controls_html('log-refresh-toggle'), """</div></div>
 <pre id="logs"></pre>
 </section>
 </main>
 <script>
-var token='""", js_escape(token), """';
+var csrfToken='""", js_escape(token), """';
 var logRefreshMs=""", str(log_refresh_ms), """;
 var valueRefreshMs=""", str(value_refresh_ms), """;
 var autoRefreshPaused=false;
@@ -674,14 +822,12 @@ var lastValueRefresh=0;
 var uploadInProgress=false;
 var refreshBusy=false;
 var refreshInProgress=Promise.resolve();
-var tlsSettleMs=750;
 function nearBottom(el){return el.scrollHeight-el.scrollTop-el.clientHeight<48;}
-function settleConnection(){return new Promise(function(resolve){setTimeout(resolve,tlsSettleMs);});}
 function refreshLogs(){
   if(autoRefreshPaused){return Promise.resolve();}
   var el=document.getElementById('logs');
   var keepBottom=nearBottom(el);
-  return fetch('/logs?token='+encodeURIComponent(token),{cache:'no-store'})
+  return fetch('/logs',{cache:'no-store',credentials:'same-origin'})
     .then(function(r){if(r.ok){return r.text();}})
     .then(function(text){
       if(text!==undefined&&el.textContent!==text){
@@ -692,33 +838,36 @@ function refreshLogs(){
 }
 function refreshValues(){
   if(autoRefreshPaused){return Promise.resolve();}
-  return fetch('/partials?token='+encodeURIComponent(token),{cache:'no-store'})
-    .then(function(r){if(r.ok){return r.text();}})
-    .then(function(html){
+  return fetch('/partials',{cache:'no-store',credentials:'same-origin'})
+    .then(function(r){if(r.ok){return r.json();}})
+    .then(function(payload){
+      if(!payload){return;}
+      var html=payload.live_sections;
       var el=document.getElementById('live-sections');
       if(html!==undefined&&el&&el.outerHTML!==html){
         el.outerHTML=html;
-        updateRefreshControls();
       }
+      var updateHtml=payload.update_summary;
+      var updateEl=document.getElementById('update-summary');
+      if(updateHtml!==undefined&&updateEl&&updateEl.outerHTML!==updateHtml){updateEl.outerHTML=updateHtml;}
+      var actionHtml=payload.update_actions;
+      var actionEl=document.getElementById('update-actions');
+      if(actionHtml!==undefined&&actionEl&&actionEl.outerHTML!==actionHtml){actionEl.outerHTML=actionHtml;}
+      updateRefreshControls();
     });
 }
 function refreshAll(){
   if(autoRefreshPaused||uploadInProgress||refreshBusy){return refreshInProgress;}
   var now=Date.now();
-  var chain=Promise.resolve();
-  var refreshedLogs=false;
+  var requests=[];
   if(logRefreshMs>0&&(lastLogRefresh===0||now-lastLogRefresh>=logRefreshMs)){
-    lastLogRefresh=now;
-    chain=chain.then(refreshLogs);
-    refreshedLogs=true;
+    lastLogRefresh=now;requests.push(refreshLogs());
   }
   if(valueRefreshMs>0&&(lastValueRefresh===0||now-lastValueRefresh>=valueRefreshMs)){
-    lastValueRefresh=now;
-    if(refreshedLogs){chain=chain.then(settleConnection);}
-    chain=chain.then(refreshValues);
+    lastValueRefresh=now;requests.push(refreshValues());
   }
   refreshBusy=true;
-  refreshInProgress=chain.then(
+  refreshInProgress=Promise.all(requests).then(
     function(){refreshBusy=false;},
     function(){refreshBusy=false;}
   );
@@ -751,7 +900,7 @@ function updateRefreshControls(){
 window.addEventListener('load',function(){
   scheduleRefresh();
   updateRefreshControls();
-  setTimeout(refreshAll,1200);
+  setTimeout(refreshAll,100);
 });
 document.addEventListener('click',function(event){
   if(event.target&&event.target.classList&&event.target.classList.contains('refresh-toggle')){setRefreshPaused(!autoRefreshPaused);}
@@ -760,7 +909,6 @@ document.addEventListener('change',function(event){
   if(!event.target){return;}
   var name=null;
   if(event.target.id==='update-bundle'){name=document.getElementById('update-file-name');}
-  if(event.target.id==='firmware-bundle'){name=document.getElementById('firmware-file-name');}
   if(!name){return;}
   if(name){name.textContent=event.target.files&&event.target.files.length?event.target.files[0].name:'No file selected';}
 });
@@ -769,42 +917,123 @@ document.addEventListener('submit',function(event){
   event.preventDefault();
   var input=document.getElementById('update-bundle');
   var result=document.getElementById('update-result');
+  var progress=document.getElementById('update-progress');
+  var progressBar=document.getElementById('update-progress-bar');
+  var progressLabel=document.getElementById('update-progress-label');
   if(!input||!input.files||!input.files.length){return;}
+  var file=input.files[0];
+  var isApplication=/\\.hamd$/i.test(file.name);
+  var isFirmware=/\\.hamf$/i.test(file.name);
+  if(!isApplication&&!isFirmware){
+    result.textContent='Choose a .hamd or .hamf update bundle.';
+    return;
+  }
   var resumeRefresh=!autoRefreshPaused;
   uploadInProgress=true;
   setRefreshPaused(true);
+  progress.hidden=false;
+  progressBar.value=0;
+  progressLabel.textContent='0%';
   result.textContent='Waiting for current portal request...';
-  var updateUrl='/update-upload?token='+encodeURIComponent(token);
+  var updateUrl=isFirmware?'/firmware-upload':'/update-upload';
+  var updateId=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
   refreshInProgress.then(function(){
     setTimeout(function(){
-      result.textContent='Uploading and verifying...';
-      fetch(updateUrl,{
-        method:'POST',headers:{'Content-Type':'application/octet-stream'},body:input.files[0]
-      }).then(function(r){return r.text().then(function(t){if(!r.ok){throw new Error(t);}return t;});})
-        .then(function(text){result.textContent=text;uploadInProgress=false;window.location.replace('/?token='+encodeURIComponent(token));})
-        .catch(function(error){result.textContent=error.message;uploadInProgress=false;if(resumeRefresh){setRefreshPaused(false);}});
-    },400);
-  });
-});
-document.addEventListener('submit',function(event){
-  if(!event.target||event.target.id!=='firmware-upload-form'){return;}
-  event.preventDefault();
-  var input=document.getElementById('firmware-bundle');
-  var result=document.getElementById('firmware-update-result');
-  if(!input||!input.files||!input.files.length){return;}
-  var resumeRefresh=!autoRefreshPaused;
-  uploadInProgress=true;
-  setRefreshPaused(true);
-  result.textContent='Waiting for current portal request...';
-  refreshInProgress.then(function(){
-    setTimeout(function(){
-      result.textContent='Uploading and verifying base firmware...';
-      fetch('/firmware-upload?token='+encodeURIComponent(token),{
-        method:'POST',headers:{'Content-Type':'application/octet-stream'},body:input.files[0]
-      }).then(function(r){return r.text().then(function(t){if(!r.ok){throw new Error(t);}return t;});})
-        .then(function(text){result.textContent=text;uploadInProgress=false;window.location.replace('/?token='+encodeURIComponent(token));})
-        .catch(function(error){result.textContent=error.message;uploadInProgress=false;if(resumeRefresh){setRefreshPaused(false);}});
-    },400);
+      result.textContent=isFirmware?'Uploading and verifying base firmware...':'Uploading and verifying application update...';
+      var request=new XMLHttpRequest();
+      var verificationPolling=false;
+      var verificationPollTimer=null;
+      function stopVerificationPolling(){
+        verificationPolling=false;
+        if(verificationPollTimer!==null){clearTimeout(verificationPollTimer);verificationPollTimer=null;}
+      }
+      function scheduleVerificationPoll(delay){
+        if(!verificationPolling){return;}
+        verificationPollTimer=setTimeout(pollVerificationProgress,delay);
+      }
+      function pollVerificationProgress(){
+        if(!verificationPolling){return;}
+        fetch('/update-progress?id='+encodeURIComponent(updateId),{cache:'no-store',credentials:'same-origin'})
+          .then(function(response){if(response.ok){return response.json();}})
+          .then(function(state){
+            if(state&&state.phase==='verification'){
+              var percent=Math.max(0,Math.min(100,Number(state.percent)||0));
+              progressBar.value=percent;
+              progressLabel.textContent='Verifying '+percent+'%';
+              result.textContent='Verifying update on device...';
+            }else if(state&&state.phase==='complete'){
+              stopVerificationPolling();
+              progressBar.value=100;
+              progressLabel.textContent='Verified 100%';
+              result.textContent=state.message||'Update verified and staged';
+              uploadInProgress=false;
+              setTimeout(function(){window.location.replace('/');},750);
+              return;
+            }else if(state&&state.phase==='failed'){
+              stopVerificationPolling();
+              progressBar.value=0;
+              progressLabel.textContent='Rejected';
+              result.textContent=state.message||'Update verification failed';
+              uploadInProgress=false;
+              if(resumeRefresh){setRefreshPaused(false);}
+              return;
+            }
+            scheduleVerificationPoll(500);
+          },function(){scheduleVerificationPoll(1000);});
+      }
+      function startVerificationPolling(){
+        if(verificationPolling){return;}
+        verificationPolling=true;
+        pollVerificationProgress();
+      }
+      function showVerificationWaiting(){
+        progressBar.removeAttribute('value');
+        progressLabel.textContent='Verifying...';
+        result.textContent='Upload complete; verifying update...';
+      }
+      request.open('POST',updateUrl,true);
+      request.setRequestHeader('Content-Type','application/octet-stream');
+      request.setRequestHeader('X-CSRF-Token',csrfToken);
+      request.setRequestHeader('X-Update-ID',updateId);
+      request.upload.onprogress=function(progressEvent){
+        if(!progressEvent.lengthComputable){return;}
+        var percent=Math.min(100,Math.round(progressEvent.loaded*100/progressEvent.total));
+        progressBar.value=percent;
+        progressLabel.textContent='Uploading '+percent+'%';
+        if(percent===100){showVerificationWaiting();}
+      };
+      request.upload.onload=showVerificationWaiting;
+      request.onload=function(){
+        if(request.status===202){
+          showVerificationWaiting();
+          startVerificationPolling();
+          return;
+        }
+        stopVerificationPolling();
+        if(request.status>=200&&request.status<300){
+          progressBar.value=100;
+          progressLabel.textContent='100%';
+          result.textContent=request.responseText;
+          uploadInProgress=false;
+          window.location.replace('/');
+          return;
+        }
+        result.textContent=request.responseText||('Upload failed: HTTP '+request.status);
+        progressBar.value=0;
+        progressLabel.textContent='Rejected';
+        uploadInProgress=false;
+        if(resumeRefresh){setRefreshPaused(false);}
+      };
+      request.onerror=function(){
+        stopVerificationPolling();
+        result.textContent='Upload failed: connection lost';
+        progressBar.value=0;
+        progressLabel.textContent='Failed';
+        uploadInProgress=false;
+        if(resumeRefresh){setRefreshPaused(false);}
+      };
+      request.send(file);
+    },0);
   });
 });
 </script>
@@ -837,9 +1066,6 @@ def make_tls_context(cert_path, key_path):
     if ssl is None:
         raise RuntimeError('ssl module not available')
 
-    if gc:
-        gc.collect()
-
     for path, label in ((cert_path, 'certificate'), (key_path, 'private key')):
         try:
             with open(path, 'rb'):
@@ -848,8 +1074,6 @@ def make_tls_context(cert_path, key_path):
             raise RuntimeError('HTTPS ' + label + ' file not found or unreadable: ' + str(path) + ' - ' + str(exc))
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    if gc:
-        gc.collect()
     try:
         context.load_cert_chain(cert_path, key_path)
     except Exception as exc:
@@ -857,12 +1081,10 @@ def make_tls_context(cert_path, key_path):
         if 'invalid key' in detail:
             detail += ' - regenerate the HTTPS key as a traditional RSA key or convert the cert/key to DER for this MicroPython build.'
         raise RuntimeError('Could not load HTTPS certificate/key: ' + detail)
-    if gc:
-        gc.collect()
     return context
 
 
-async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_setter, log_output, status_getter=None, module_getter=None, action_handler=None, upload_handler=None, firmware_upload_handler=None):
+async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_setter, log_output, status_getter=None, module_getter=None, action_handler=None, upload_handler=None, firmware_upload_handler=None, config_backup_getter=None):
     if asyncio is None:
         return None
 
@@ -870,12 +1092,83 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
     levels = settings.get('levels', ('ERROR', 'INFO', 'DEBUG'))
     log_refresh_ms = settings.get('log_refresh_ms', 5000)
     value_refresh_ms = settings.get('value_refresh_ms', 0)
+    upload_progress = {'phase': 'idle', 'percent': 0}
+    upload_progress_by_id = {}
+    session_id = new_session_id()
+    session_started = monotonic_ms()
+    session_timeout_ms = int(settings.get('session_timeout_s', 28800)) * 1000
+    login_failures = 0
+    cached_page = {'level': None, 'body': None}
+    cookie = 'ham_session=' + session_id + '; Path=/; HttpOnly; SameSite=Strict'
+    if settings.get('https', False):
+        cookie += '; Secure'
+
+    async def send_response(writer, status, body, content_type='text/html; charset=utf-8', extra_headers=None):
+        await write_buffered_response(writer, status, body, content_type, extra_headers)
+
+    async def send_redirect(writer, location, extra_headers=None):
+        headers = [('Location', location)]
+        if extra_headers:
+            headers.extend(extra_headers)
+        await send_response(
+            writer,
+            '303 See Other',
+            'Redirecting',
+            'text/plain',
+            tuple(headers)
+        )
 
     async def handle_client(reader, writer):
+        nonlocal session_id, session_started, cookie, login_failures
         path = ''
         upload_state = ''
-        if gc:
-            gc.collect()
+        progress_response_started = False
+        progress_percent = -1
+        progress_id = ''
+        progress_record = upload_progress
+
+        async def report_upload_progress(phase, completed=0, total=0):
+            nonlocal progress_response_started, progress_percent
+            if phase != 'verification':
+                return
+            total = int(total or 0)
+            completed = int(completed or 0)
+            percent = int(completed * 100 / total) if total > 0 else 0
+            percent = max(0, min(100, percent))
+            progress_record['phase'] = 'verification'
+            progress_record['percent'] = percent
+            if percent == progress_percent:
+                return
+            progress_percent = percent
+            if not progress_response_started:
+                progress_response_started = True
+                try:
+                    await send_response(
+                        writer,
+                        '202 Accepted',
+                        json.dumps({'phase': 'verification'}),
+                        'application/json'
+                    )
+                except Exception:
+                    # Verification must not fail just because the browser closed
+                    # the upload response before receiving the acknowledgement.
+                    pass
+                finally:
+                    try:
+                        writer.close()
+                    except Exception:
+                        pass
+                if asyncio:
+                    await asyncio.sleep(0)
+
+        async def finish_progress_response(phase, message):
+            progress_record['phase'] = phase
+            if phase == 'complete':
+                progress_record['percent'] = 100
+            progress_record['message'] = str(message)
+            if not progress_response_started:
+                return False
+            return True
 
         async def close_writer():
             try:
@@ -911,27 +1204,86 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
                 except Exception:
                     pass
 
+            progress_id = headers.get('x-update-id', '')[:64]
+            if progress_id:
+                progress_record = upload_progress_by_id.setdefault(
+                    progress_id, {'phase': 'idle', 'percent': 0}
+                )
+                if len(upload_progress_by_id) > 8:
+                    for old_id in list(upload_progress_by_id)[:-8]:
+                        upload_progress_by_id.pop(old_id, None)
+
+            action_path = path or ''
+            csrf_error = False
+            is_upload = bool(
+                path and (
+                    path.startswith('/update-upload') or
+                    path.startswith('/firmware-upload')
+                )
+            )
+            if method == 'POST' and not is_upload:
+                length = int(headers.get('content-length', '0') or 0)
+                if length > 65536:
+                    raise ValueError('portal form exceeds 65536 bytes')
+                body = await read_exact_body(reader, length) if length else b''
+                try:
+                    encoded = body.decode()
+                except Exception:
+                    encoded = ''
+                if encoded:
+                    action_path += ('&' if '?' in action_path else '?') + encoded
+                form_csrf = parse_query(action_path).get('csrf', '')
+                header_csrf = headers.get('x-csrf-token', '')
+                csrf_error = (
+                    form_csrf != session_id and header_csrf != session_id
+                )
+            elif method == 'POST' and is_upload:
+                csrf_error = headers.get('x-csrf-token', '') != session_id
+
             if not path or method not in ('GET', 'POST'):
                 body = 'Method not allowed'
-                await write_streamed_response(writer, '405 Method Not Allowed', body, 'text/plain')
-            elif not is_authenticated(path, token):
+                await send_response(writer, '405 Method Not Allowed', body, 'text/plain')
+            elif method == 'GET' and is_authenticated(path, token):
+                session_id = new_session_id()
+                session_started = monotonic_ms()
+                cookie = 'ham_session=' + session_id + '; Path=/; HttpOnly; SameSite=Strict'
+                if settings.get('https', False):
+                    cookie += '; Secure'
+                cached_page['body'] = None
+                login_failures = 0
+                await send_redirect(
+                    writer, '/', (('Set-Cookie', cookie), ('Referrer-Policy', 'no-referrer'))
+                )
+            elif (
+                not has_portal_session(headers, session_id) or
+                elapsed_ms(session_started) > session_timeout_ms
+            ):
+                login_failures += 1
+                await asyncio.sleep(min(2, login_failures * 0.25))
                 body = 'Unauthorized'
-                await write_streamed_response(writer, '401 Unauthorized', body, 'text/plain')
+                await send_response(writer, '401 Unauthorized', body, 'text/plain')
+            elif csrf_error:
+                await send_response(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
             elif method == 'POST' and path.startswith('/update-upload'):
+                login_failures = 0
                 if upload_handler is None:
-                    await write_streamed_response(writer, '503 Service Unavailable', 'Application updates are unavailable', 'text/plain')
+                    await send_response(writer, '503 Service Unavailable', 'Application updates are unavailable', 'text/plain')
                 else:
                     try:
                         length = int(headers.get('content-length', '0'))
                         upload_state = 'receiving'
+                        if not progress_id:
+                            raise ValueError('missing update progress identifier')
+                        progress_record.clear()
+                        progress_record.update({'phase': 'receiving', 'percent': 0})
                         log_output(
                             'Local', 'Application update',
                             {'log': 'Upload started - ' + str(length) + ' bytes', 'force': True},
                             'INFO'
                         )
-                        if gc:
-                            gc.collect()
-                        result = await upload_handler(reader, length, parse_query(path))
+                        params = parse_query(action_path)
+                        params['_progress'] = report_upload_progress
+                        result = await upload_handler(reader, length, params)
                     except Exception as exc:
                         upload_state = 'rejected'
                         try:
@@ -942,7 +1294,9 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
                             )
                         except Exception:
                             pass
-                        await write_streamed_response(writer, '400 Bad Request', 'Update rejected: ' + str(exc), 'text/plain')
+                        message = 'Update rejected: ' + str(exc)
+                        if not await finish_progress_response('failed', message):
+                            await send_response(writer, '400 Bad Request', message, 'text/plain')
                     else:
                         upload_state = 'staged'
                         log_output(
@@ -950,95 +1304,157 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
                             {'log': 'Upload completed and staged', 'force': True},
                             'INFO'
                         )
-                        await write_streamed_response(writer, '200 OK', str(result), 'text/plain')
+                        if not await finish_progress_response('complete', result):
+                            await send_response(writer, '200 OK', str(result), 'text/plain')
                         upload_state = 'responded'
             elif method == 'POST' and path.startswith('/firmware-upload'):
                 if firmware_upload_handler is None:
-                    await write_streamed_response(writer, '503 Service Unavailable', 'Base firmware updates are unavailable', 'text/plain')
+                    await send_response(writer, '503 Service Unavailable', 'Base firmware updates are unavailable', 'text/plain')
                 else:
                     try:
                         length = int(headers.get('content-length', '0'))
+                        if not progress_id:
+                            raise ValueError('missing update progress identifier')
+                        progress_record.clear()
+                        progress_record.update({'phase': 'receiving', 'percent': 0})
                         log_output('Local', 'Base firmware', {'log': 'Upload started - ' + str(length) + ' bytes', 'force': True}, 'INFO')
-                        if gc:
-                            gc.collect()
-                        result = await firmware_upload_handler(reader, length, parse_query(path))
+                        params = parse_query(action_path)
+                        params['_progress'] = report_upload_progress
+                        result = await firmware_upload_handler(reader, length, params)
                     except Exception as exc:
                         try:
                             log_output('Local', 'Base firmware', {'log': 'Upload rejected - ' + str(exc), 'force': True}, 'ERROR')
                         except Exception:
                             pass
-                        await write_streamed_response(writer, '400 Bad Request', 'Firmware rejected: ' + str(exc), 'text/plain')
+                        message = 'Firmware rejected: ' + str(exc)
+                        if not await finish_progress_response('failed', message):
+                            await send_response(writer, '400 Bad Request', message, 'text/plain')
                     else:
                         log_output('Local', 'Base firmware', {'log': 'Upload completed and verified', 'force': True}, 'INFO')
-                        await write_streamed_response(writer, '200 OK', str(result), 'text/plain')
-            elif method != 'GET':
-                await write_streamed_response(writer, '405 Method Not Allowed', 'Method not allowed', 'text/plain')
-            elif path.startswith('/set-loglevel'):
-                level = requested_loglevel(path, levels)
+                        if not await finish_progress_response('complete', result):
+                            await send_response(writer, '200 OK', str(result), 'text/plain')
+            elif method == 'POST' and path.startswith('/set-loglevel'):
+                level = requested_loglevel(action_path, levels)
                 if level:
                     apply_loglevel_change(level, loglevel_setter, log_output)
-                    await write_streamed_redirect(writer, '/?token=' + token)
+                    await send_redirect(writer, '/')
                 else:
                     body = 'Invalid log level'
-                    await write_streamed_response(writer, '400 Bad Request', body, 'text/plain')
+                    await send_response(writer, '400 Bad Request', body, 'text/plain')
+            elif path.startswith('/update-progress'):
+                requested_id = parse_query(path).get('id', '')
+                current_progress = upload_progress_by_id.get(
+                    requested_id, {'phase': 'idle', 'percent': 0}
+                )
+                await send_response(
+                    writer, '200 OK', json.dumps(current_progress), 'application/json'
+                )
             elif path.startswith('/logs'):
                 body = render_log_text(log_getter())
-                await write_streamed_response(writer, '200 OK', body, 'text/plain')
+                await send_response(writer, '200 OK', body, 'text/plain')
             elif path.startswith('/download-logs'):
                 body = render_log_text(log_getter())
-                await write_streamed_response(
+                await send_response(
                     writer,
                     '200 OK',
                     body,
                     'text/plain; charset=utf-8',
                     (('Content-Disposition', 'attachment; filename="ha-device-logs.txt"'),)
                 )
+            elif path.startswith('/download-diagnostics'):
+                safe_logs = []
+                for line in list(log_getter())[-100:]:
+                    safe_logs.append(str(line).replace(token, '<redacted>'))
+                diagnostic_payload = {
+                    'status': status_getter() if status_getter else {},
+                    'modules': module_getter() if module_getter else [],
+                    'logs': safe_logs
+                }
+                await send_response(
+                    writer,
+                    '200 OK',
+                    json.dumps(diagnostic_payload),
+                    'application/json; charset=utf-8',
+                    (('Content-Disposition', 'attachment; filename="ha-device-diagnostics.json"'),)
+                )
+            elif path.startswith('/download-configuration'):
+                if config_backup_getter is None:
+                    await send_response(writer, '404 Not Found', 'Configuration backup unavailable', 'text/plain')
+                else:
+                    await send_response(
+                        writer,
+                        '200 OK',
+                        json.dumps(config_backup_getter()),
+                        'application/json; charset=utf-8',
+                        (('Content-Disposition', 'attachment; filename="ha-device-configuration.json"'),)
+                    )
             elif path.startswith('/api/status'):
                 payload = {
                     'status': status_getter() if status_getter else {},
                     'modules': module_getter() if module_getter else []
                 }
                 body = json.dumps(payload) if json else '{}'
-                await write_streamed_response(writer, '200 OK', body, 'application/json')
+                await send_response(writer, '200 OK', body, 'application/json')
             elif path.startswith('/partials'):
-                if gc:
-                    gc.collect()
-                parts = render_live_sections_parts(
-                    status_getter() if status_getter else {},
-                    module_getter() if module_getter else [],
-                    token
+                current_status = status_getter() if status_getter else {}
+                payload = {
+                    'live_sections': render_live_sections_html(
+                        current_status,
+                        module_getter() if module_getter else [],
+                        session_id
+                    ),
+                    'update_summary': render_update_summary_html(current_status),
+                    'update_actions': render_update_actions_html(
+                        current_status, session_id
+                    )
+                }
+                body = json.dumps(payload)
+                await send_response(writer, '200 OK', body, 'application/json')
+            elif method == 'POST' and path.startswith('/discover'):
+                apply_portal_action('discover', action_path, action_handler, log_output)
+                await send_redirect(writer, '/')
+            elif method == 'POST' and path.startswith('/calibrate'):
+                apply_portal_action('calibrate', action_path, action_handler, log_output)
+                await send_redirect(writer, '/')
+            elif method == 'POST' and path.startswith('/ems-debug'):
+                apply_portal_action('ems-debug', action_path, action_handler, log_output)
+                await send_redirect(writer, '/')
+            elif method == 'POST' and path.startswith('/activate-update'):
+                apply_portal_action('activate-update', action_path, action_handler, log_output)
+                await send_redirect(writer, '/')
+            elif method == 'POST' and path.startswith('/activate-firmware'):
+                apply_portal_action('activate-firmware', action_path, action_handler, log_output)
+                await send_redirect(writer, '/')
+            elif method == 'POST' and path.startswith('/rollback-application'):
+                apply_portal_action('rollback-application', action_path, action_handler, log_output)
+                await send_redirect(writer, '/')
+            elif method == 'POST' and path.startswith('/check-release'):
+                apply_portal_action('check-release', action_path, action_handler, log_output)
+                await send_redirect(writer, '/')
+            elif method == 'POST' and path.startswith('/validate-configuration'):
+                result = apply_portal_action(
+                    'validate-configuration', action_path, action_handler, log_output
                 )
-                await write_streamed_parts(writer, '200 OK', parts)
-            elif path.startswith('/discover'):
-                apply_portal_action('discover', path, action_handler, log_output)
-                await write_streamed_redirect(writer, '/?token=' + token)
-            elif path.startswith('/calibrate'):
-                apply_portal_action('calibrate', path, action_handler, log_output)
-                await write_streamed_redirect(writer, '/?token=' + token)
-            elif path.startswith('/ems-debug'):
-                apply_portal_action('ems-debug', path, action_handler, log_output)
-                await write_streamed_redirect(writer, '/?token=' + token)
-            elif path.startswith('/activate-update'):
-                apply_portal_action('activate-update', path, action_handler, log_output)
-                await write_streamed_redirect(writer, '/?token=' + token)
-            elif path.startswith('/activate-firmware'):
-                apply_portal_action('activate-firmware', path, action_handler, log_output)
-                await write_streamed_redirect(writer, '/?token=' + token)
+                await send_response(
+                    writer,
+                    '200 OK',
+                    '<!doctype html><meta name="viewport" content="width=device-width">'
+                    '<h1>Configuration validation</h1><pre>' + html_escape(result) +
+                    '</pre><p><a href="/">Return to portal</a></p>'
+                )
+            elif method != 'GET':
+                await send_response(writer, '405 Method Not Allowed', 'Method not allowed', 'text/plain')
             else:
-                parts = render_page_parts(
-                    token,
-                    loglevel_getter(),
-                    levels,
-                    log_getter(),
-                    log_refresh_ms,
-                    status_getter() if status_getter else {},
-                    module_getter() if module_getter else [],
-                    '',
-                    value_refresh_ms
-                )
-                await write_streamed_parts(writer, '200 OK', parts)
+                current_level = loglevel_getter()
+                if cached_page['body'] is None or cached_page['level'] != current_level:
+                    cached_page['level'] = current_level
+                    cached_page['body'] = render_page(
+                        session_id, current_level, levels, [], log_refresh_ms,
+                        {}, [], '', value_refresh_ms
+                    )
+                body = cached_page['body']
+                await send_response(writer, '200 OK', body)
 
-            await writer.drain()
         except Exception as exc:
             if is_client_disconnect_error(exc):
                 if path.startswith('/update-upload') or path.startswith('/firmware-upload'):
@@ -1059,23 +1475,15 @@ async def start_web_portal(settings, log_getter, loglevel_getter, loglevel_sette
                 pass
         finally:
             await close_writer()
-            if gc:
-                gc.collect()
-
-    if gc:
-        gc.collect()
 
     ssl_context = None
     if settings.get('https', False):
         ssl_context = make_tls_context(settings.get('cert_path'), settings.get('key_path'))
 
-    if gc:
-        gc.collect()
-
     return await asyncio.start_server(
         handle_client,
         settings.get('host', '0.0.0.0'),
         settings.get('port', 8443 if settings.get('https', False) else 8080),
-        backlog=1,
+        backlog=4,
         ssl=ssl_context
     )

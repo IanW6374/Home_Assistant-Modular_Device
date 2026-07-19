@@ -5,7 +5,10 @@
     "ca_cert_path": "/certs/home-ca.der",
     "loglevel": "INFO",
     "watchdog_timeout_ms": 15000,
-    "status_led_pin": null,
+    "wifi_recovery_enabled": true,
+    "wifi_recovery_timeout_s": 900,
+    "status_led_pin": 38,
+    "status_led_type": "neopixel",
     "ntp_servers": [
       "pool.ntp.org",
       "time.google.com"
@@ -36,7 +39,13 @@
     "update_max_bytes": 4194304,
     "allow_protected_updates": true,
     "firmware_updates_enabled": true,
-    "firmware_update_max_bytes": 4194304
+    "firmware_update_max_bytes": 4194304,
+    "release_manifest_url": "",
+    "release_channel": "stable",
+    "release_check_interval_s": 21600,
+    "release_auto_download": false,
+    "release_auto_activate": false,
+    "session_timeout_s": 28800
   },
   "local_display": {
     "enabled": false

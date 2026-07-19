@@ -48,6 +48,15 @@ secrets.py
 .micropico-logs/
 *.uf2
 *.mpy
+*.hamd
+*.hamf
+*.app-bin
+*.bin
+*.elf
+*.map
+/ports/
+/.update-signing-key
+*.signing-key
 
 # Logs and temporary files
 *.log

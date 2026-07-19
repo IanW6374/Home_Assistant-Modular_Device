@@ -1,21 +1,21 @@
 # Home Assistant Modular Device
 
-Cross-platform MicroPython firmware for Raspberry Pi Pico W/Pico 2 W and
-ESP32-S3 that exposes modular devices to Home Assistant over MQTT. Modules are
+ESP32-S3 MicroPython firmware that exposes modular devices to Home Assistant
+over MQTT. Modules are
 described in `module_settings.json`, discovered at boot, and handled by small
-driver modules in `device_modules/`. ESP32-S3-DevKitC-1-N8R8 is the preferred
-development target for HTTPS and full base-firmware OTA.
+driver modules in `device_modules/`. ESP32-S3-DevKitC-1-N8R8 is the supported
+target for HTTPS and full base-firmware OTA.
 
 The checked-in `module_settings.json` is the active device configuration for a
-target device. Additional configs in `examples/` cover standalone Pico devices
-and ESP32-S3 starting points for EMS monitoring and PT1000 temperature sensing.
+target device. Additional configs in `examples/` provide ESP32-S3 starting
+points for EMS monitoring, RS485 devices, voltage sensing, and PT1000 sensing.
 
 ## Features
 
 - MQTT state publishing and Home Assistant MQTT discovery.
 - Modular device drivers loaded from `device_modules/`.
 - GPIO light and switch modules.
-- Generic Pico 2-channel RS485 Modbus sensor module.
+- Generic ESP32-S3 RS485 Modbus sensor module, with legacy configuration compatibility.
 - WHES-specific RS485 module with calculated MQTT presentation entities.
 - Read-only Bosch/Worcester EMS boiler monitor over an EMS-to-TTL interface.
 - MAX31865/PT1000 RTD temperature sensor over SPI.
@@ -32,7 +32,7 @@ and ESP32-S3 starting points for EMS monitoring and PT1000 temperature sensing.
 main.py                         Boot entry point, executes HA-Device.py
 app_update.py                   Transactional Python application updater
 firmware_update.py              ESP32 dual-partition base firmware updater
-hardware_platform.py            RP2/ESP32 capability and hardware abstraction
+hardware_platform.py            ESP32-S3 capability and hardware abstraction
 HA-Device.py                    WiFi, MQTT, discovery, and device orchestration
 module_settings.json            Module and register configuration
 device_settings.json            Local firmware settings
@@ -48,7 +48,7 @@ secrets.py                      WiFi and MQTT credentials, not suitable for comm
 examples/secrets.example.py     Template for local credentials
 device_modules/                 Device driver modules
 device_modules/whes.py          WHES inverter presentation/calculation driver
-device_modules/pico_2ch_rs485.py Generic RS485 Modbus driver
+device_modules/rs485_modbus.py   Generic ESP32-S3 RS485 Modbus driver
 device_modules/ems.py           Read-only EMS boiler monitor
 device_modules/max31865_pt1000.py MAX31865 PT1000 RTD driver
 device_modules/grove_ac_voltage.py Grove AC voltage ADC driver
@@ -56,7 +56,10 @@ device_settings.schema.json     Host-side JSON schema for firmware settings
 module_settings.schema.json     Host-side JSON schema for module settings
 tools/deploy.py                 Host-side helper for copying MicroPython files
 tools/build_update.py           Selective Python application bundle builder
-tools/build_firmware_update.py  ESP32 .app-bin to .hamf firmware bundle builder
+tools/build_firmware_update.py  ESP32 application image to .hamf bundle builder
+tools/build_micropython_firmware.py Reproducible MicroPython build/package helper
+tools/provision_update_signing.py Update signing-key provisioning helper
+docs/UPGRADE_GUIDE.md           Complete application/core/new-device procedures
 firmware/                       ESP32 OTA partition layout
 tests/                          Host-side unit tests
 lib/                            MicroPython support libraries
@@ -66,7 +69,7 @@ lib/                            MicroPython support libraries
 
 ### `secrets.py`
 
-Create/update `secrets.py` on the Pico with your WiFi and MQTT credentials:
+Create/update `secrets.py` on the device with your WiFi and MQTT credentials:
 
 ```python
 wifi_ssid = "your-ssid"
@@ -78,6 +81,7 @@ mqtt_password = "mqtt-password"
 mqtt_ssl = True
 
 web_portal_token = "replace-with-a-long-random-url-safe-token"
+recovery_ap_password = "replace-with-another-long-random-password"
 ```
 
 ### `device_settings.json`
@@ -95,6 +99,8 @@ behavior, and NTP servers:
     "ca_cert_path": "/certs/home-ca.der",
     "loglevel": "INFO",
     "watchdog_timeout_ms": 0,
+    "status_led_pin": 38,
+    "status_led_type": "neopixel",
     "ntp_servers": [
       "pool.ntp.org",
       "time.google.com"
@@ -107,8 +113,8 @@ behavior, and NTP servers:
     "system_diagnostics": true,
     "device_info": {
       "mf": "Home",
-      "mdl": "PicoW",
-      "sw": "1.3-beta",
+      "mdl": "ESP32-S3-DevKitC-1-N8R8",
+      "sw": "1.4-beta",
       "hw": "1.0"
     }
   },
@@ -125,9 +131,9 @@ behavior, and NTP servers:
 ```
 
 If MQTT TLS is enabled, copy your CA certificate to the configured path on the
-Pico. Set `watchdog_timeout_ms` to a positive value up to `8000` to enable the
-Pico hardware watchdog after MQTT connects; the RP2040 hardware limit is about
-`8388` ms. Leave it as `0` while developing over USB/REPL.
+device. Set `watchdog_timeout_ms` to a positive value to enable the ESP32-S3
+hardware watchdog after MQTT connects. Leave it as `0` while developing over
+USB/REPL.
 
 ### Web Portal
 
@@ -142,7 +148,7 @@ address after startup.
 Open the portal with:
 
 ```text
-http://<pico-ip>:8080/?token=<web_portal_token>
+http://<device-ip>:8080/?token=<web_portal_token>
 ```
 
 When `"web_portal": {"port": null}`, the firmware uses `8080` for HTTP and `8443`
@@ -172,18 +178,10 @@ The firmware updates the in-memory calibration multiplier and reports the new
 value. Copy that value back to `module_settings.json` when you want it to
 survive a reboot.
 
-The portal defaults to HTTP because server-side TLS exhausted heap during Pico W
-testing. If HTTPS is required on Pico W hardware, terminate TLS on a reverse
-proxy such as Home Assistant, Caddy, or nginx and proxy to the Pico's HTTP
-portal on the trusted LAN.
+#### ESP32-S3 HTTPS
 
-#### Pico 2 W HTTPS
-
-Direct HTTPS hosting is supported only on Raspberry Pi Pico 2 W. The original
-Pico W does not provide enough dependable MicroPython heap for concurrent MQTT
-TLS, portal TLS, discovery, and module operation; use HTTP behind a TLS reverse
-proxy on Pico W. Enable Pico 2 W HTTPS in
-`device_settings.json`:
+The portal is optimized for ESP32-S3 with PSRAM and supports direct HTTPS.
+Enable it in `device_settings.json`:
 
 ```json
 {
@@ -202,32 +200,22 @@ Create a small self-signed certificate and convert the files to DER:
 ```sh
 openssl genrsa -traditional -out web.key 1024
 openssl req -new -x509 -key web.key -out web.crt -days 365 \
-  -subj "/CN=pico-web-portal"
+  -subj "/CN=esp32-web-portal"
 openssl rsa -in web.key -outform DER -out web.key.der
 openssl x509 -in web.crt -outform DER -out web.crt.der
 ```
 
-Copy `web.key.der` and `web.crt.der` to `/certs/` on the Pico. Pico W testing
-ran out of heap during the TLS handshake; Pico 2 W has enough headroom in the
-tested setup. If another MicroPython build logs `OSError: [Errno 12] ENOMEM`
-when a browser connects, use HTTP mode or terminate HTTPS on a reverse proxy.
-
-On Pico 2 W the HTTPS listener starts after initial Home Assistant discovery,
-when temporary discovery payloads have been released. Portal HTML is rendered
-and transmitted in bounded fragments, and automatic log/value refresh requests
-are performed sequentially to avoid overlapping TLS handshakes. Startup logs
-report free and allocated MicroPython heap before discovery and before the HTTPS
-listener starts; the same values appear in the portal status cards.
+Copy `web.key.der` and `web.crt.der` to `/certs/`. Portal responses are encoded
+and buffered once, browser log/value refreshes run in parallel, and the listener
+allows multiple queued connections. This assumes the PSRAM-enabled MicroPython
+build described in the ESP32-S3 firmware section.
 
 ### Remote Application Updates
 
 Portal-based remote application updates, including protected secrets and
-certificate maintenance, are supported on Pico 2 W and ESP32-S3. Pico 2 W
-remains memory-constrained when MQTT TLS and portal HTTPS run together;
-ESP32-S3 with PSRAM is the preferred target. Continue using local USB deployment
-on the original Pico W.
+certificate maintenance, are supported on ESP32-S3 with PSRAM.
 
-The web portal can stream a staged application bundle to the Pico without
+The web portal can stream a staged application bundle to the ESP32-S3 without
 loading the complete upload into RAM. Enable the feature explicitly:
 
 ```json
@@ -247,7 +235,8 @@ repository root and includes only the drivers and library dependencies required
 by the configured device types:
 
 ```sh
-python3 tools/build_update.py update.hamd --version 1.4-beta
+python3 tools/build_update.py update.hamd --version 1.4-beta \
+  --signing-key ~/.ham-device/update.signing-key
 ```
 
 Analyse a different device/module combination explicitly:
@@ -273,10 +262,12 @@ shared SPI helper. Switch drivers add their button primitives and HCSR04 adds
 its sensor library. Unknown configured subclasses or missing dependencies stop
 the build rather than creating an incomplete package.
 
-Normal bundles contain the shared application core plus the selected drivers
-and dependencies. They do not contain `main.py`, `app_update.py`, device
-settings, module settings, credentials, or certificates. Include the analysed
-settings explicitly when required:
+Normal bundles contain the application core plus the selected drivers and
+dependencies. They do not contain the permanent `main.py` launcher or the
+firmware-frozen recovery, update-security, storage-support, hardware-platform,
+and Wi-Fi recovery modules. Device settings, module settings,
+credentials, and certificates are also excluded by default. Include the
+analysed settings explicitly when required:
 
 ```sh
 python3 tools/build_update.py update.hamd --version 1.4-beta --include-settings
@@ -287,11 +278,18 @@ content. It excludes development-only files and directories such as
 `examples/`, `tests/`, caches, editor backups, and macOS metadata. Add further
 glob patterns there when local files should never enter an update bundle.
 
-Upload the bundle in the portal, wait for SHA-256 verification to complete, and
-then select **Activate and reboot**. The stable `main.py` recovery launcher
-backs up every replaced file. The new application remains a trial until WiFi,
-the web portal, and MQTT start successfully; otherwise the previous files are
-restored on the next boot.
+Upload the bundle in the portal, wait for signature and SHA-256 verification to complete, and
+then select **Activate and reboot**. The recovery supervisor writes application
+files into the inactive `.app-slots/a` or `.app-slots/b` directory and marks it
+as a trial. The active slot pointer changes only after WiFi, the web portal, and
+MQTT start successfully. Otherwise the failed slot is removed and the previous
+slot starts on the next boot.
+
+`device_settings.json`, `module_settings.json`, `secrets.py`, and certificates
+remain shared because they describe the physical device rather than an
+application slot. Selected replacements are backed up transactionally. A bad
+WiFi secret therefore causes the unconfirmed trial to restore the previous
+secret before the previous application slot restarts.
 
 Application/runtime files in a bundle are always updated. Select **Upload and
 stage** first; after the bundle has been verified, the portal shows only the
@@ -301,11 +299,12 @@ groups immediately before **Activate and reboot**. Unchecked groups are skipped
 during activation. Secrets and certificates additionally require
 `web_portal.allow_protected_updates`.
 
-Portal status shows **App version**, **Base version**, and **Staged version**.
+Portal status shows **App version**, **MicroPython version**, and **Staged version**.
 The app version is the manifest version of the last confirmed application
-bundle. The base version identifies the USB-installed `main.py`/`app_update.py`
-recovery layer and is changed only when that protected layer is updated. A
-protected-only credentials/certificate bundle does not change the app version.
+slot. The MicroPython version is the runtime version reported by
+`sys.implementation`; the signed firmware image label is retained separately
+in update history. A protected-only credentials/certificate bundle does not
+change the app version.
 
 Credentials and certificates require two explicit permissions. Set
 `web_portal.allow_protected_updates` to `true`, then select the displayed
@@ -323,15 +322,32 @@ python3 tools/build_update.py protected.hamd --version credentials-2026-07 \
 arguments are installed under `/certs/` using their filenames. Protected
 updates should only be sent over HTTPS or a trusted, TLS-terminating reverse
 proxy because an HTTP portal transmits credentials and private keys in clear
-text. Application bundles cannot replace `main.py`, `app_update.py`, or
-`firmware_update.py`; changes to that recovery layer still require a local USB
-deployment.
+text. Application bundles cannot replace the permanent launcher, signing key,
+or frozen recovery modules. Recovery changes are delivered in a rollback-protected
+`.hamf` firmware update instead.
+
+Provision bundle signing once over USB. The same 32-byte key must be protected
+on the build machine and device. Once the device key exists, unsigned `.hamd`
+and `.hamf` bundles are rejected:
+
+```sh
+python3 tools/provision_update_signing.py \
+  --key ~/.ham-device/update.signing-key --generate
+python3 tools/provision_update_signing.py \
+  --key ~/.ham-device/update.signing-key --mount /path/to/device-mount
+```
+
+HMAC bundle authentication protects the MicroPython application layer. For
+production units, also provision ESP32-S3 Secure Boot v2 during the factory USB
+flash so the bootloader authenticates executable images. Secure Boot eFuse
+provisioning is intentionally not automated because it is irreversible.
 
 ### ESP32-S3 Base Firmware OTA
 
 The ESP32-S3-DevKitC-1-N8R8 has 8 MB flash and 8 MB Octal PSRAM. Use the
-MicroPython `ESP32_GENERIC_S3` **Octal-SPIRAM** build; the non-Octal build will
-not expose the board's PSRAM correctly. The initial USB-installed image must
+project-owned `HAM_ESP32_S3` board with its `SPIRAM_OCT` variant; it derives
+the appropriate upstream ESP32-S3 and Octal-SPIRAM settings. The initial
+USB-installed image must
 also enable ESP-IDF application rollback and use an OTA partition table with
 `otadata`, `ota_0`, `ota_1`, and a separate VFS partition. This repository
 provides `firmware/partitions-8MiB-ota.csv` as the required 8 MB layout and
@@ -339,9 +355,48 @@ provides `firmware/partitions-8MiB-ota.csv` as the required 8 MB layout and
 inputs to a custom MicroPython/ESP-IDF build; copying them onto the board's VFS
 does not change its partition table or bootloader.
 
-A normal combined `.bin` is used only for the initial USB flash. Portal OTA
-uses the MicroPython `.app-bin`, which contains only the application image for
-the inactive OTA slot. Do not upload a combined `.bin` to the portal.
+The project-owned `firmware/boards/HAM_ESP32_S3` board definition and
+`tools/build_micropython_firmware.py` apply the OTA settings, partition table,
+frozen manifest, firmware size limit, and build version lock without modifying
+the upstream `ESP32_GENERIC_S3` board. The manifest adds the complete recovery
+and update-security layer to each ESP32 application image while retaining the
+standard ESP32 frozen modules. The first installation requires a full USB
+flash; an application-only image or `.hamf` contains no partition table and
+cannot perform this initial migration.
+
+The complete, version-pinned procedures for application upgrades, core
+upgrades, and first installation are in
+[docs/UPGRADE_GUIDE.md](docs/UPGRADE_GUIDE.md). They also explain which
+commands run under host Python 3 and which files are validated as MicroPython.
+
+Build and package with:
+
+```sh
+python3 tools/build_micropython_firmware.py \
+  --micropython-root /path/to/micropython \
+  --version micropython-1.28.0-recovery-3 \
+  --output micropython-1.28.0-recovery-3.hamf \
+  --signing-key ~/.ham-device/update.signing-key
+```
+
+To check a running board from the MicroPython REPL:
+
+```python
+import esp32
+running = esp32.Partition(esp32.Partition.RUNNING)
+print('running:', running.info())
+target = running.get_next_update()
+print('next update:', target.info() if target else None)
+```
+
+An OTA-ready board should report `ota_0` or `ota_1` as the running partition
+and the other slot as the next update. A `factory` running partition with no
+next update means the board still needs the one-time custom USB installation.
+
+A normal combined `firmware.bin` is used only for the initial USB flash. Portal
+OTA uses the application-only `micropython.bin` generated by the pinned source
+build (some distributed builds call it `.app-bin`). Do not upload the combined
+`firmware.bin` to the portal.
 
 Enable the ESP32 firmware updater in `device_settings.json`:
 
@@ -354,26 +409,52 @@ Enable the ESP32 firmware updater in `device_settings.json`:
 }
 ```
 
-Wrap a matching `.app-bin` on the development machine:
+Wrap a matching application-only image on the development machine:
 
 ```sh
 python3 tools/build_firmware_update.py \
-  ESP32_GENERIC_S3-SPIRAM_OCT-v1.28.0.app-bin \
-  micropython-1.28.0.hamf \
-  --version micropython-1.28.0
+  --input /path/to/build-HAM_ESP32_S3-SPIRAM_OCT/micropython.bin \
+  --output micropython-1.28.0-recovery-3.hamf \
+  --version micropython-1.28.0-recovery-3 \
+  --platform esp32-s3 \
+  --signing-key ~/.ham-device/update.signing-key
 ```
 
-Upload the `.hamf` file under **Base firmware update**. The device streams it
+`--input` is the MicroPython application-only `micropython.bin` (or a
+distributed `.app-bin`) produced by the firmware build.
+`--output` is the `.hamf` bundle to upload through the web portal.
+
+Upload the `.hamf` file under **Software update**. The same chooser accepts
+application `.hamd` bundles and routes each bundle type to the appropriate
+verified update handler. The device streams the firmware bundle
 directly to the inactive partition, validates the package SHA-256, reads the
 partition back, and verifies it again. **Activate firmware and reboot** changes
 the boot partition only after verification. The new runtime remains a trial
-until Wi-Fi, MQTT and the portal start; firmware built with rollback enabled
+until the frozen recovery layer, application entry point, settings, and event
+loop start locally; application-slot confirmation additionally requires Wi-Fi,
+MQTT, and the portal. Firmware built with rollback enabled
 returns to the previous partition if the trial cannot confirm itself.
 The tile shows both the running firmware label and any staged firmware label.
 
-The Python filesystem, application settings, secrets and certificates live in
+The A/B Python application slots, settings, secrets, and certificates live in
 the separate VFS partition and are not overwritten by base-firmware OTA. Keep
-using `.hamd` for routine Python application changes.
+using `.hamd` for routine application changes; use `.hamf` when the frozen
+recovery implementation must change.
+
+The A/B transition requires one bootstrap deployment. Fully flash a firmware
+image built with `firmware/manifest.py`, install the new permanent `main.py`,
+and deploy the filesystem once over USB. The launcher moves `.frozen` to the
+front of `sys.path`, so the rollback-protected firmware recovery modules take
+precedence. Filesystem copies are deliberately retained as an emergency
+fallback for development firmware accidentally built without the manifest:
+
+```sh
+python3 tools/deploy.py /path/to/device-mount --secrets
+```
+
+An existing root-level application remains the legacy fallback until the first
+`.hamd` update is confirmed in slot `a`. Subsequent updates alternate between
+slots `a` and `b`.
 
 ### ESP32-S3 Migration Configuration
 
@@ -383,12 +464,14 @@ Start with these checked-in examples:
 - `examples/module_settings.esp32-s3-max31865.example.json`
 - `examples/module_settings.esp32-s3-ems.example.json`
 
-The platform layer disables the Pico-specific `Pin("LED")` default on ESP32,
-removes the RP2 watchdog cap, publishes the detected platform/runtime, and
+The ESP32-S3 platform layer provides a single-pixel NeoPixel adapter for the
+ESP32-S3-DevKitC-1 addressable RGB LED, publishes the detected runtime, and
 enables firmware OTA only when an inactive ESP32 OTA partition is actually
-present. The Grove AC driver configures ESP32 ADC attenuation; its calibration
-must still be repeated against a trusted meter because ESP32 and RP2 ADC
-transfer characteristics differ.
+present. Set `status_led_type` to `"neopixel"`. DevKitC-1 v1.1 uses GPIO38,
+as configured by the N8R8 example; the initial v1.0 board uses GPIO48, so change
+`status_led_pin` if that is your board revision. Set the pin to `null` to disable
+the heartbeat LED. The Grove AC driver configures ESP32 ADC attenuation; its
+calibration must still be repeated against a trusted meter.
 
 Validate hardware in this order: Wi-Fi/MQTT and HTTPS portal, one MAX31865 SPI
 module, EMS UART timing/CRC, Grove AC ADC/calibration, then the optional OLED.
@@ -409,17 +492,9 @@ style SH1107 modules. It is disabled by default; enable it in
 }
 ```
 
-The default SPI and button pins match the Waveshare Pico-OLED-1.3 examples:
-
-| Signal | Pico GPIO |
-| --- | ---: |
-| SCK | GP10 |
-| MOSI | GP11 |
-| CS | GP9 |
-| DC | GP8 |
-| RST | GP12 |
-| Key0 / button A | GP15 |
-| Key1 / button B | GP17 |
+The OLED controller remains supported as an SPI peripheral, but GPIO numbers
+must be selected for the ESP32-S3 board and checked against module pin usage.
+The old RP2040 `GPxx` defaults are not valid deployment guidance.
 
 When enabled, the display shows a compact status page with WiFi/MQTT state,
 uptime, and recent alert count, then pages through current device payload
@@ -443,7 +518,8 @@ screens, request Home Assistant discovery, or toggle the runtime log level.
 The selected module settings file is also required. The firmware stops at
 startup if it is missing, is not valid JSON, or fails module validation.
 
-The repo includes separate example configs for standalone Pico devices:
+The repo includes example module configurations. Review and replace every pin
+with a valid, non-conflicting ESP32-S3 GPIO before deployment:
 
 | File | Sensor subclass | Purpose |
 | --- | --- | --- |
@@ -453,8 +529,9 @@ The repo includes separate example configs for standalone Pico devices:
 | `examples/module_settings.grove_ac_voltage.example.json` | `Grove-AC-Voltage` | Grove MCP6002 AC voltage measurement and optional AC-present binary sensor |
 | `examples/module_settings.dual_pt1000_voltage_display.example.json` | `MAX31865-PT1000`, `Grove-AC-Voltage` | Two PT1000 probes plus Grove AC voltage, intended for use with the local OLED display |
 
-Copy one of the example files or point `device.module_settings_file` at it on the target
-Pico. Each example assumes a dedicated Pico for that hardware role.
+Copy one of the example files or point `device.module_settings_file` at it on
+the target ESP32-S3. The portal validator checks supported module types and pin
+or shared-bus conflicts before deployment.
 
 Add `"retain_state": true` to a module if you want its state payload retained
 by MQTT. This is useful for slow-changing values after a Home Assistant restart,
@@ -473,27 +550,9 @@ For the combined PT1000/voltage/display example, set:
 }
 ```
 
-It allocates GPIOs this way. The two MAX31865 boards share the SPI0 clock/data
-signals; only the chip-select line is different for each board.
-
-| Hardware | Module pin/signal | Pico GPIO |
-| --- | --- | ---: |
-| MAX31865 flow probe | SCK | GP2 |
-| MAX31865 flow probe | SDI / MOSI | GP3 |
-| MAX31865 flow probe | SDO / MISO | GP4 |
-| MAX31865 flow probe | CS / CSN | GP5 |
-| MAX31865 return probe | SCK | GP2 |
-| MAX31865 return probe | SDI / MOSI | GP3 |
-| MAX31865 return probe | SDO / MISO | GP4 |
-| MAX31865 return probe | CS / CSN | GP6 |
-| Grove AC voltage sensor | OUT / ADC0 | GP26 |
-| Waveshare Pico-OLED-1.3 display | SCK | GP10 |
-| Waveshare Pico-OLED-1.3 display | MOSI | GP11 |
-| Waveshare Pico-OLED-1.3 display | CS | GP9 |
-| Waveshare Pico-OLED-1.3 display | DC | GP8 |
-| Waveshare Pico-OLED-1.3 display | RST | GP12 |
-| Display Key0 | Button input | GP15 |
-| Display Key1 | Button input | GP17 |
+The two MAX31865 boards may share the ESP32-S3 SPI clock/data signals, but each
+must use its own chip-select GPIO. Keep display, ADC, UART, status LED, and SPI
+assignments distinct unless the validation rules explicitly allow sharing.
 
 ### WHES `module_settings.json`
 
@@ -591,8 +650,8 @@ kWh += power_W * elapsed_ms / 3600000000
 ```
 
 Published daily energy values are rounded to 4 decimal places. All daily energy
-totals reset to `0` when the Pico local date changes at midnight. NTP sync is
-enabled in `HA-Device.py`, so make sure the Pico can reach one of the configured
+totals reset to `0` when the ESP32-S3 local date changes at midnight. NTP sync is
+enabled in `HA-Device.py`, so make sure the device can reach one of the configured
 NTP servers.
 
 ### Device Information, Running Data, and Diagnostics
@@ -615,7 +674,7 @@ The firmware also publishes RS485 diagnostic entities for the last bus request:
 
 `device_modules/ems.py` provides a read-only `EMS-Boiler` sensor subclass for
 Bosch/Worcester EMS boilers. It expects an EMS-to-TTL interface board between
-the boiler bus and the Pico UART; do not connect the Pico UART directly to the
+the boiler bus and an ESP32-S3 UART; do not connect the UART directly to the
 boiler EMS bus.
 
 The driver listens for broadcast monitor telegrams and publishes configured
@@ -640,8 +699,9 @@ button. This toggles logging immediately for the running driver; it does not
 rewrite `module_settings.json`, so the configured `debug_frames` value is used
 again after a restart. The example and active configuration default to `false`.
 
-The example [examples/module_settings.ems.example.json](examples/module_settings.ems.example.json) uses UART0 on
-GP0/GP1 at 9600 baud and includes common Greenstar 8000-style entities such as:
+The example [examples/module_settings.ems.example.json](examples/module_settings.ems.example.json) uses a
+9600-baud UART. Replace its legacy pin values with safe ESP32-S3 GPIOs before
+deployment. It includes common Greenstar 8000-style entities such as:
 
 - heating and tap-water active flags
 - flow, return, boiler, exhaust, and DHW temperatures
@@ -658,14 +718,8 @@ MAX31865 over SPI and converts measured RTD resistance to temperature using the
 Callendar-Van Dusen curve.
 
 The example [examples/module_settings.max31865_pt1000.example.json](examples/module_settings.max31865_pt1000.example.json)
-uses SPI0 with these default pins:
-
-| Signal | Pico GPIO |
-| --- | ---: |
-| SCK | GP2 |
-| MOSI | GP3 |
-| MISO | GP4 |
-| CS | GP5 |
+uses a shared SPI bus. Replace its legacy pin values with safe ESP32-S3 GPIOs
+and give every MAX31865 a distinct chip-select pin.
 
 Important config fields:
 
@@ -685,12 +739,12 @@ status.
 
 `device_modules/grove_ac_voltage.py` provides a `Grove-AC-Voltage` sensor
 subclass for the Grove AC Voltage Sensor based on the MCP6002 amplifier. The
-board outputs a biased analogue AC waveform; the Pico samples it with ADC,
+board outputs a biased analogue AC waveform; the ESP32-S3 samples it with ADC,
 removes the DC midpoint, calculates RMS, and applies a configurable calibration
 multiplier.
 
 The example [examples/module_settings.grove_ac_voltage.example.json](examples/module_settings.grove_ac_voltage.example.json)
-uses GP26/ADC0 and is aimed at typical 240V AC monitoring. It publishes:
+uses ESP32-S3 ADC1 on GPIO1 and is aimed at typical 240V AC monitoring. It publishes:
 
 - `voltage`, a calibrated RMS voltage sensor
 - `ac_present`, an optional Home Assistant binary sensor
@@ -713,10 +767,10 @@ voltage.
 
 ## MQTT Topics
 
-The Pico derives its raw hardware id from `machine.unique_id()`. The Home
+The ESP32-S3 derives its raw hardware id from `machine.unique_id()`. The Home
 Assistant/MQTT device id combines that raw id with the safe form of
 `device.name` from `device_settings.json`, for example
-`fb1bd968b107ea19_htw`. This keeps entities separate when the same Pico is
+`fb1bd968b107ea19_htw`. This keeps entities separate when the same device is
 reconfigured as a different logical device name.
 
 State is published to:
@@ -822,10 +876,15 @@ For the current WHES device UUID, `<uuid>` is `0001`.
 Copy the project files to the MicroPython filesystem, including:
 
 - `main.py`
+- `recovery_boot.py`
 - `app_update.py`
 - `firmware_update.py`
 - `hardware_platform.py`
+- `update_security.py`
+- `update_support.py`
+- `wifi_recovery.py`
 - `HA-Device.py`
+- `release_update.py`
 - `module_settings.json`
 - `device_settings.json`
 - `settings_loader.py`
@@ -838,12 +897,17 @@ If the MicroPython filesystem is mounted on the host, the helper below copies th
 runtime files and avoids caches/macOS metadata:
 
 ```sh
-python3 tools/deploy.py /path/to/pico-mount
+python3 tools/deploy.py /path/to/device-mount
 ```
 
-On boot, `main.py` runs `HA-Device.py`, connects WiFi/MQTT, loads device modules,
-subscribes to relevant topics, publishes Home Assistant discovery payloads, and
-starts each sensor driver.
+ESP32-S3 boards normally expose a serial connection rather than a mounted
+filesystem. Use the `mpremote` commands in
+[docs/UPGRADE_GUIDE.md](docs/UPGRADE_GUIDE.md#3-installing-a-new-esp32-s3) for
+the initial VFS deployment.
+
+On production firmware, `main.py` prefers the frozen recovery supervisor and
+uses the filesystem copy only if that frozen module is unavailable. The
+supervisor selects the active application slot and runs `HA-Device.py` from it.
 
 ## V1 Deployment Checklist
 
@@ -855,6 +919,36 @@ starts each sensor driver.
   `pv_e`, `home_e`, `battery_charge_e`, `battery_discharge_e`,
   `grid_import_e`, `grid_export_e`, the WHES device information/running data
   sensors, and the RS485 diagnostic sensors.
+
+## Recovery, release channels, and portal maintenance
+
+When `device.wifi_recovery_enabled` is true and normal Wi-Fi credentials fail,
+the device starts `HAM-Recovery-xxxxxx` for the configured timeout. Its password
+is `recovery_ap_password` from `secrets.py`, falling back to the portal token.
+Browse to `http://192.168.4.1` to replace only the Wi-Fi SSID/password. Recovery
+AP mode is suppressed during update trials so invalid trial credentials follow
+the normal transactional rollback path.
+
+The portal exchanges its initial URL token for an HttpOnly, SameSite session
+cookie, uses CSRF-protected POST actions, maintains upload-specific progress,
+and exposes storage, slot, signing, recovery API, update history, manual app-slot
+rollback, configuration validation, and sanitised diagnostic/config downloads.
+
+Optional signed release checks are configured under `web_portal`:
+
+```json
+{
+  "release_manifest_url": "https://updates.example/device/latest.json",
+  "release_channel": "stable",
+  "release_check_interval_s": 21600,
+  "release_auto_download": false,
+  "release_auto_activate": false
+}
+```
+
+The endpoint returns a JSON object containing `type` (`application` or
+`firmware`), `version`, and an HTTPS `url` for the bundle. Bundle signatures
+remain authoritative; release metadata never bypasses device verification.
 
 ## Host-Side Tests
 
@@ -869,6 +963,11 @@ The tests cover WHES presentation calculations, rounded daily energy values,
 EMS telegram decoding, MAX31865 PT1000 conversion, Grove AC voltage RMS and
 threshold behavior/calibration, local display rendering/actions, Home Assistant
 topic/discovery helpers, web portal rendering, shared SPI handling, and config
+validation.
+
+Device runtime files must also be compiled with the `mpy-cross` executable from
+the pinned MicroPython v1.28.0 checkout. CPython `py_compile` is appropriate
+only for `tools/` and `tests/`; it is not a substitute for MicroPython syntax
 validation.
 
 `device_settings.schema.json` and `module_settings.schema.json` can be
@@ -894,12 +993,12 @@ common sensor discovery payloads.
 
 ## Notes
 
-- The code targets MicroPython on Raspberry Pi Pico W/Pico 2 W and ESP32-S3.
-  ESP32-S3-DevKitC-1-N8R8 is preferred for direct HTTPS and base firmware OTA.
+- The code targets MicroPython on ESP32-S3. ESP32-S3-DevKitC-1-N8R8 is the
+  supported board for direct HTTPS and base firmware OTA.
 - ESP32 base firmware OTA requires an OTA partition table and a rollback-enabled
   initial firmware image; board type alone is not sufficient.
 - MQTT discovery uses the `homeassistant/` topic prefix.
-- Generated bytecode/cache files are not needed on the Pico.
+- Generated host bytecode/cache files are not needed on the ESP32-S3.
 - Keep credentials and certificates out of public repositories.
 - `.gitignore` excludes local secrets, certificates, bytecode, and macOS cache
   files.

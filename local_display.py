@@ -191,7 +191,7 @@ class LocalDisplayService:
 
         pages = self.build_pages()
         if not pages:
-            pages = [['Pico Device', 'No data']]
+            pages = [['HAM Device', 'No data']]
 
         if self.page_index >= len(pages):
             self.page_index = 0
@@ -284,7 +284,7 @@ def merged_config(cfg):
 
 def format_status_page(status):
     lines = [
-        status.get('device_name', 'Pico Device'),
+        status.get('device_name', 'HAM Device'),
         'WiFi ' + status.get('wifi_ip', '-'),
         'MQTT ' + status.get('mqtt', 'unknown'),
         'Up ' + compact_duration(status.get('uptime_s')),

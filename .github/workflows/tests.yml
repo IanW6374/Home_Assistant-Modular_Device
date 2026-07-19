@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -v
+      - name: Compile host-only Python
+        run: python -m py_compile tools/*.py tests/*.py
+      - uses: actions/checkout@v4
+        with:
+          repository: micropython/micropython
+          ref: v1.28.0
+          path: .ci-micropython
+      - name: Build pinned MicroPython compiler
+        run: make -C .ci-micropython/mpy-cross
+      - name: Compile MicroPython runtime
+        shell: bash
+        run: |
+          set -e
+          MPY_CROSS="$PWD/.ci-micropython/mpy-cross/build/mpy-cross"
+          for file in *.py device_modules/*.py lib/*.py lib/primitives/*.py lib/uhcsr04/*.py; do
+            "$MPY_CROSS" "$file" -o /tmp/ham-device-check.mpy
+          done

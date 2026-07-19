@@ -1,38 +1,16 @@
-import app_update
-import firmware_update
+"""Permanent launcher for the frozen recovery supervisor."""
+
+import sys
 
 
-firmware_update.boot_status()
+# MicroPython normally searches the VFS before frozen modules. Prefer the
+# rollback-protected firmware copy, while retaining the VFS copy as a fallback
+# if a development firmware was built without the project manifest.
+if '.frozen' in sys.path:
+    sys.path.remove('.frozen')
+    sys.path.insert(0, '.frozen')
+
+import recovery_boot
 
 
-try:
-    app_update.activate_pending()
-except Exception:
-    app_update.rollback_update()
-
-try:
-    exec(open('HA-Device.py').read())
-except Exception:
-    reset_required = firmware_update.update_status().get('status') == 'trial'
-    if app_update.update_status().get('status') == 'trial':
-        app_update.rollback_update()
-        reset_required = True
-    if reset_required:
-        try:
-            import machine
-            machine.reset()
-        except Exception:
-            pass
-    raise
-
-if (
-    app_update.update_status().get('status') == 'trial' or
-    firmware_update.update_status().get('status') == 'trial'
-):
-    if app_update.update_status().get('status') == 'trial':
-        app_update.rollback_update()
-    try:
-        import machine
-        machine.reset()
-    except Exception:
-        pass
+recovery_boot.run()

@@ -86,17 +86,22 @@ class FirmwareUpdateTests(unittest.TestCase):
         payload = payload or (b'\xe9' + bytes(range(256)) * 20)
         Path('micropython.app-bin').write_bytes(payload)
         build_firmware_bundle(
-            'firmware.hamf', 'micropython.app-bin', 'mp-1.28.0', 'esp32-s3'
+            'micropython.app-bin', 'firmware.hamf', 'mp-1.28.0', 'esp32-s3'
         )
         return payload, Path('firmware.hamf').read_bytes()
 
     def test_receive_activate_and_confirm_firmware(self):
         payload, bundle = self.make_bundle()
+        progress = []
 
-        state = asyncio.run(firmware_update.receive_bundle(Reader(bundle), len(bundle)))
+        state = asyncio.run(firmware_update.receive_bundle(
+            Reader(bundle), len(bundle), progress_callback=lambda *value: progress.append(value)
+        ))
 
         self.assertEqual(state['status'], 'ready')
         self.assertEqual(state['target'], 'ota_1')
+        self.assertEqual(progress[0], ('verification', 0, len(payload)))
+        self.assertEqual(progress[-1], ('verification', len(payload), len(payload)))
         self.assertEqual(self.target.data[:len(payload)], payload)
         firmware_update.activate_pending()
         self.assertTrue(self.target.boot_selected)
@@ -115,6 +120,15 @@ class FirmwareUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'SHA-256 mismatch'):
             asyncio.run(firmware_update.receive_bundle(Reader(tampered), len(tampered)))
 
+    def test_rejects_version_that_is_already_running(self):
+        _, bundle = self.make_bundle()
+        Path(firmware_update.VERSION_PATH).write_text('mp-1.28.0')
+
+        with self.assertRaisesRegex(ValueError, 'already running'):
+            asyncio.run(firmware_update.receive_bundle(Reader(bundle), len(bundle)))
+
+        self.assertEqual(self.target.data[0], 0xff)
+
     def test_detects_bootloader_rollback(self):
         _, bundle = self.make_bundle()
         asyncio.run(firmware_update.receive_bundle(Reader(bundle), len(bundle)))
@@ -125,3 +139,15 @@ class FirmwareUpdateTests(unittest.TestCase):
         self.assertEqual(state['status'], 'rolled_back')
         self.assertEqual(firmware_update.update_status()['status'], 'idle')
 
+    def test_activation_recovers_when_staged_partition_is_already_running(self):
+        _, bundle = self.make_bundle()
+        asyncio.run(firmware_update.receive_bundle(Reader(bundle), len(bundle)))
+        FakeEsp32.running = self.target
+        self.target.next_partition = self.running
+
+        state = firmware_update.activate_pending()
+
+        self.assertEqual(state['status'], 'trial')
+        self.assertTrue(self.target.boot_selected)
+        self.assertTrue(firmware_update.confirm_update())
+        self.assertTrue(FakeEsp32.marked_valid)

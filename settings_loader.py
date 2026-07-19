@@ -108,7 +108,10 @@ _reject_unknown(_device, (
     'loglevel',
     'watchdog_timeout_ms',
     'status_led_pin',
-    'ntp_servers'
+    'status_led_type',
+    'ntp_servers',
+    'wifi_recovery_enabled',
+    'wifi_recovery_timeout_s'
 ), 'device')
 _reject_unknown(_ha, (
     'discovery',
@@ -133,7 +136,13 @@ _reject_unknown(_web_portal, (
     'update_max_bytes',
     'allow_protected_updates',
     'firmware_updates_enabled',
-    'firmware_update_max_bytes'
+    'firmware_update_max_bytes',
+    'release_manifest_url',
+    'release_channel',
+    'release_check_interval_s',
+    'release_auto_download',
+    'release_auto_activate',
+    'session_timeout_s'
 ), 'web_portal')
 _reject_unknown(local_display, (
     'enabled',
@@ -171,7 +180,12 @@ ha_device_info = _optional(_ha, 'device_info', dict, {}, 'ha.device_info')
 loglevel = _optional(_device, 'loglevel', str, 'INFO', 'device.loglevel')
 _validate_loglevel(loglevel)
 watchdog_timeout_ms = _optional(_device, 'watchdog_timeout_ms', int, 0, 'device.watchdog_timeout_ms')
+wifi_recovery_enabled = _optional(_device, 'wifi_recovery_enabled', bool, False, 'device.wifi_recovery_enabled')
+wifi_recovery_timeout_s = _optional(_device, 'wifi_recovery_timeout_s', int, 900, 'device.wifi_recovery_timeout_s')
 status_led_pin = _optional(_device, 'status_led_pin', (int, str, type(None)), None, 'device.status_led_pin')
+status_led_type = _optional(_device, 'status_led_type', str, 'auto', 'device.status_led_type')
+if status_led_type not in ('auto', 'digital', 'neopixel'):
+    raise RuntimeError('Invalid device_settings.json: device.status_led_type must be auto, digital, or neopixel')
 
 ha_discovery = _optional(_ha, 'discovery', bool, False, 'ha.discovery')
 ha_discovery_cleanup_legacy_identity = _optional(_ha, 'discovery_cleanup_legacy_identity', bool, False, 'ha.discovery_cleanup_legacy_identity')
@@ -190,6 +204,12 @@ web_portal_update_max_bytes = _optional(_web_portal, 'update_max_bytes', int, 20
 web_portal_allow_protected_updates = _optional(_web_portal, 'allow_protected_updates', bool, False, 'web_portal.allow_protected_updates')
 web_portal_firmware_updates_enabled = _optional(_web_portal, 'firmware_updates_enabled', bool, False, 'web_portal.firmware_updates_enabled')
 web_portal_firmware_update_max_bytes = _optional(_web_portal, 'firmware_update_max_bytes', int, 4194304, 'web_portal.firmware_update_max_bytes')
+release_manifest_url = _optional(_web_portal, 'release_manifest_url', str, '', 'web_portal.release_manifest_url')
+release_channel = _optional(_web_portal, 'release_channel', str, 'stable', 'web_portal.release_channel')
+release_check_interval_s = _optional(_web_portal, 'release_check_interval_s', int, 21600, 'web_portal.release_check_interval_s')
+release_auto_download = _optional(_web_portal, 'release_auto_download', bool, False, 'web_portal.release_auto_download')
+release_auto_activate = _optional(_web_portal, 'release_auto_activate', bool, False, 'web_portal.release_auto_activate')
+web_portal_session_timeout_s = _optional(_web_portal, 'session_timeout_s', int, 28800, 'web_portal.session_timeout_s')
 web_portal_log_refresh_s = _optional(
     _web_portal,
     'log_refresh_s',

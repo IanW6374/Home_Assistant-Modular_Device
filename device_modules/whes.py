@@ -5,13 +5,13 @@ Home Assistant presentation payload with calculated PV and home-load power.
 """
 
 try:
-    from . import pico_2ch_rs485 as rs485_module
+    from . import rs485_modbus as rs485_module
     from .base import ha_safe_id
     from .base import ha_state_topic
     from .base import homeassistant_device_info
     from .base import sensor_discovery_payload
 except ImportError:
-    import pico_2ch_rs485 as rs485_module
+    import rs485_modbus as rs485_module
     from base import ha_safe_id
     from base import ha_state_topic
     from base import homeassistant_device_info
@@ -139,7 +139,7 @@ def create_driver(device, device_char):
     return WHESDriver(device, device_char)
 
 
-class WHESDriver(rs485_module.Pico2CHRS485Driver):
+class WHESDriver(rs485_module.RS485ModbusDriver):
     def __init__(self, device, device_char):
         super().__init__(device, device_char)
         self._energy_totals = {}
@@ -277,8 +277,8 @@ class WHESDriver(rs485_module.Pico2CHRS485Driver):
         return values
 
     def _rs485_diagnostics_payload(self):
-        if hasattr(rs485_module.Pico2CHRS485Driver, 'diagnostics_payload'):
-            return rs485_module.Pico2CHRS485Driver.diagnostics_payload(self)
+        if hasattr(rs485_module.RS485ModbusDriver, 'diagnostics_payload'):
+            return rs485_module.RS485ModbusDriver.diagnostics_payload(self)
         return {
             'rs485_last_ok': None,
             'rs485_last_operation': '',

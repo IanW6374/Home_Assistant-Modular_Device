@@ -19,10 +19,20 @@ EXCLUDE_FILES = {
 _DEVICE_TYPES = {}
 
 
+def _driver_directory():
+    try:
+        module_path = str(__file__).replace('\\', '/')
+        if '/' in module_path:
+            return module_path.rsplit('/', 1)[0]
+    except Exception:
+        pass
+    return 'device_modules'
+
+
 def _discover_modules():
     modules = []
     try:
-        files = uos.listdir("device_modules")
+        files = uos.listdir(_driver_directory())
     except OSError:
         return modules
 
@@ -42,7 +52,14 @@ def _discover_modules():
         try:
             module = __import__(package + "." + module_name, None, None, [module_name])
         except Exception as exc:
-            primary_error = exc
+            if package:
+                log_output(
+                    'Local',
+                    'Device loader',
+                    {'log': 'Could not load device module "' + module_name + '" - ' + str(exc)},
+                    'ERROR'
+                )
+                continue
             try:
                 module = __import__(module_name)
             except Exception as fallback_exc:

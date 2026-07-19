@@ -1,5 +1,5 @@
 {
-    "_comment": "Example for one Pico with two MAX31865/PT1000 probes on SPI0, a Grove AC voltage sensor on ADC0/GP26, and the local OLED display enabled in device_settings.json. The OLED display uses SPI1 pins from device_settings.json, not this module settings file.",
+    "_comment": "ESP32-S3-DevKitC-1-N8R8 HTW configuration. Both MAX31865 boards share SPI1 on SCK=GPIO12, MOSI=GPIO11 and MISO=GPIO13; flow CS=GPIO10 and return CS=GPIO9. Grove AC OUT uses ADC1 GPIO4 with 11 dB attenuation. GPIO38 remains reserved for the onboard RGB status LED.",
     "devices": [
         {
             "name": "Flow Temperature",
@@ -10,11 +10,11 @@
             },
             "pollinterval": 30,
             "max31865": {
-                "spi": 0,
-                "sck": 2,
-                "mosi": 3,
-                "miso": 4,
-                "cs": 5,
+                "spi": 1,
+                "sck": 12,
+                "mosi": 11,
+                "miso": 13,
+                "cs": 10,
                 "baudrate": 1000000,
                 "wires": 2,
                 "filter_hz": 50,
@@ -67,11 +67,11 @@
             },
             "pollinterval": 30,
             "max31865": {
-                "spi": 0,
-                "sck": 2,
-                "mosi": 3,
-                "miso": 4,
-                "cs": 6,
+                "spi": 1,
+                "sck": 12,
+                "mosi": 11,
+                "miso": 13,
+                "cs": 9,
                 "baudrate": 1000000,
                 "wires": 2,
                 "filter_hz": 50,
@@ -124,8 +124,9 @@
             },
             "pollinterval": 5,
             "ac_voltage": {
-                "_comment": "Compare against a known meter reading at 240V AC and adjust calibration until the published voltage matches reality.",
-                "adc_pin": 26,
+                "_comment": "ESP32-S3 calibration is hardware-specific. Compare against a known meter reading at 240V AC and adjust calibration until the published voltage matches reality.",
+                "adc_pin": 4,
+                "atten_db": 11,
                 "vref": 3.3,
                 "adc_max": 65535,
                 "sample_count": 600,

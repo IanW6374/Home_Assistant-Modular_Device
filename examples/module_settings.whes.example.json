@@ -8,21 +8,13 @@
                 "subclass": "WHES"
             },
             "rs485": {
+                "uart": 1,
+                "tx": 17,
+                "rx": 18,
+                "de": 16,
+                "baudrate": 115200,
                 "timeout_ms": 500,
-                "ports": {
-                    "ch0": {
-                        "uart": 0,
-                        "tx": 0,
-                        "rx": 1,
-                        "baudrate": 115200
-                    },
-                    "ch1": {
-                        "uart": 1,
-                        "tx": 4,
-                        "rx": 5,
-                        "baudrate": 115200
-                    }
-                }
+                "turnaround_ms": 5
             },
             "entities": {
                 "0": {

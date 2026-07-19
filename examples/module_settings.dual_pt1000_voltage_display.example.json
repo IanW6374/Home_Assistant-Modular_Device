@@ -1,5 +1,5 @@
 {
-    "_comment": "Example for one Pico with two MAX31865/PT1000 probes on SPI0, a Grove AC voltage sensor on ADC0/GP26, and the local OLED display enabled in device_settings.json. The OLED display uses SPI1 pins from device_settings.json, not this module settings file.",
+    "_comment": "ESP32-S3 example with two MAX31865/PT1000 probes on SPI0, a Grove AC voltage sensor on ADC1/GPIO1, and the local OLED display enabled in device_settings.json. The OLED display uses its own SPI pins from device_settings.json, not this module settings file.",
     "devices": [
         {
             "name": "Flow Temperature",
@@ -125,7 +125,7 @@
             "pollinterval": 5,
             "ac_voltage": {
                 "_comment": "Compare against a known meter reading at 240V AC and adjust calibration until the published voltage matches reality.",
-                "adc_pin": 26,
+                "adc_pin": 1,
                 "vref": 3.3,
                 "adc_max": 65535,
                 "sample_count": 600,
