@@ -26,5 +26,6 @@
             ],
             "url": "./module_settings.schema.json"
         }
-    ]
+    ],
+    "micropico.autoConnect": false
 }

@@ -13,14 +13,24 @@ FILES = (
     "firmware_update.py",
     "hardware_platform.py",
     "update_security.py",
+    "credential_security.py",
+    "credential_store.py",
+    "factory_config.py",
+    "device_config.py",
+    "portal_ui.py",
+    "setup_wizard.py",
+    "certificate_manager.py",
     "update_support.py",
     "wifi_recovery.py",
+    "http_support.py",
     "HA-Device.py",
     "release_update.py",
     "settings_loader.py",
-    "device_settings.json",
+    "component_versions.py",
+    "app_settings.json",
     "module_settings.json",
     "display.py",
+    "web_portal_ui.py",
     "web_portal.py",
 )
 
@@ -46,7 +56,6 @@ def copy_tree(src, dst):
 def main():
     parser = argparse.ArgumentParser(description="Deploy project files to a mounted MicroPython filesystem")
     parser.add_argument("mount", help="Path to mounted MicroPython filesystem")
-    parser.add_argument("--secrets", action="store_true", help="Also copy secrets.py if present")
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
@@ -55,8 +64,6 @@ def main():
         raise SystemExit("mount path does not exist: " + str(mount))
 
     files = list(FILES)
-    if args.secrets:
-        files.append("secrets.py")
 
     for name in files:
         src = root / name

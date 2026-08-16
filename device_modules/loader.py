@@ -1,96 +1,79 @@
-import uos
 try:
     from .logging import log_output
+    from .driver_index import DRIVER_MODULES
 except ImportError:
     from logging import log_output
+    from driver_index import DRIVER_MODULES
 
-EXCLUDE_FILES = {
-    "__init__.py",
-    "loader.py",
-    "base.py",
-    "logging.py",
-    "sensor.py",
-    "spi_bus.py",
-    "template.py",
-    "validation.py"
-}
 
-# Registry for device types
 _DEVICE_TYPES = {}
+_MODULES = []
 
 
-def _driver_directory():
-    try:
-        module_path = str(__file__).replace('\\', '/')
-        if '/' in module_path:
-            return module_path.rsplit('/', 1)[0]
-    except Exception:
-        pass
-    return 'device_modules'
-
-
-def _discover_modules():
-    modules = []
-    try:
-        files = uos.listdir(_driver_directory())
-    except OSError:
-        return modules
-
+def _import_driver(module_name):
     try:
         package = __package__
     except NameError:
         package = None
-
     if not package:
         package = __name__.rsplit('.', 1)[0] if '.' in __name__ else 'device_modules'
+    return __import__(package + '.' + module_name, None, None, [module_name])
 
-    for filename in files:
-        if not filename.endswith(".py") or filename in EXCLUDE_FILES:
-            continue
 
-        module_name = filename[:-3]
+def _load_for_devices(devices):
+    required = []
+    for device in devices or ():
+        device_type = device.get('type', {}) if isinstance(device, dict) else {}
+        key = str(device_type.get('class', '')) + ':' + str(device_type.get('subclass', ''))
+        module_name = DRIVER_MODULES.get(key)
+        if not module_name:
+            raise ValueError('no packaged driver for configured type ' + key)
+        if module_name not in required:
+            required.append(module_name)
+
+    modules = []
+    types = {}
+    for module_name in required:
         try:
-            module = __import__(package + "." + module_name, None, None, [module_name])
+            module = _import_driver(module_name)
         except Exception as exc:
-            if package:
-                log_output(
-                    'Local',
-                    'Device loader',
-                    {'log': 'Could not load device module "' + module_name + '" - ' + str(exc)},
-                    'ERROR'
-                )
-                continue
-            try:
-                module = __import__(module_name)
-            except Exception as fallback_exc:
-                log_output(
-                    'Local',
-                    'Device loader',
-                    {'log': 'Could not load device module "' + module_name + '" - ' + str(fallback_exc)},
-                    'ERROR'
-                )
-                continue
-
-        if hasattr(module, 'supports') and callable(module.supports):
-            modules.append(module)
-            # Register device type(s) if module provides them
-            if hasattr(module, 'DEVICE_TYPE'):
-                _DEVICE_TYPES[module_name] = module.DEVICE_TYPE
-            # Also check for additional device types (e.g., switch handled by sensor module)
-            if hasattr(module, 'SWITCH_DEVICE_TYPE'):
-                _DEVICE_TYPES[module_name + '_switch'] = module.SWITCH_DEVICE_TYPE
-        else:
-            log_output(
-                'Local',
-                'Device loader',
-                {'log': 'Skipping "' + module_name + '" because it is not a device driver module'},
-                'DEBUG'
+            raise RuntimeError(
+                'could not load configured device driver "' + module_name + '" - ' + str(exc)
             )
+        if not hasattr(module, 'supports') or not callable(module.supports):
+            raise RuntimeError('configured module "' + module_name + '" is not a device driver')
+        modules.append(module)
+        if hasattr(module, 'DEVICE_TYPE'):
+            types[module_name] = module.DEVICE_TYPE
+        if hasattr(module, 'SWITCH_DEVICE_TYPE'):
+            types[module_name + '_switch'] = module.SWITCH_DEVICE_TYPE
+    return modules, types
 
-    return modules
+
+def device_types_for_devices(devices):
+    """Validate/import drivers without changing the active runtime driver set."""
+    _modules, types = _load_for_devices(devices)
+    return list(types.values())
 
 
-_MODULES = _discover_modules()
+def configured_driver_names(devices):
+    names = []
+    for device in devices or ():
+        device_type = device.get('type', {}) if isinstance(device, dict) else {}
+        key = str(device_type.get('class', '')) + ':' + str(device_type.get('subclass', ''))
+        name = DRIVER_MODULES.get(key)
+        if not name:
+            raise ValueError('no packaged driver for configured type ' + key)
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def configure_for_devices(devices):
+    """Import only drivers referenced by the installed module configuration."""
+    global _MODULES, _DEVICE_TYPES
+    _MODULES, _DEVICE_TYPES = _load_for_devices(devices)
+    return list(_DEVICE_TYPES.values())
 
 
 def _find_module_for_device(device):
@@ -106,36 +89,36 @@ def _find_module_for_device(device):
                     'log': 'Could not check device support in "' +
                            str(getattr(module, '__name__', 'unknown')) + '" for ' +
                            str(device.get('uuid')) + ' ' +
-                           str(device.get('name')) + ' ' +
-                           str(exc)
+                           str(device.get('name')) + ' ' + str(exc)
                 },
                 'ERROR'
             )
-            continue
     return None
 
 
 def get_device_types():
-    """Return list of registered device types for Home Assistant."""
+    """Return device types for the configured and imported drivers."""
     return list(_DEVICE_TYPES.values())
 
 
 def setup_device(device, index):
     module = _find_module_for_device(device)
     if not module:
+        message = (
+            'No driver found for configured device ' +
+            str(device.get('uuid')) + ' ' + str(device.get('name')) + ' ' +
+            str(device.get('type'))
+        )
         log_output(
-            'Local',
-            'Device loader',
-            {
-                'log': 'No driver found for configured device ' +
-                       str(device.get('uuid')) + ' ' +
-                       str(device.get('name')) + ' ' +
-                       str(device.get('type'))
-            },
+            'Local', 'Device loader',
+            {'log': message},
             'ERROR'
         )
-        return None
-
+        return {
+            'uuid': device.get('uuid', ''),
+            'index': index,
+            'setup_error': message,
+        }
     try:
         device_char = module.setup(device, index)
         if hasattr(module, 'create_driver') and callable(module.create_driver):
@@ -143,18 +126,17 @@ def setup_device(device, index):
         elif hasattr(module, 'Driver'):
             device_char['driver'] = module.Driver(device, device_char)
     except Exception as exc:
+        message = str(exc)
         log_output(
-            'Local',
-            'Device loader',
-            {
-                'log': 'Could not set up device driver "' +
-                       str(getattr(module, '__name__', 'unknown')) + '" for ' +
-                       str(device.get('uuid')) + ' ' +
-                       str(device.get('name')) + ' ' +
-                       str(exc)
-            },
+            'Local', 'Device loader',
+            {'log': 'Could not set up device driver "' +
+             str(getattr(module, '__name__', 'unknown')) + '" for ' +
+             str(device.get('uuid')) + ' ' + str(device.get('name')) + ' ' + message},
             'ERROR'
         )
-        return None
-
+        return {
+            'uuid': device.get('uuid', ''),
+            'index': index,
+            'setup_error': message,
+        }
     return device_char

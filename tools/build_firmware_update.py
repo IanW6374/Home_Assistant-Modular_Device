@@ -8,10 +8,25 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from update_security import SIGNATURE_SCHEME, sign_manifest
+from update_security import SIGNATURE_SCHEME, sign_manifest, sign_message
 
 
 MAGIC = b'HAMF1\n'
+
+
+def legacy_api4_manifest_message(manifest):
+    """Canonical message used by the installed recovery API-4 verifier."""
+    fields = (
+        'hamf',
+        str(manifest.get('format_version', 1)),
+        str(manifest.get('target_board', manifest.get('platform', ''))),
+        str(manifest.get('min_recovery_api', 1)),
+        str(manifest.get('max_recovery_api', 4)),
+        str(manifest.get('version', '')),
+        str(manifest.get('size', '')),
+        str(manifest.get('sha256', '')).lower(),
+    )
+    return ('\n'.join(fields) + '\n').encode()
 
 
 def load_signing_key(path):
@@ -26,14 +41,15 @@ def load_signing_key(path):
             value = bytes.fromhex(value.decode())
         except ValueError:
             pass
-    if len(value) < 32:
-        raise ValueError('signing key must contain at least 32 bytes')
+    if len(value) != 32:
+        raise ValueError('signing key must be exactly 32 bytes')
     return value
 
 
 def build_firmware_bundle(
     image, output, version, platform='esp32-s3', signing_key=b'',
-    max_image_bytes=2 * 1024 * 1024
+    max_image_bytes=2 * 1024 * 1024, release_sequence=1,
+    minimum_core_api=6, format_version=6
 ):
     image = Path(image)
     if not image.is_file():
@@ -60,21 +76,21 @@ def build_firmware_bundle(
             if not chunk:
                 break
             digest.update(chunk)
+    if int(format_version) != 6:
+        raise ValueError('firmware bundle format must be 6')
     manifest_object = {
-        'format_version': 2,
+        'format_version': int(format_version),
         'target_board': platform,
-        'min_recovery_api': 2,
-        'max_recovery_api': 2,
         'version': str(version),
         'platform': platform,
         'size': size,
         'sha256': digest.hexdigest()
     }
+    manifest_object['release_sequence'] = int(release_sequence)
+    manifest_object['minimum_core_api'] = int(minimum_core_api)
     if signing_key:
         manifest_object['signature_scheme'] = SIGNATURE_SCHEME
-        manifest_object['signature'] = sign_manifest(
-            'hamf', manifest_object, signing_key
-        )
+        manifest_object['signature'] = sign_manifest('hamf', manifest_object, signing_key)
     manifest = json.dumps(manifest_object, separators=(',', ':')).encode()
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -107,14 +123,24 @@ def main():
         help='Output remote-upgrade bundle (.hamf)'
     )
     parser.add_argument('--version', required=True, help='Base firmware version label')
+    parser.add_argument(
+        '--release-sequence', type=int,
+        help='Fleet-wide monotonically increasing signed firmware release number'
+    )
     parser.add_argument('--platform', choices=('esp32-s3',), default='esp32-s3')
-    parser.add_argument('--signing-key', help='32-byte raw or 64-character hex HMAC key')
+    parser.add_argument(
+        '--signing-key', required=True,
+        help='32-byte raw or 64-character hex ECDSA P-256 private key; never copy it to a device'
+    )
     parser.add_argument('--max-image-bytes', type=int, default=2 * 1024 * 1024)
     args = parser.parse_args()
+    if args.release_sequence is None or args.release_sequence <= 0:
+        parser.error('--release-sequence must be a positive integer')
     try:
         result = build_firmware_bundle(
             args.image, args.output, args.version, args.platform,
-            load_signing_key(args.signing_key), args.max_image_bytes
+            load_signing_key(args.signing_key), args.max_image_bytes,
+            args.release_sequence
         )
     except ValueError as exc:
         raise SystemExit('build failed: ' + str(exc))
@@ -123,7 +149,7 @@ def main():
     print('  platform:', result['platform'])
     print('  image bytes:', result['size'])
     print('  sha256:', result['sha256'])
-    print('  signature:', 'hmac-sha256' if args.signing_key else 'unsigned development bundle')
+    print('  signature:', SIGNATURE_SCHEME)
 
 
 if __name__ == '__main__':

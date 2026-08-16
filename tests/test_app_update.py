@@ -8,11 +8,15 @@ import sys
 from pathlib import Path
 
 import app_update
+import credential_store
+import update_security
+import update_support
 from tools.build_update import build_bundle
+from tools.build_update import certificate_entry
 from tools.build_update import collect_files
+from tools.build_update import generated_driver_index
 from tools.build_update import is_ignored
 from tools.build_update import load_ignore_patterns
-from tools.build_update import normalized_device_settings
 
 
 class AppUpdateTests(unittest.TestCase):
@@ -21,13 +25,26 @@ class AppUpdateTests(unittest.TestCase):
         self.previous_sys_path = list(sys.path)
         self.temp = tempfile.TemporaryDirectory()
         os.chdir(self.temp.name)
+        self.private_key = bytes(range(1, 33))
+        Path(update_security.VERIFICATION_KEY_PATH).write_bytes(
+            update_security.public_key_bytes(self.private_key)
+        )
+        credential_store._reset_memory_backend()
+        self.bundle_sequence = 0
 
     def tearDown(self):
         sys.path[:] = self.previous_sys_path
+        credential_store._reset_memory_backend()
         os.chdir(self.previous_cwd)
         self.temp.cleanup()
 
-    def make_bundle(self, files, version='test-1'):
+    def make_bundle(self, files, version='test-1', release_sequence=None):
+        files = dict(files)
+        if 'HA-Device.py' in files and 'app_settings.json' not in files:
+            files['app_settings.json'] = b'{}'
+        if release_sequence is None:
+            self.bundle_sequence += 1
+            release_sequence = self.bundle_sequence
         sources = []
         source_root = Path('source')
         for relative, content in files.items():
@@ -35,7 +52,11 @@ class AppUpdateTests(unittest.TestCase):
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_bytes(content)
             sources.append((relative, source))
-        build_bundle(Path(app_update.BUNDLE_PATH), version, sources)
+        build_bundle(
+            Path(app_update.BUNDLE_PATH), version, sources,
+            signing_key=self.private_key,
+            release_sequence=release_sequence
+        )
 
     def test_validates_application_bundle(self):
         self.make_bundle({'HA-Device.py': b'print("new")', 'device_modules/test.py': b'VALUE=1'})
@@ -43,7 +64,7 @@ class AppUpdateTests(unittest.TestCase):
         manifest = app_update.validate_bundle()
 
         self.assertEqual(manifest['version'], 'test-1')
-        self.assertEqual(len(manifest['files']), 2)
+        self.assertEqual(len(manifest['files']), 3)
 
     def test_rejects_tampered_bundle(self):
         self.make_bundle({'HA-Device.py': b'print("new")'})
@@ -53,14 +74,39 @@ class AppUpdateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'SHA-256 mismatch'):
             app_update.validate_bundle()
 
+    def test_application_manifest_has_no_device_profile(self):
+        values = {
+            'device_name': 'Controller', 'wifi_ssid': 'network',
+            'wifi_password': 'wifi-password', 'mqtt_server': 'mqtt.local',
+            'mqtt_port': '8883', 'mqtt_username': '', 'mqtt_password': '',
+            'mqtt_ssl': True, 'portal_username': 'admin',
+            'recovery_ap_password': 'Recovery-Access-Cedar-47!',
+            'profile': 'whes', 'channel': 'stable', 'install_mode': 'upload',
+        }
+        config = credential_store.build_configuration(
+            values, 'Portal-Cedar-47!River', 'Console-Ash-82!Stone'
+        )
+        credential_store.mark_provisioned(config)
+        source = Path('different.py')
+        source.write_bytes(b'new')
+        build_bundle(
+            Path(app_update.BUNDLE_PATH), 'other-profile',
+            [('HA-Device.py', source), ('app_settings.json', source)],
+            signing_key=self.private_key
+        )
+
+        manifest = app_update.validate_bundle()
+        self.assertNotIn('application_profile', manifest)
+        self.assertNotIn('bundle_scope', manifest)
+
     def test_protected_files_require_explicit_authorization(self):
-        self.make_bundle({'secrets.py': b'wifi_password="secret"'})
+        self.make_bundle({'certs/private.key': b'private-key'})
 
         with self.assertRaisesRegex(ValueError, 'protected file'):
             app_update.validate_bundle(allow_protected=False)
         self.assertEqual(
             app_update.validate_bundle(allow_protected=True)['files'][0]['path'],
-            'secrets.py'
+            'certs/private.key'
         )
 
     def test_recovery_files_cannot_be_updated(self):
@@ -89,7 +135,7 @@ class AppUpdateTests(unittest.TestCase):
 
     def test_protected_update_does_not_change_running_version(self):
         Path(app_update.VERSION_PATH).write_text('application-1')
-        self.make_bundle({'secrets.py': b'wifi_password="new"'}, 'credentials-2')
+        self.make_bundle({'certs/web.key': b'new-key'}, 'certificates-2')
         app_update.stage_bundle(allow_protected=True)
         app_update.activate_pending()
 
@@ -97,35 +143,26 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(app_update.running_version(), 'application-1')
 
     def test_optional_bundle_files_are_applied_selectively(self):
-        Path('device_settings.json').write_bytes(b'old-device')
         Path('module_settings.json').write_bytes(b'old-module')
-        Path('secrets.py').write_bytes(b'old-secrets')
         self.make_bundle({
             'HA-Device.py': b'new-app',
-            'device_settings.json': b'new-device',
             'module_settings.json': b'new-module',
-            'secrets.py': b'new-secrets',
             'certs/home-ca.der': b'new-cert'
         })
         state = app_update.stage_bundle(allow_protected=True)
         self.assertEqual(
             state['optional_groups'],
-            ['device_settings', 'module_settings', 'secrets', 'certificates']
+            ['module_settings', 'certificates']
         )
-        self.assertNotIn('device_settings.json', state['selected_paths'])
         app_update.configure_pending_update({
-            'device_settings': True,
             'module_settings': False,
-            'secrets': False,
             'certificates': True
         })
 
         app_update.activate_pending()
 
         self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'new-app')
-        self.assertEqual(Path('device_settings.json').read_bytes(), b'new-device')
         self.assertEqual(Path('module_settings.json').read_bytes(), b'old-module')
-        self.assertEqual(Path('secrets.py').read_bytes(), b'old-secrets')
         self.assertEqual(Path('certs/home-ca.der').read_bytes(), b'new-cert')
 
     def test_cannot_select_optional_group_absent_from_staged_bundle(self):
@@ -133,7 +170,16 @@ class AppUpdateTests(unittest.TestCase):
         app_update.stage_bundle()
 
         with self.assertRaisesRegex(ValueError, 'not present'):
-            app_update.configure_pending_update({'device_settings': True})
+            app_update.configure_pending_update({'module_settings': True})
+
+    def test_ready_update_can_be_discarded_from_recovery(self):
+        self.make_bundle({'HA-Device.py': b'new-app'}, 'discard-me')
+        app_update.stage_bundle()
+
+        self.assertTrue(app_update.discard_pending_update())
+        self.assertEqual(app_update.update_status()['status'], 'idle')
+        self.assertFalse(Path(app_update.BUNDLE_PATH).exists())
+        self.assertEqual(update_support.update_history()[-1]['event'], 'discarded')
 
     def test_unconfirmed_update_rolls_back_on_next_boot(self):
         Path('HA-Device.py').write_bytes(b'old')
@@ -203,8 +249,9 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'stable')
         self.assertFalse(Path('.app-slots/b').exists())
 
-    def test_bad_shared_secrets_roll_back_with_failed_trial_slot(self):
-        Path('secrets.py').write_bytes(b'wifi_password="working"')
+    def test_bad_shared_certificate_rolls_back_with_failed_trial_slot(self):
+        Path('certs').mkdir()
+        Path('certs/web.key').write_bytes(b'working-key')
         self.make_bundle({'HA-Device.py': b'stable'}, 'stable')
         app_update.stage_bundle()
         app_update.activate_pending()
@@ -212,19 +259,19 @@ class AppUpdateTests(unittest.TestCase):
 
         self.make_bundle({
             'HA-Device.py': b'trial',
-            'secrets.py': b'wifi_password="incorrect"'
+            'certs/web.key': b'incorrect-key'
         }, 'trial')
         app_update.stage_bundle(allow_protected=True)
-        app_update.configure_pending_update({'secrets': True})
+        app_update.configure_pending_update({'certificates': True})
         app_update.activate_pending()
         self.assertEqual(
-            Path('secrets.py').read_bytes(), b'wifi_password="incorrect"'
+            Path('certs/web.key').read_bytes(), b'incorrect-key'
         )
 
         app_update.activate_pending()
 
         self.assertEqual(
-            Path('secrets.py').read_bytes(), b'wifi_password="working"'
+            Path('certs/web.key').read_bytes(), b'working-key'
         )
         self.assertEqual(app_update.active_slot(), 'a')
         self.assertFalse(Path('.app-slots/b').exists())
@@ -328,9 +375,7 @@ class AppUpdateTests(unittest.TestCase):
     def test_builder_excludes_local_configuration_by_default(self):
         root = Path('.')
         Path('HA-Device.py').write_text('app')
-        Path('device_settings.json').write_text(json.dumps({
-            'device': {'module_settings_file': 'module_settings.json'}
-        }))
+        Path('app_settings.json').write_text('{}')
         Path('module_settings.json').write_text(json.dumps({
             'devices': [{
                 'name': 'EMS',
@@ -341,12 +386,15 @@ class AppUpdateTests(unittest.TestCase):
         }))
         Path('device_modules').mkdir()
         Path('device_modules/ems.py').write_text(
-            "DEVICE_TYPE={'class':'sensor','subclass':{'EMS-Boiler':{}}}\n"
+            "MODULE_VERSION=1\nDEVICE_TYPE={'class':'sensor','subclass':{'EMS-Boiler':{}}}\n"
         )
+        Path('component_versions.py').write_text('RUNTIME_VERSION=1\n')
         for name in (
-            'settings_loader.py', 'hardware_platform.py', 'display.py', 'web_portal.py',
-            'release_update.py',
+            'settings_loader.py', 'hardware_platform.py', 'display.py',
+            'web_portal_ui.py', 'web_portal.py',
+            'release_update.py', 'certificate_manager.py',
             'device_modules/__init__.py', 'device_modules/loader.py',
+            'device_modules/driver_index.py',
             'device_modules/base.py', 'device_modules/logging.py',
             'device_modules/validation.py', 'lib/mqtt_as.py',
             'lib/primitives/__init__.py', 'lib/primitives/encoder.py'
@@ -361,10 +409,15 @@ class AppUpdateTests(unittest.TestCase):
         ]
 
         self.assertIn('HA-Device.py', default_names)
+        self.assertIn('app_settings.json', default_names)
+        self.assertIn('web_portal_ui.py', default_names)
+        self.assertNotIn('portal_ui.py', default_names)
+        self.assertTrue(set(default_names).isdisjoint(app_update.RECOVERY_FILES))
         self.assertNotIn('hardware_platform.py', default_names)
         self.assertNotIn('device_settings.json', default_names)
         self.assertNotIn('module_settings.json', default_names)
-        self.assertIn('device_settings.json', settings_names)
+        self.assertIn('app_settings.json', settings_names)
+        self.assertNotIn('device_settings.json', settings_names)
         self.assertIn('module_settings.json', settings_names)
 
     def test_builder_honours_ignore_file_and_examples_pattern(self):
@@ -378,13 +431,30 @@ class AppUpdateTests(unittest.TestCase):
         self.assertTrue(is_ignored('device_modules/old.py.bak', patterns))
         self.assertFalse(is_ignored('device_modules/ems.py', patterns))
 
+    def test_certificate_target_can_use_trust_store_subdirectory(self):
+        source = Path('home-iot-root.der')
+        source.write_bytes(b'root-ca')
+        relative, resolved = certificate_entry(
+            'trust/home-iot-root.der=' + str(source)
+        )
+        self.assertEqual(relative, 'certs/trust/home-iot-root.der')
+        self.assertEqual(resolved, source.resolve())
+
+        entries = collect_files(
+            Path(self.previous_cwd), include_protected=True,
+            certificates=['trust/home-iot-root.der=' + str(source)],
+            protected_only=True
+        )
+        self.assertEqual(entries, [
+            ('certs/trust/home-iot-root.der', source.resolve())
+        ])
+
+        with self.assertRaisesRegex(ValueError, 'safe path relative'):
+            certificate_entry('../outside.der=' + str(source))
+
     def test_targeted_builder_selects_drivers_and_dependencies(self):
         root = Path(self.previous_cwd)
-        device_path = Path('selected-device.json')
         module_path = Path('selected-modules.json')
-        device_path.write_text(json.dumps({
-            'device': {'module_settings_file': 'selected-modules.json'}
-        }))
         module_path.write_text(json.dumps({
             'devices': [
                 {'type': {'class': 'sensor', 'subclass': 'EMS-Boiler'}},
@@ -398,7 +468,6 @@ class AppUpdateTests(unittest.TestCase):
         names = {
             name for name, _ in collect_files(
                 root,
-                device_settings_path=device_path,
                 module_settings_path=module_path
             )
         }
@@ -420,26 +489,120 @@ class AppUpdateTests(unittest.TestCase):
         included_names = {
             name for name, _ in collect_files(
                 root,
-                device_settings_path=device_path,
                 module_settings_path=module_path
             )
         }
-        self.assertIn('device_settings.json', included_names)
+        self.assertIn('app_settings.json', included_names)
+        self.assertNotIn('device_settings.json', included_names)
         self.assertIn('module_settings.json', included_names)
-        self.assertNotIn('selected-device.json', included_names)
         self.assertNotIn('selected-modules.json', included_names)
 
-    def test_packaged_device_settings_reference_normalized_module_name(self):
-        normalized = normalized_device_settings({
-            'device': {'module_settings_file': 'custom/ems-settings.json'},
-            'web_portal': {'enabled': True}
-        })
+    def test_universal_builder_contains_every_driver_without_settings(self):
+        root = Path(self.previous_cwd)
+        names = {name for name, _ in collect_files(root, universal=True)}
 
-        self.assertEqual(
-            normalized['device']['module_settings_file'],
-            'module_settings.json'
+        for driver in (
+            'dht11.py', 'ems.py', 'grove_ac_voltage.py', 'hcsr04.py',
+            'light.py', 'max31865_pt1000.py', 'modbus_transport.py',
+            'rs485_modbus.py', 'switch_dimmer.py', 'switch_onoff.py', 'whes.py'
+        ):
+            self.assertIn('device_modules/' + driver, names)
+        self.assertIn('device_modules/driver_index.py', names)
+        self.assertIn('app_settings.json', names)
+        self.assertNotIn('device_settings.json', names)
+        self.assertNotIn('module_settings.json', names)
+        generated = generated_driver_index(root).decode()
+        self.assertIn("'sensor:WHES': 'whes'", generated)
+        self.assertIn("'sensor:EMS-Boiler': 'ems'", generated)
+
+    def test_universal_bundle_preserves_config_and_rejects_downgrade(self):
+        values = {
+            'device_name': 'Controller', 'wifi_ssid': 'network',
+            'wifi_password': 'wifi-password', 'mqtt_server': 'mqtt.local',
+            'mqtt_port': '8883', 'mqtt_username': '', 'mqtt_password': '',
+            'mqtt_ssl': True, 'portal_username': 'admin',
+            'recovery_ap_password': 'Recovery-Access-Cedar-47!',
+            'profile': 'whes', 'channel': 'stable', 'install_mode': 'upload',
+        }
+        config = credential_store.build_configuration(
+            values, 'Portal-Cedar-47!River', 'Console-Ash-82!Stone'
         )
-        self.assertTrue(normalized['web_portal']['enabled'])
+        credential_store.mark_provisioned(config)
+        Path('module_settings.json').write_text('{"devices":[]}')
+        source = Path('source.py')
+        source.write_text('VALUE=1')
+        build_bundle(
+            Path(app_update.BUNDLE_PATH), 'universal-10',
+            [('HA-Device.py', source), ('app_settings.json', source)],
+            signing_key=self.private_key,
+            release_sequence=10
+        )
+        manifest = app_update.validate_bundle()
+        self.assertEqual(manifest['components']['runtime'], 1)
+        self.assertNotIn('bundle_scope', manifest)
+        app_update.stage_bundle(manifest=manifest)
+        app_update.activate_pending()
+        app_update.confirm_update()
+        self.assertEqual(app_update.running_release_sequence(), 10)
+        self.assertEqual(Path('module_settings.json').read_text(), '{"devices":[]}')
+
+        build_bundle(
+            Path(app_update.BUNDLE_PATH), 'universal-9',
+            [('HA-Device.py', source), ('app_settings.json', source)],
+            signing_key=self.private_key,
+            release_sequence=9
+        )
+        with self.assertRaisesRegex(ValueError, 'not newer'):
+            app_update.validate_bundle()
+
+    def test_profile_bundle_cannot_bypass_release_sequence(self):
+        Path(app_update.RELEASE_SEQUENCE_PATH).write_text('10')
+        self.make_bundle(
+            {'HA-Device.py': b'older profile runtime'},
+            version='profile-10',
+            release_sequence=10
+        )
+
+        with self.assertRaisesRegex(ValueError, 'not newer'):
+            app_update.validate_bundle()
+
+    def test_application_bundle_can_offer_optional_module_configuration(self):
+        values = {
+            'device_name': 'Controller', 'wifi_ssid': 'network',
+            'wifi_password': 'wifi-password', 'mqtt_server': 'mqtt.local',
+            'mqtt_port': '8883', 'mqtt_username': '', 'mqtt_password': '',
+            'mqtt_ssl': True, 'portal_username': 'admin',
+            'recovery_ap_password': 'Recovery-Access-Cedar-47!',
+            'profile': 'whes', 'channel': 'stable', 'install_mode': 'upload',
+        }
+        credential_store.mark_provisioned(credential_store.build_configuration(
+            values, 'Portal-Cedar-47!River', 'Console-Ash-82!Stone'
+        ))
+        source = Path('source.py')
+        source.write_text('{}')
+        build_bundle(
+            Path(app_update.BUNDLE_PATH), 'bad-universal',
+            [
+                ('HA-Device.py', source),
+                ('app_settings.json', source),
+                ('module_settings.json', source)
+            ],
+            signing_key=self.private_key, release_sequence=11
+        )
+        manifest = app_update.validate_bundle()
+        state = app_update.stage_bundle(manifest=manifest)
+        self.assertIn('module_settings', state['optional_groups'])
+        self.assertNotIn('module_settings.json', state['selected_paths'])
+
+    def test_device_settings_cannot_be_packaged(self):
+        path = Path('legacy-device-settings.json')
+        path.write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'no longer supported'):
+            collect_files(
+                Path(self.previous_cwd),
+                universal=True,
+                device_settings_path=path
+            )
 
     def test_firmware_manifest_freezes_the_complete_recovery_layer(self):
         manifest = (
@@ -448,8 +611,9 @@ class AppUpdateTests(unittest.TestCase):
 
         self.assertIn('include("$(PORT_DIR)/boards/manifest.py")', manifest)
         for path in (
-            'recovery_boot.py', 'app_update.py', 'firmware_update.py',
-            'hardware_platform.py'
+            'main.py', 'core_metadata.py', 'recovery_boot.py', 'app_update.py', 'firmware_update.py',
+            'hardware_platform.py', 'credential_store.py', 'setup_wizard.py',
+            'factory_config.py', 'release_update.py', 'device_config.py'
         ):
             self.assertIn('module("' + path + '"', manifest)
 

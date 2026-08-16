@@ -1,4 +1,4 @@
-"""Optional HTTPS release-channel checks and signed bundle staging."""
+"""Signed HTTPS release discovery and verified remote bundle staging."""
 
 try:
     import uasyncio as asyncio
@@ -15,8 +15,35 @@ try:
 except ImportError:
     import ssl
 
+try:
+    import uhashlib as hashlib
+except ImportError:
+    import hashlib
 
-STATE_PATH = '.release-update-state.json'
+try:
+    import ubinascii as binascii
+except ImportError:
+    import binascii
+
+import update_security
+
+
+MAX_DESCRIPTOR_BYTES = 16384
+MAX_REDIRECTS = 4
+
+
+def application_release_applicable(
+    components, configured_modules, runtime_version, module_versions
+):
+    """Return whether signed component versions affect this device."""
+    update_security.validate_components(components)
+    if int(components.get('runtime', 0)) > int(runtime_version):
+        return True
+    offered = components.get('modules', {})
+    for name in configured_modules or ():
+        if int(offered.get(name, 0)) > int(module_versions.get(name, 0)):
+            return True
+    return False
 
 
 def _parse_https_url(url):
@@ -43,7 +70,80 @@ def _tls_context(ca_path):
     return context
 
 
-async def _open_response(url, ca_path):
+def _close(writer):
+    try:
+        writer.close()
+    except Exception:
+        pass
+
+
+async def _read_exact(reader, size):
+    result = bytearray()
+    while len(result) < size:
+        chunk = await reader.read(size - len(result))
+        if not chunk:
+            raise ValueError('release response ended early')
+        result.extend(chunk)
+    return bytes(result)
+
+
+class _ChunkedReader:
+    def __init__(self, reader):
+        self.reader = reader
+        self.remaining = 0
+        self.finished = False
+
+    async def read(self, size):
+        if self.finished or size <= 0:
+            return b''
+        result = bytearray()
+        while len(result) < size and not self.finished:
+            if self.remaining == 0:
+                line = await self.reader.readline()
+                if not line:
+                    raise ValueError('chunked release response ended early')
+                token = line.decode().strip().split(';', 1)[0]
+                try:
+                    self.remaining = int(token, 16)
+                except ValueError:
+                    raise ValueError('release response has an invalid chunk size')
+                if self.remaining == 0:
+                    while True:
+                        trailer = await self.reader.readline()
+                        if not trailer or trailer == b'\r\n':
+                            break
+                    self.finished = True
+                    break
+            count = min(size - len(result), self.remaining)
+            result.extend(await _read_exact(self.reader, count))
+            self.remaining -= count
+            if self.remaining == 0:
+                if await _read_exact(self.reader, 2) != b'\r\n':
+                    raise ValueError('release response chunk terminator is invalid')
+        return bytes(result)
+
+
+class _VerifiedReader:
+    def __init__(self, reader, maximum):
+        self.reader = reader
+        self.maximum = int(maximum)
+        self.count = 0
+        self.hasher = hashlib.sha256()
+
+    async def read(self, size):
+        chunk = await self.reader.read(size)
+        if chunk:
+            self.count += len(chunk)
+            if self.count > self.maximum:
+                raise ValueError('release bundle exceeds its signed size')
+            self.hasher.update(chunk)
+        return chunk
+
+    def hexdigest(self):
+        return binascii.hexlify(self.hasher.digest()).decode()
+
+
+async def _open_response(url, ca_path, redirects=MAX_REDIRECTS):
     host, port, path = _parse_https_url(url)
     context = _tls_context(ca_path)
     try:
@@ -52,17 +152,24 @@ async def _open_response(url, ca_path):
         )
     except TypeError:
         reader, writer = await asyncio.open_connection(host, port, ssl=context)
+    host_header = host if port == 443 else host + ':' + str(port)
     writer.write(
-        ('GET ' + path + ' HTTP/1.1\r\nHost: ' + host +
-         '\r\nUser-Agent: HAM-Device/1\r\nAccept: application/json,application/octet-stream\r\n'
+        ('GET ' + path + ' HTTP/1.1\r\nHost: ' + host_header +
+         '\r\nUser-Agent: HAMD-Device/2\r\n'
+         'Accept: application/json,application/octet-stream\r\n'
          'Connection: close\r\n\r\n').encode()
     )
     await writer.drain()
     status_line = (await reader.readline()).decode().strip()
     parts = status_line.split()
-    if len(parts) < 2 or parts[1] != '200':
-        writer.close()
-        raise OSError('release server returned ' + status_line)
+    if len(parts) < 2:
+        _close(writer)
+        raise OSError('release server returned an invalid status line')
+    try:
+        status = int(parts[1])
+    except ValueError:
+        _close(writer)
+        raise OSError('release server returned an invalid status code')
     headers = {}
     while True:
         line = await reader.readline()
@@ -72,38 +179,172 @@ async def _open_response(url, ca_path):
         if ':' in text:
             name, value = text.split(':', 1)
             headers[name.lower()] = value.strip()
-    if headers.get('transfer-encoding', '').lower() == 'chunked':
-        writer.close()
-        raise ValueError('release server must provide Content-Length, not chunked encoding')
-    length = int(headers.get('content-length', '0') or 0)
-    if length <= 0:
-        writer.close()
-        raise ValueError('release response has no Content-Length')
-    return reader, writer, length
+
+    if status in (301, 302, 303, 307, 308):
+        location = headers.get('location', '')
+        _close(writer)
+        if redirects <= 0:
+            raise ValueError('release URL exceeded the redirect limit')
+        _parse_https_url(location)
+        return await _open_response(location, ca_path, redirects - 1)
+    if status != 200:
+        _close(writer)
+        raise OSError('release server returned ' + status_line)
+
+    chunked = 'chunked' in headers.get('transfer-encoding', '').lower()
+    length = None
+    if not chunked:
+        try:
+            length = int(headers.get('content-length', '0') or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            _close(writer)
+            raise ValueError('release response has no valid length')
+    return (_ChunkedReader(reader) if chunked else reader), writer, length
+
+
+def _query_value(value):
+    value = str(value)
+    allowed = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~'
+    if not value or any(character not in allowed for character in value):
+        raise ValueError('release query value contains invalid characters')
+    return value
+
+
+def release_manifest_request_url(manifest_url, channel):
+    """Return the exact channel URL used for a release check."""
+    channel = _query_value(channel)
+    if '{channel}' in manifest_url:
+        return manifest_url.replace('{channel}', channel)
+    separator = '&' if '?' in manifest_url else '?'
+    return manifest_url + separator + 'channel=' + channel
+
+
+def _release_manifest_request_url(manifest_url, channel):
+    """Compatibility wrapper for integrations using the earlier private helper."""
+    return release_manifest_request_url(manifest_url, channel)
+
+
+async def _read_body(reader, length, maximum):
+    payload = bytearray()
+    if length is not None and length > maximum:
+        raise ValueError('release descriptor exceeds ' + str(maximum) + ' bytes')
+    while length is None or len(payload) < length:
+        remaining = maximum + 1 - len(payload)
+        if remaining <= 0:
+            raise ValueError('release descriptor exceeds ' + str(maximum) + ' bytes')
+        count = min(1024, remaining)
+        if length is not None:
+            count = min(count, length - len(payload))
+        chunk = await reader.read(count)
+        if not chunk:
+            break
+        payload.extend(chunk)
+    if length is not None and len(payload) != length:
+        raise ValueError('release descriptor ended early')
+    return bytes(payload)
 
 
 async def check_release(manifest_url, channel, ca_path):
-    separator = '&' if '?' in manifest_url else '?'
-    url = manifest_url + separator + 'channel=' + str(channel)
+    url = release_manifest_request_url(manifest_url, channel)
     reader, writer, length = await _open_response(url, ca_path)
     try:
-        if length > 16384:
-            raise ValueError('release manifest exceeds 16384 bytes')
-        payload = bytearray()
-        while len(payload) < length:
-            chunk = await reader.read(length - len(payload))
-            if not chunk:
-                raise ValueError('release manifest ended early')
-            payload.extend(chunk)
-        release = json.loads(payload.decode())
-        if not isinstance(release, dict):
-            raise ValueError('release manifest must be an object')
-        if release.get('type') not in ('application', 'firmware'):
-            raise ValueError('release type must be application or firmware')
-        _parse_https_url(release.get('url', ''))
-        return release
+        payload = await _read_body(reader, length, MAX_DESCRIPTOR_BYTES)
+        document = json.loads(payload.decode())
+        releases = release_descriptors(document, channel)
+        try:
+            import app_update
+            import firmware_update
+            import hardware_platform
+            selected = select_release(
+                releases,
+                app_update.running_release_sequence(),
+                firmware_update.running_release_sequence(),
+                app_update.running_version(''),
+                firmware_update.running_version(
+                    hardware_platform.runtime_version()
+                ),
+            )
+        except Exception:
+            selected = None
+        if selected is not None:
+            return selected
+        return {}
     finally:
-        writer.close()
+        _close(writer)
+
+
+def release_descriptors(document, channel=''):
+    """Validate a channel index and return its independently signed releases."""
+    update_security.validate_release_descriptor(
+        document, channel, check_compatibility=False
+    )
+    fallback = dict(document)
+    listed = fallback.pop('releases', None)
+    if listed is None:
+        _parse_https_url(fallback.get('url', ''))
+        return (fallback,)
+    if not isinstance(listed, list) or not 1 <= len(listed) <= 2:
+        raise ValueError('release channel must contain one or two releases')
+    releases = []
+    types = set()
+    for release in listed:
+        if not isinstance(release, dict) or 'releases' in release:
+            raise ValueError('release channel contains an invalid release')
+        update_security.validate_release_descriptor(
+            release, channel, check_compatibility=False
+        )
+        _parse_https_url(release.get('url', ''))
+        release_type = release.get('type')
+        if release_type in types:
+            raise ValueError('release channel contains a duplicate release type')
+        types.add(release_type)
+        releases.append(release)
+    if fallback not in releases:
+        raise ValueError('release channel fallback is not in the signed release list')
+    return tuple(releases)
+
+
+def select_release(
+    releases, application_sequence=0, firmware_sequence=0,
+    application_version='', firmware_version=''
+):
+    """Choose the next component this device still needs, firmware first."""
+    applicable = {}
+    for release in releases:
+        if not update_security.release_is_compatible(release):
+            continue
+        release_type = release.get('type')
+        installed_sequence = (
+            application_sequence
+            if release_type == 'application' else firmware_sequence
+        )
+        installed_version = (
+            application_version
+            if release_type == 'application' else firmware_version
+        )
+        offered_sequence = int(release.get('release_sequence', 0))
+        newer = (
+            offered_sequence > int(installed_sequence)
+            if int(installed_sequence) > 0 else
+            str(release.get('version', '')) != str(installed_version)
+        )
+        if newer:
+            applicable[release_type] = release
+    return applicable.get('firmware') or applicable.get('application')
+
+
+def _discard_staged(release_type):
+    try:
+        if release_type == 'application':
+            import app_update
+            app_update.discard_pending_update()
+        else:
+            import firmware_update
+            firmware_update.discard_pending_update()
+    except Exception:
+        pass
 
 
 async def stage_release(
@@ -111,16 +352,44 @@ async def stage_release(
     allow_protected=False, application_max_bytes=4194304,
     firmware_max_bytes=4194304, progress_callback=None
 ):
-    reader, writer, length = await _open_response(release['url'], ca_path)
+    update_security.validate_release_descriptor(release, release.get('channel', ''))
+    expected_size = int(release['size'])
+    maximum = application_max_bytes if release['type'] == 'application' else firmware_max_bytes
+    if expected_size > int(maximum):
+        raise ValueError('release bundle exceeds the configured maximum size')
+    reader, writer, response_length = await _open_response(release['url'], ca_path)
+    verified_reader = _VerifiedReader(reader, expected_size)
+    staged = False
     try:
+        if response_length is not None and response_length != expected_size:
+            raise ValueError('release response length does not match signed metadata')
         if release['type'] == 'application':
-            return await application_receiver(
-                reader, length, allow_protected, application_max_bytes,
+            if application_receiver is None:
+                raise ValueError('application update receiver is unavailable')
+            state = await application_receiver(
+                verified_reader, expected_size, allow_protected,
+                application_max_bytes, progress_callback=progress_callback
+            )
+        else:
+            if firmware_receiver is None:
+                raise ValueError('firmware update receiver is unavailable')
+            state = await firmware_receiver(
+                verified_reader, expected_size, firmware_max_bytes,
                 progress_callback=progress_callback
             )
-        return await firmware_receiver(
-            reader, length, firmware_max_bytes,
-            progress_callback=progress_callback
-        )
+        staged = True
+        if response_length is None and await verified_reader.read(1):
+            raise ValueError('release response contains data beyond its signed size')
+        if verified_reader.count != expected_size:
+            raise ValueError('release response size does not match signed metadata')
+        if verified_reader.hexdigest() != str(release['sha256']).lower():
+            raise ValueError('release bundle SHA-256 does not match signed metadata')
+        if int(state.get('release_sequence', 0)) != int(release['release_sequence']):
+            raise ValueError('release descriptor and bundle sequences do not match')
+        return state
+    except Exception:
+        if staged:
+            _discard_staged(release.get('type'))
+        raise
     finally:
-        writer.close()
+        _close(writer)

@@ -11,7 +11,7 @@ current build is pinned by `firmware/build-lock.json` to:
 | Board variant | `SPIRAM_OCT` |
 | Flash/PSRAM | 8 MB / 8 MB Octal |
 | OTA application slots | `ota_0` and `ota_1`, 2 MiB each |
-| Frozen recovery API | `2` |
+| Frozen recovery API | `6` |
 
 ## Host Python and MicroPython are different
 
@@ -34,117 +34,122 @@ export HAM_PROJECT_ROOT=/path/to/Home_Assistant-Modular_Device
 export MICROPYTHON_ROOT=/path/to/micropython
 export IDF_ROOT=/path/to/esp-idf
 export DEVICE_PORT=/dev/cu.usbmodem1101
-export UPDATE_SIGNING_KEY="$HOME/.ham-device/update.signing-key"
+export UPDATE_SIGNING_KEY="$HOME/.ham-device/update.private-key"
+export SECURE_BOOT_KEY="$HOME/.ham-device/secure_boot_signing_key.pem"
 cd "$HAM_PROJECT_ROOT"
 ```
 
-Keep every version label unique. Reusing a confirmed firmware label is rejected
-because it makes staged/running state ambiguous.
+Release sequences, not display labels, are the anti-rollback authority. Never
+reuse a confirmed sequence for a different build. Application and core bundles
+for one product release should share the same HAMD version label; MicroPython is
+reported separately.
 
 ## Before any remote update
 
-1. Confirm the portal shows the expected **App version**, **MicroPython
-   version**, **Update status: idle**, and **OTA firmware availability: ready**.
+1. Confirm the portal shows the expected **Application**, **Core firmware**,
+   **MicroPython version**, **Update status: idle**, and **OTA firmware
+   availability: ready**.
 2. Keep the device powered throughout upload, verification, activation, and
    reboot.
-3. Use the tokenised URL for the first request:
+3. Open the portal URL (or the custom port selected in Portal Settings):
 
    ```text
-   https://<device-ip>:8443/?token=<web_portal_token>
+   https://<device-ip>:8443/
    ```
 
-   HTTP uses port 8080 by default. The portal removes the token from the URL
-   and retains authentication in an HttpOnly session cookie. After a reboot,
-   open the tokenised URL again if the browser reports `401 Unauthorized`.
-4. Prefer HTTPS. Protected updates containing Wi-Fi/MQTT secrets, certificates,
-   or private keys must not be sent over untrusted HTTP.
-5. Confirm the update controls are enabled in `device_settings.json`:
+   HTTPS is selected by default when a certificate is installed. Explicit HTTP
+   mode uses port `8080` by default and is intended only for trusted networks.
+   Sign in with the username and password chosen in the first-boot wizard; the
+   portal retains authentication in an HttpOnly, SameSite session cookie
+   (`Secure` is added for HTTPS).
+4. Keep the HTTPS certificate/key current and trusted by the operator.
+5. Confirm update features are enabled in signed `app_settings.json`; maximum
+   bundle sizes and protected-update permission are defined by frozen
+   `device_config.py`:
 
    ```json
    {
      "web_portal": {
        "enabled": true,
        "updates_enabled": true,
-       "update_max_bytes": 4194304,
-       "allow_protected_updates": true,
-       "firmware_updates_enabled": true,
-       "firmware_update_max_bytes": 4194304
+       "firmware_updates_enabled": true
      }
    }
    ```
 
-`allow_protected_updates` may remain `false` unless an update must replace
-settings, secrets, or certificates.
+Protected certificate maintenance is permitted by the frozen device policy but
+still requires an explicit certificate selection at activation. Credentials
+and user settings in encrypted NVS are never update content.
 
 ## Update signing
 
-Signing is optional only while no signing key has been provisioned on the
-device. Once `.update-signing-key` exists in the device VFS, both unsigned
-`.hamd` and unsigned `.hamf` bundles are rejected.
+Signing is mandatory. The device stores only `/.update-verification-key`; both
+unsigned bundles and legacy HMAC bundles are rejected.
 
 `UPDATE_SIGNING_KEY` contains the path to the private host key file; it does not
 contain the key itself. The `--signing-key "$UPDATE_SIGNING_KEY"` option used by
 the application and firmware builders reads this existing file—it does not
 generate a key.
 
-Generate the key once on the development computer. The helper uses Python's
-cryptographically secure random generator to create 32 random bytes, writes
-them as exactly 64 hexadecimal characters, creates the parent directory when
-needed, and restricts the file permissions where supported:
+Generate the ECDSA P-256 private key once on the signing computer:
 
 ```sh
 cd "$HAM_PROJECT_ROOT"
-export UPDATE_SIGNING_KEY="$HOME/.ham-device/update.signing-key"
+export UPDATE_SIGNING_KEY="$HOME/.ham-device/update.private-key"
 
 python3 tools/provision_update_signing.py \
-  --key "$UPDATE_SIGNING_KEY" \
+  --private-key "$UPDATE_SIGNING_KEY" \
   --generate
 ```
 
 The helper refuses to overwrite an existing key. Do not delete or regenerate
 the key after provisioning devices: bundles signed with a replacement key will
 be rejected by devices that still hold the original. Keep the key outside the
-repository, do not put it in `secrets.py`, and store a secure backup. Every
-device intended to accept the same release bundles must be provisioned with the
-same key.
+repository, and store a secure backup. Every
+device intended to accept the same release bundles must receive the derived
+public key. The private key must never be copied to a device.
 
 Validate an existing host key without changing it:
 
 ```sh
 python3 tools/provision_update_signing.py \
-  --key "$UPDATE_SIGNING_KEY"
+  --private-key "$UPDATE_SIGNING_KEY"
 ```
 
 For a mounted VFS, provision it with:
 
 ```sh
 python3 tools/provision_update_signing.py \
-  --key "$UPDATE_SIGNING_KEY" \
+  --private-key "$UPDATE_SIGNING_KEY" \
   --mount /path/to/device-vfs
 ```
 
-For a normal serial-connected ESP32-S3, provision it with `mpremote`:
+For a serial-only device, first write the public key on the host, then copy it:
 
 ```sh
+python3 tools/provision_update_signing.py \
+  --private-key "$UPDATE_SIGNING_KEY" \
+  --public-key-output /tmp/update-verification-key
 mpremote connect "$DEVICE_PORT" fs cp \
-  "$UPDATE_SIGNING_KEY" :.update-signing-key
+  /tmp/update-verification-key :.update-verification-key
 ```
 
-This copies the key to `/.update-signing-key` on the device. The leading dot is
-intentional. Provisioning is normally performed once over USB before relying on
+This copies only the public key. Provisioning is performed over USB before
 remote updates.
 
-The key and `secrets.py` are shared VFS files, not files inside application
-slot `a` or `b`. A protected application update backs up a shared file before
-replacing it and restores it if the trial cannot reconnect and confirm.
+New factory images derive the public key and embed it in encrypted NVS. The
+private key remains on the signing host. Settings and certificates are shared
+VFS files outside application slots; encrypted credentials are neither VFS
+update content nor application-slot content.
 
 Signing helper options:
 
 | Option | Required | Meaning |
 | --- | --- | --- |
-| `--key PATH` | Yes | Host key file containing exactly 64 hexadecimal characters. |
+| `--private-key PATH` | Yes | Offline host P-256 private-key file. |
 | `--generate` | No | Create a new key; refuses to overwrite an existing key. |
-| `--mount PATH` | No | Copy the key to `.update-signing-key` on a mounted VFS. Without it, the helper only generates/validates the host key. |
+| `--mount PATH` | No | Copy only the public key to `.update-verification-key` on a mounted VFS. |
+| `--public-key-output PATH` | No | Write the derived public key for serial provisioning. |
 | `-h`, `--help` | No | Show the current command syntax. |
 
 ## 1. Application upgrade (`.hamd`)
@@ -165,22 +170,37 @@ For a normal code-only update using the repository's active configuration:
 cd "$HAM_PROJECT_ROOT"
 python3 tools/build_update.py \
   application-1.5.0.hamd \
-  --version application-1.5.0 \
+  --version 1.5.0 \
+  --release-sequence 1500 \
   --signing-key "$UPDATE_SIGNING_KEY"
 ```
 
-The builder analyses the active `device_settings.json` and selected module
-settings file. It recursively includes every required driver dependency and
-prints every packaged path. Unknown device subclasses and missing dependencies
-stop the build.
+The builder creates the profile-free universal runtime and includes every
+production driver. The installed module configuration controls which drivers
+are imported.
+
+For a code-only fleet update, omit settings; each device lazily imports only
+the drivers named by its own configuration:
+
+```sh
+python3 tools/build_update.py \
+  application-1.5.0-universal.hamd \
+  --version 1.5.0 \
+  --release-sequence 1500 \
+  --signing-key "$UPDATE_SIGNING_KEY"
+```
+
+There are no device profiles. Signed runtime and driver component versions let
+a device skip a release that changes only an unconfigured module.
 
 To include the active settings as optional activation choices:
 
 ```sh
 python3 tools/build_update.py \
   application-1.5.0-with-settings.hamd \
-  --version application-1.5.0 \
-  --include-settings \
+  --version 1.5.0 \
+  --release-sequence 1500 \
+  --include-module-settings \
   --signing-key "$UPDATE_SIGNING_KEY"
 ```
 
@@ -189,16 +209,16 @@ To build for non-default settings files:
 ```sh
 python3 tools/build_update.py \
   application-1.5.0-ems.hamd \
-  --version application-1.5.0-ems \
-  --device-settings examples/device_settings.ems.json \
+  --version 1.5.0 \
+  --release-sequence 1501 \
   --module-settings examples/module_settings.ems.json \
   --signing-key "$UPDATE_SIGNING_KEY"
 ```
 
-Supplying either settings-path option causes both normalised settings files to
-be packaged. The installed names are always `device_settings.json` and
-`module_settings.json`, and the packaged device settings are rewritten to
-select `module_settings.json`.
+Module settings are the only optional settings activation group. If no module
+file is installed, the device starts with zero modules and exposes the
+dedicated **Modules** editor/uploader. Signed `app_settings.json` is mandatory
+application content; user settings remain in encrypted NVS.
 
 To build a protected maintenance bundle:
 
@@ -206,8 +226,9 @@ To build a protected maintenance bundle:
 python3 tools/build_update.py \
   credentials-2026-07.hamd \
   --version credentials-2026-07 \
+  --release-sequence 202607 \
   --protected-only \
-  --certificate home-ca.der \
+  --certificate trust/home-iot-root.der=home-iot-root.der \
   --certificate web.crt.der \
   --certificate web.key.der \
   --signing-key "$UPDATE_SIGNING_KEY"
@@ -218,19 +239,19 @@ python3 tools/build_update.py \
 | Argument | Required | Meaning |
 | --- | --- | --- |
 | `output` | Yes | Positional output path; use a `.hamd` suffix. |
-| `--version LABEL` | Yes | Unique application or maintenance version label. |
-| `--include-protected` | No | Include repository-root `secrets.py` if it exists. Requires device protected-update permission when activated. |
-| `--protected-only` | No | Exclude application files and build only secrets/certificate maintenance content. It implicitly collects local `secrets.py` and cannot be combined with settings options. |
-| `--include-settings` | No | Include the default `device_settings.json` and its selected module settings file. |
-| `--device-settings PATH` | No | Analyse this non-default device settings file and package it as `device_settings.json`. |
+| `--version LABEL` | Yes | HAMD application or maintenance version label. |
+| `--release-sequence N` | Yes | Positive signed sequence; must be greater than the confirmed application sequence on every target device. |
+| `--include-protected` | No | Include explicitly selected certificates. Requires protected-update permission when activated. |
+| `--protected-only` | No | Exclude application files and build only certificate maintenance content. |
+| `--include-module-settings` | No | Include the default `module_settings.json` as an optional overwrite. |
 | `--module-settings PATH` | No | Analyse this non-default module settings file and package it as `module_settings.json`. |
-| `--certificate PATH` | No | Add a certificate/key as `certs/<basename>`. Repeat once per file. Supplying it makes the bundle protected. |
-| `--signing-key PATH` | No | Sign with a 32-byte raw or 64-character hexadecimal HMAC key. Required in practice after device provisioning. |
+| `--certificate PATH` or `--certificate TARGET=PATH` | No | Add a certificate/key under `certs/`. `TARGET` supports a safe relative path such as `trust/home-iot-root.der`. Repeat once per file. Supplying it makes the bundle protected. |
+| `--signing-key PATH` | Yes | Sign with the offline ECDSA P-256 private key. |
 | `-h`, `--help` | No | Show the current command syntax. |
 
 ### Step 2: upload and verify
 
-1. Open **Software update** in the authenticated portal.
+1. Open **Maintenance > Upgrades** in the authenticated portal.
 2. Select the `.hamd` file with the single update chooser.
 3. Select **Upload and verify**.
 4. Wait for **Uploading** to reach 100%, then for **Verifying** to reach 100%.
@@ -243,9 +264,7 @@ python3 tools/build_update.py \
 
 The portal shows switches only for optional groups present in the bundle:
 
-- **Device settings** installs `device_settings.json`.
 - **Module settings** installs `module_settings.json`.
-- **Secrets** installs `secrets.py`.
 - **Certificates** installs selected files under `/certs`.
 
 Application/runtime files are always applied. Optional switches default off.
@@ -256,15 +275,48 @@ Select only the shared files intended for this device.
 1. Select **Activate and reboot** once.
 2. Leave the device powered and do not interrupt its serial REPL during the
    trial. The inactive application slot is prepared and the module reboots.
-3. Allow up to three minutes for local startup plus Wi-Fi, portal, and MQTT
-   health confirmation.
-4. Reopen the tokenised portal URL if its previous session was lost.
-5. Confirm the new **App version**, **Update status: idle**, a non-legacy
+3. Allow up to three minutes for local startup plus Wi-Fi and authenticated
+   portal health confirmation. MQTT connectivity is checked separately.
+4. Reopen the portal and sign in if its previous session was lost.
+5. Confirm the new **Application** version, **Update status: idle**, a non-legacy
    **Active slot**, and expected module health/MQTT state.
 
 If activation is interrupted, the next boot removes the unconfirmed slot and
 restores backed-up shared files. The portal update history records staged,
 trial, confirmed, rejected, activation-failed, and rollback events.
+
+### Remote stable and beta hosting
+
+Publish a verified bundle and its signed descriptor into a static HTTPS tree:
+
+```sh
+python3 tools/publish_release.py \
+  --bundle application-1.5.0-universal.hamd \
+  --output-root release-site \
+  --base-url https://updates.example/hamd \
+  --channel stable \
+  --notes "Universal HAMD runtime 1.5.0" \
+  --signing-key "$UPDATE_SIGNING_KEY"
+```
+
+Upload `release-site/` without changing its layout. Configure devices with
+`https://updates.example/hamd/{channel}/latest.json`. Publish both application
+and firmware bundles to the same output root. The publisher stores both under
+`bundles/` and writes one `stable/latest.json` or `beta/latest.json` containing
+their independently signed descriptors. The device filters entries by its
+installed recovery/core API, selects a needed compatible firmware release
+first, then selects an applicable application release without requiring the
+server operator to replace the descriptor.
+
+Opening **Maintenance > Upgrades** checks the channel automatically; **Check
+for updates** remains available for an explicit retry. The verified descriptor
+and notes are shown before **Download and verify** streams it to the inactive
+application slot or firmware partition. HTTPS redirects and chunked transfer
+are supported. The device rejects an incompatible core/configuration API, a
+changed size or hash,
+a descriptor/bundle sequence mismatch, or a sequence that is not newer than
+the installed release. Automatic download and activation are separate opt-ins;
+keep automatic activation disabled until fleet rollback behaviour is proven.
 
 ## 2. Core MicroPython upgrade (`.hamf`)
 
@@ -289,10 +341,22 @@ script was not sourced from the actual ESP-IDF installation used for the build.
 cd "$HAM_PROJECT_ROOT"
 python3 tools/build_micropython_firmware.py \
   --micropython-root "$MICROPYTHON_ROOT" \
-  --version micropython-1.28.0-recovery-3 \
-  --output micropython-1.28.0-recovery-3.hamf \
-  --signing-key "$UPDATE_SIGNING_KEY"
+  --version 1.5.0 \
+  --release-sequence 1500 \
+  --output releases/release-site-1.5.0/bundles/ham-core-1.5.0.hamf \
+  --factory-output releases/factory-artifacts/ham-core-1.5.0.factory.bin \
+  --signing-key "$UPDATE_SIGNING_KEY" \
+  --production-security \
+  --secure-boot-signing-key "$SECURE_BOOT_KEY" \
+  --factory-setup-password-output releases/factory-artifacts/replacement-device.setup-password.txt
 ```
+
+The version is the HAMD product release and must match the application version
+published with the same release. Component names remain in artifact filenames,
+while the MicroPython runtime is reported separately by the device. This is a
+complete ESP32-S3 core firmware image, not a recovery-only image. The frozen
+recovery API version is tracked separately in the build lock and firmware
+metadata. Increment the release sequence for every distinct signed build.
 
 The helper:
 
@@ -300,7 +364,8 @@ The helper:
 2. builds the host `mpy-cross` separately;
 3. configures `HAM_ESP32_S3` with `SPIRAM_OCT`;
 4. freezes the recovery API and security modules;
-5. applies the 8 MB dual-OTA partition table and rollback setting;
+5. applies the encrypted 8 MB dual-OTA partition table, Secure Boot v2,
+   release-mode flash encryption, NVS encryption, and rollback settings;
 6. builds `micropython.bin`, `firmware.bin`, and the USB flash artifacts; and
 7. wraps only application image `micropython.bin` in the signed `.hamf`.
 
@@ -309,9 +374,14 @@ Core helper options:
 | Option | Required | Meaning |
 | --- | --- | --- |
 | `--micropython-root PATH` | Yes | Root of the MicroPython source checkout containing `ports/esp32`. |
-| `--version LABEL` | Yes | Unique firmware image label stored after confirmation. |
+| `--version LABEL` | Yes | HAMD core product-release label stored after confirmation. |
+| `--release-sequence N` | Yes | Positive signed sequence; must be greater than the confirmed firmware sequence on every target device. |
 | `--output PATH` | Yes | Output `.hamf` path. |
-| `--signing-key PATH` | No | HMAC key shared with the device. |
+| `--factory-output PATH` | Yes | Full first-flash image path outside the deployable release-site tree; refuses overwrite. |
+| `--signing-key PATH` | Yes | Offline ECDSA P-256 private key. |
+| `--production-security` | Yes | Explicit acknowledgement of the irreversible first-boot eFuse configuration. |
+| `--secure-boot-signing-key PATH` | Yes | Offline ESP-IDF Secure Boot v2 RSA-3072 PEM key. |
+| `--factory-setup-password-output PATH` | Yes | New mode-0600 unique setup key output; refuses overwrite. |
 | `--allow-version-mismatch` | No | Intentionally bypass both the MicroPython and ESP-IDF build-lock checks. This is unsafe for a normal release and should be reflected in the version label and release notes. |
 | `-h`, `--help` | No | Show the current command syntax. |
 
@@ -335,9 +405,10 @@ If a matching firmware build already exists, wrap its application-only image:
 
 ```sh
 python3 tools/build_firmware_update.py \
-  --input "$MICROPYTHON_ROOT/ports/esp32/build-HAM_ESP32_S3-SPIRAM_OCT/micropython.bin" \
-  --output micropython-1.28.0-recovery-3.hamf \
-  --version micropython-1.28.0-recovery-3 \
+  --input "$MICROPYTHON_ROOT/ports/esp32/build-HAM_ESP32_S3-SPIRAM_OCT-secure/micropython.bin" \
+  --output ham-core-1.5.0.hamf \
+  --version 1.5.0 \
+  --release-sequence 1500 \
   --platform esp32-s3 \
   --max-image-bytes 2097152 \
   --signing-key "$UPDATE_SIGNING_KEY"
@@ -349,37 +420,44 @@ Wrapper options:
 | --- | --- | --- |
 | `--input PATH` | Yes | ESP application-only `micropython.bin` or distributed `.app-bin`; its first byte must be the ESP image magic `0xe9`. |
 | `--output PATH` | Yes | Output `.hamf` path. |
-| `--version LABEL` | Yes | Unique firmware label. |
+| `--version LABEL` | Yes | HAMD core product-release label. |
+| `--release-sequence N` | Yes | Positive signed sequence; must be greater than the confirmed firmware sequence on every target device. |
 | `--platform esp32-s3` | No | Target platform; `esp32-s3` is the only accepted/current value and is the default. |
-| `--signing-key PATH` | No | HMAC signing key. |
+| `--signing-key PATH` | Yes | Offline ECDSA P-256 private key. |
 | `--max-image-bytes N` | No | Maximum accepted input image size; defaults to 2,097,152 bytes and should match an OTA slot. |
 | `-h`, `--help` | No | Show the current command syntax. |
 
 Never wrap or upload `firmware.bin`. It is the combined initial-USB image and
 contains material for addresses other than one OTA application slot.
 
+### Format transition
+
+Format 6 deliberately has no compatibility bridge. Reflash a matching format-6
+factory/core image before installing format-6 application or firmware bundles.
+
 ### Step 3: upload, verify, activate, and confirm
 
-1. In **Software update**, choose the `.hamf` file and select **Upload and
-   verify**.
+1. In **Maintenance > Upgrades**, choose the `.hamf` file in the manual upgrade
+   card and select **Upload and verify**.
 2. Wait for both upload and flash read-back verification to reach 100%.
 3. Confirm the firmware label is staged with status `ready`.
 4. Select **Activate firmware and reboot** once.
 5. Leave power connected. ESP-IDF boots the inactive OTA partition as a trial.
-6. The frozen recovery layer confirms the firmware after the application entry,
-   settings, and event loop start locally. Firmware confirmation deliberately
+6. The application confirms the firmware after settings, Wi-Fi, and the
+   authenticated portal start successfully. Firmware confirmation deliberately
    does not depend on an external MQTT broker.
-7. Reopen the tokenised portal URL and confirm:
+7. Reopen the portal, sign in, and confirm:
 
+   - **Core firmware** shows the new HAMD product-release label;
    - **MicroPython version** is `1.28.0` for the current pinned runtime;
    - **Staged version** is `Not staged`;
    - **Update status** is `idle`; and
    - **OTA firmware availability** is `ready`.
 
-The human-readable `.hamf` label appears in firmware update history and the
-internal `.firmware-version`; the portal's **MicroPython version** is the
-runtime's `sys.implementation.version`, so it displays `1.28.0` rather than the
-long recovery label.
+The human-readable `.hamf` label appears as **Core firmware**, in update history,
+and in the internal `.firmware-version`. The portal's **MicroPython version** is
+the runtime's `sys.implementation.version`, so it independently displays
+`1.28.0`.
 
 ## 3. Installing a new ESP32-S3
 
@@ -417,36 +495,61 @@ Do not bypass TLS certificate verification to work around an `install.sh`
 download failure. Repair the Mac/Python CA trust or use an approved trusted
 network, then rerun the installer.
 
-### Step 2: prepare device-specific files
+### Step 2: prepare the factory catalogue and signed applications
 
 From the project root:
 
-1. Set the device identity, correct module file, ESP32-S3 GPIOs, portal/update
-   settings, and watchdog in `device_settings.json`.
-2. Configure the physical modules in `module_settings.json`.
-3. Create `secrets.py` from `examples/secrets.example.py`, including Wi-Fi,
-   MQTT, `web_portal_token`, and a dedicated `recovery_ap_password` of at least
-   eight characters. If `recovery_ap_password` is omitted, recovery mode falls
-   back to `web_portal_token`.
-4. Put any MQTT/portal certificates in a local `certs/` directory and make the
-   configured device paths start with `/certs/`.
-5. Keep `watchdog_timeout_ms` at `0` during first bring-up; enable the intended
-   production timeout after connectivity is stable.
+1. Set the production HTTPS release-manifest endpoint in `factory_config.py`.
+   Leave it empty if first boot will use signed bundle upload. Query endpoints
+   and templates such as `https://updates.example/{channel}/latest.json` are
+   supported.
+2. Build one profile-free signed `.hamd` runtime. Its `app_settings.json` is
+   mandatory signed content; module settings may be offered as an optional
+   activation group or omitted.
+3. Prepare the trusted Home IoT CA certificate in DER format. The wizard can
+   use the CA's ACME directory to issue the portal keypair automatically, or
+   accept a manually supplied DER certificate/key as a fallback.
+4. Do not create `secrets.py`; the wizard stores credentials in encrypted NVS.
 
 ### Step 3: build all firmware artifacts
 
 ```sh
 source "$IDF_ROOT/export.sh"
 cd "$HAM_PROJECT_ROOT"
+python3 tools/generate_secure_boot_key.py \
+  --esp-idf-root "$IDF_ROOT" --output "$SECURE_BOOT_KEY"
 python3 tools/build_micropython_firmware.py \
   --micropython-root "$MICROPYTHON_ROOT" \
-  --version micropython-1.28.0-recovery-3 \
-  --output micropython-1.28.0-recovery-3.hamf \
-  --signing-key "$UPDATE_SIGNING_KEY"
+  --version 1.5.0 \
+  --release-sequence 1500 \
+  --output releases/release-site-1.5.0/bundles/ham-core-1.5.0.hamf \
+  --factory-output releases/factory-artifacts/ham-core-1.5.0.factory.bin \
+  --signing-key "$UPDATE_SIGNING_KEY" \
+  --production-security \
+  --secure-boot-signing-key "$SECURE_BOOT_KEY" \
+  --factory-setup-password-output releases/factory-artifacts/device-001.setup-password.txt
 ```
 
-Omit `--signing-key` only if no device key will be provisioned yet. The `.hamf`
-is for future OTA use; the first USB install uses the generated `flash_args`.
+The helper refuses an insecure production package. It writes a `.factory.bin`
+first-flash image containing an encrypted NVS partition, a unique setup AP key,
+and only the public OTA verification key. It also writes the setup key to the
+requested mode-0600 file for the device label/password manager. It refuses to
+overwrite that file. First boot permanently enables Secure Boot v2, AES-256
+release-mode flash encryption, NVS encryption, and JTAG lockdown.
+
+The resulting output layout keeps update-server files and device-specific
+factory material separate:
+
+```text
+releases/
+├── release-site-<version>/
+│   ├── <channel>/latest.json
+│   └── bundles/
+└── factory-artifacts/
+```
+
+Publish only the contents of `release-site-<version>`. Never publish the
+factory image or its paired setup-password file.
 
 ### Step 4: locate and flash the serial device
 
@@ -461,7 +564,7 @@ is appropriate only for a new device or after all existing VFS credentials and
 configuration have been backed up:
 
 ```sh
-export FIRMWARE_BUILD_DIR="$MICROPYTHON_ROOT/ports/esp32/build-HAM_ESP32_S3-SPIRAM_OCT"
+export FIRMWARE_BUILD_DIR="$MICROPYTHON_ROOT/ports/esp32/build-HAM_ESP32_S3-SPIRAM_OCT-secure"
 cd "$FIRMWARE_BUILD_DIR"
 python -m esptool \
   --chip esp32s3 \
@@ -472,7 +575,7 @@ python -m esptool \
   erase_flash
 ```
 
-Flash all generated offsets from the build's `flash_args`:
+Flash the self-contained factory image produced by the helper:
 
 ```sh
 python -m esptool \
@@ -481,73 +584,52 @@ python -m esptool \
   --baud 460800 \
   --before default_reset \
   --after hard_reset \
-  write_flash @flash_args
+  write_flash 0x0 "$HAM_PROJECT_ROOT/releases/factory-artifacts/ham-core-1.5.0.factory.bin"
 ```
 
 The options mean: select the ESP32-S3 ROM protocol, use the specified serial
 port at 460800 baud, reset into the bootloader before writing, reset normally
-after writing, and load the bootloader/partition/OTA/application address list
-from `flash_args`.
+after writing. Do not substitute the unmodified MicroPython `firmware.bin`: the
+packaged `.factory.bin` also contains this device's encrypted factory NVS.
 
-### Step 5: install `mpremote` and deploy the VFS
+### Step 5: complete the first-boot wizard
 
-Install the official MicroPython serial filesystem tool on the host:
+After the first reset, connect to `HAMD-Setup-xxxxxx` using the password from
+`device-001.setup-password.txt` and browse to `http://192.168.4.1`. Enter the
+device name, Wi-Fi, portal, and independently confirmed recovery credentials.
+The device generates a hostname-matched self-signed HTTPS identity after the
+browser supplies current UTC. Continue with that fallback, enroll with ACME,
+or atomically replace it with manually uploaded DER files. Automatic portal
+transport selects HTTPS whenever a certificate and key are installed.
 
-```sh
-python3 -m pip install mpremote
-mpremote connect list
-```
+The factory/reseed workflow stages a signed `.hamd` before the setup AP is
+presented. Certificate completion verifies that preloaded application, commits
+setup, erases the one-time setup AP key, and reboots into the trial application
+slot. If verification fails, the wizard offers the configured HTTPS release
+endpoint or manual `.hamd` upload as a recovery path. The browser polls the
+permanent portal after restart and opens its login page when ready.
 
-Copy recovery fallbacks, application code, and settings before installing
-`main.py`. Copying the launcher last avoids starting a half-deployed
-application if the device resets during transfer:
+After reboot, sign in to the HTTPS portal. Configure Wi-Fi and device identity
+under **System > Network**, MQTT under **System > MQTT**, and the release
+channel under **Maintenance > Upgrades**. Portal transport is under **System >
+Portal**; administrator identity and password replacement share **User >
+Account**, and legacy direct password URLs are disabled. Saving a network
+change starts a three-minute trial: an authenticated
+login confirms it, while an unconfirmed device restores the complete previous
+NVS configuration on the next boot.
 
-```sh
-cd "$HAM_PROJECT_ROOT"
-mpremote connect "$DEVICE_PORT" fs cp \
-  recovery_boot.py app_update.py firmware_update.py hardware_platform.py \
-  update_security.py update_support.py wifi_recovery.py HA-Device.py \
-  release_update.py settings_loader.py display.py web_portal.py \
-  device_settings.json module_settings.json secrets.py :
+Store the recovery AP and console passwords in the operator's password manager.
+The signed application bundle may be preloaded over USB by the factory/reseed
+tool. Credentials and private OTA signing keys are never copied to the device.
 
-mpremote connect "$DEVICE_PORT" fs cp -r device_modules :
-mpremote connect "$DEVICE_PORT" fs cp -r lib :
-```
-
-If certificates are configured:
-
-```sh
-mpremote connect "$DEVICE_PORT" fs mkdir :certs
-mpremote connect "$DEVICE_PORT" fs cp certs/home-ca.der :certs/home-ca.der
-mpremote connect "$DEVICE_PORT" fs cp certs/web.crt.der :certs/web.crt.der
-mpremote connect "$DEVICE_PORT" fs cp certs/web.key.der :certs/web.key.der
-```
-
-Provision the signing key before first boot if signed updates are required:
-
-```sh
-mpremote connect "$DEVICE_PORT" fs cp \
-  "$UPDATE_SIGNING_KEY" :.update-signing-key
-```
-
-Finally install the permanent launcher and reset:
-
-```sh
-mpremote connect "$DEVICE_PORT" fs cp main.py :main.py
-mpremote connect "$DEVICE_PORT" reset
-```
-
-The host helper `tools/deploy.py MOUNT [--secrets]` remains available only for
-environments that expose the MicroPython VFS as a mounted directory. A normal
-ESP32-S3 serial deployment should use `mpremote`.
-
-Mounted-deployment helper options:
-
-| Argument | Required | Meaning |
-| --- | --- | --- |
-| `MOUNT` | Yes | Positional path to the mounted MicroPython filesystem. |
-| `--secrets` | No | Also copy repository-root `secrets.py` when present. |
-| `-h`, `--help` | No | Show the current command syntax. |
+To recommission an installed device, use **Maintenance > Factory default**.
+Supply the current administrator password, type the exact reset confirmation,
+and choose a new setup-AP password twice. On reboot the frozen recovery layer
+clears user settings, module configuration, certificates/ACME state, pending
+updates, and local update history, then starts `HAMD-Setup-xxxxxx`. Confirmed
+application slots, the signed core, release counters, and the OTA verification
+public key are deliberately retained. This reset does not rotate the offline
+update-signing key or undo Secure Boot/flash-encryption eFuses.
 
 ### Step 6: verify OTA and recovery
 
@@ -561,13 +643,13 @@ mpremote connect "$DEVICE_PORT" reset
 
 Expected results:
 
-- `_machine` contains `HAM ESP32-S3 OTA with ESP32S3`;
+- `_machine` contains `HAMD ESP32-S3 OTA with ESP32S3`;
 - the running partition is `ota_0` or `ota_1`;
 - `get_next_update()` returns the other OTA slot;
 - the runtime version is `(1, 28, 0, ...)`; and
-- recovery API is `2`.
+- recovery API is `6`.
 
-Then open the tokenised portal URL and verify application/MQTT/module health.
+Then open the portal, sign in, and verify application/MQTT/module health.
 The portal's OTA availability must be `ready`. `No inactive OTA partition`
 means the complete `flash_args` installation did not occur; a `.hamf` upload
 cannot repair the partition table.
@@ -578,9 +660,17 @@ Run host tests with host Python:
 
 ```sh
 cd "$HAM_PROJECT_ROOT"
+python3 tools/check_repository_hygiene.py
+python3 tools/validate_json_schemas.py
 python3 -m unittest discover -s tests -v
 python3 -m py_compile tools/*.py tests/*.py
 ```
+
+The CI release gate runs the same hygiene and schema checks. Hygiene rejects
+tracked credentials, private keys, Python caches, and platform metadata. The
+schema gate validates application policy, module configuration, and every
+published `latest.json`. Production publication also requires a clean Git
+worktree and embeds its full source revision into the signed descriptor notes.
 
 Compile device runtime files with the pinned MicroPython compiler, not CPython:
 
@@ -592,10 +682,33 @@ done
 ```
 
 This compile loop intentionally targets runtime modules. Hardware behavior,
-ESP32 partition switching, power interruption, Wi-Fi failure, MQTT failure,
-and certificate validity still require a physical-device release test.
+ESP32 partition switching, power interruption, Wi-Fi failure, network-trial
+rollback, certificate-set rollback, and certificate validity still require a
+physical-device release test. MQTT failure must leave the authenticated portal
+available; MQTT is deliberately not part of update health.
+
+Before tagging an RC, also rotate every Wi-Fi, MQTT, setup, recovery, and portal
+credential that has ever appeared in a local plaintext file or repository
+history. Removing a file from the current tree does not invalidate a disclosed
+secret. Keep the offline update-signing private key and production Secure Boot
+key outside this repository and back them up separately.
 
 ## Common recovery checks
+
+When `device.wifi_recovery_enabled` is true, application startup exceptions or
+two consecutive missed startup health checks boot the frozen
+`HAMD-Recovery-xxxxxx` access point. Connect with the provisioned WPA2 key,
+browse to `http://192.168.4.1`, then authenticate with the different recovery-
+console password. The
+minimal console can repair Wi-Fi credentials, retry or roll back the application,
+and upload signed application/core bundles. It does not expose normal device
+controls or accept protected configuration bundles.
+
+Application and firmware trials retain priority over the console: failed
+application trials restore shared-file backups and roll back, while an
+unconfirmed core that cannot associate with Wi-Fi is left for ESP-IDF rollback.
+The console requires the separately provisioned `/.update-verification-key` before
+accepting uploads and times out after 15 minutes.
 
 - **`idf.py: command not found`**: source the actual pinned
   `"$IDF_ROOT/export.sh"` in the current terminal.
@@ -603,7 +716,7 @@ and certificate validity still require a physical-device release test.
   checkout; locate the directory containing `export.sh`.
 - **`mpremote` cannot connect**: close any IDE/terminal currently holding the
   serial port, reconnect USB, and run `mpremote connect list`.
-- **Portal `401 Unauthorized`**: authenticate again with the tokenised URL.
+- **Portal `401 Unauthorized`**: reload the portal and sign in again.
 - **Portal `403 Forbidden`**: refresh/re-authenticate so the session and CSRF
   value match; update uploads send the CSRF value in a request header.
 - **No activation button**: the staged status must be `ready`, not `idle`,
@@ -611,5 +724,6 @@ and certificate validity still require a physical-device release test.
 - **No inactive OTA partition**: perform the one-time complete USB flash using
   the generated `flash_args`.
 - **Trial repeatedly rolls back**: inspect portal history and the serial log.
-  Application trials require Wi-Fi, portal (when enabled), and MQTT; core
-  firmware trials require only local recovery/application startup.
+  Application and core trials require Wi-Fi plus successful authenticated
+  portal startup; an unavailable MQTT broker must not roll back a healthy
+  locally repairable release.

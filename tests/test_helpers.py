@@ -11,6 +11,7 @@ from device_modules.base import ha_unique_id
 from device_modules.base import sensor_discovery_payload
 from device_modules.base import DeviceDriver
 from device_modules.base import homeassistant_device_info
+from device_modules.base import module_diagnostics_need_attention
 from device_modules.validation import validate_device_config
 
 
@@ -36,6 +37,26 @@ class TestDriver(DeviceDriver):
 
     def get_state_payload(self):
         return {'temperature': 21}
+
+
+class ModuleDiagnosticsTests(unittest.TestCase):
+    def test_failed_status_needs_attention_without_error_text(self):
+        self.assertTrue(module_diagnostics_need_attention({'last_ok': False}))
+
+    def test_prefixed_transport_status_and_errors_need_attention(self):
+        self.assertTrue(module_diagnostics_need_attention({
+            'module_rs485_last_ok': False,
+            'module_rs485_last_error': '',
+        }))
+        self.assertTrue(module_diagnostics_need_attention({
+            'ems_last_ok': True,
+            'ems_last_error': 'crc mismatch',
+        }))
+
+    def test_healthy_or_uninitialised_diagnostics_do_not_need_attention(self):
+        self.assertFalse(module_diagnostics_need_attention({'last_ok': True}))
+        self.assertFalse(module_diagnostics_need_attention({'last_ok': None}))
+        self.assertFalse(module_diagnostics_need_attention({}))
 
 
 class HelperTests(unittest.TestCase):
@@ -68,11 +89,16 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(ha_unique_id('abc', '0001', 'grid_import_e'), 'abc0001_grid_import_e')
 
     def test_home_assistant_device_info_uses_configured_name_and_serial(self):
-        info = homeassistant_device_info('abc123', 'Configured Device')
+        info = homeassistant_device_info(
+            'abc123_configured_device', 'Configured Device'
+        )
 
         self.assertEqual(info['name'], 'Configured Device')
-        self.assertEqual(info['ids'], ['abc123'])
+        self.assertEqual(info['ids'], ['abc123_configured_device'])
         self.assertEqual(info['sn'], 'abc123')
+        self.assertEqual(info['mf'], 'HAMD')
+        self.assertEqual(info['mdl'], 'Home Assistant Modular Device')
+        self.assertEqual(info['hw'], 'ESP32-S3-DevKitC-1-N8R8')
 
     def test_sensor_discovery_includes_availability_and_origin(self):
         payload = sensor_discovery_payload(
@@ -80,7 +106,7 @@ class HelperTests(unittest.TestCase):
                 'name': 'Probe',
                 'uuid': '0001',
                 'type': {'class': 'sensor'},
-                '_portal_url': 'http://192.168.1.50:8080/?token=abc'
+                '_portal_url': 'http://192.168.1.50:8080/'
             },
             {'class': 'temperature', 'key': 'temperature'},
             'temperature',
@@ -92,7 +118,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(payload['availability_topic'], 'homeassistant/status/abc/availability')
         self.assertEqual(payload['payload_available'], 'online')
         self.assertEqual(payload['payload_not_available'], 'offline')
-        self.assertEqual(payload['dev']['cu'], 'http://192.168.1.50:8080/?token=abc')
+        self.assertEqual(payload['dev']['cu'], 'http://192.168.1.50:8080/')
         self.assertIn('o', payload)
 
     def test_sensor_discovery_disables_diagnostics_by_default(self):

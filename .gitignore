@@ -57,8 +57,14 @@ secrets.py
 /ports/
 /.update-signing-key
 *.signing-key
+*.private-key
+*.setup-password.txt
+secure_boot_signing_key.pem
 
 # Logs and temporary files
 *.log
 tmp/
 temp/
+
+# Recoverable quarantine for historical/generated project artifacts
+/to-delete/

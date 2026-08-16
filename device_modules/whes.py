@@ -4,6 +4,8 @@ Reads the small set of WHES Modbus values needed from RS485 and publishes a
 Home Assistant presentation payload with calculated PV and home-load power.
 """
 
+MODULE_VERSION = 1
+
 try:
     from . import rs485_modbus as rs485_module
     from .base import ha_safe_id

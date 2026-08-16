@@ -166,6 +166,23 @@ class HardwarePlatformTests(unittest.TestCase):
         self.assertEqual(hardware_platform.STATUS_COLOUR_OK, (16, 0, 0))
         self.assertEqual(hardware_platform.STATUS_COLOUR_WARNING, (16, 16, 0))
         self.assertEqual(hardware_platform.STATUS_COLOUR_ERROR, (0, 16, 0))
+        self.assertEqual(hardware_platform.STATUS_COLOUR_ACTIVITY, (0, 0, 16))
+
+    def test_named_status_led_states_apply_expected_colours(self):
+        output = hardware_platform.NullOutput()
+        self.assertEqual(
+            hardware_platform.set_status_led_state(output, 'boot'),
+            hardware_platform.STATUS_COLOUR_ACTIVITY
+        )
+        self.assertEqual(output(), 1)
+        self.assertEqual(
+            hardware_platform.set_status_led_state(output, 'recovery'),
+            hardware_platform.STATUS_COLOUR_WARNING
+        )
+        self.assertEqual(
+            hardware_platform.set_status_led_state(output, 'error'),
+            hardware_platform.STATUS_COLOUR_ERROR
+        )
 
     def test_status_led_mode_prioritises_main_errors(self):
         self.assertEqual(

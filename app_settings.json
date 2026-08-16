@@ -1,0 +1,22 @@
+{
+  "ha": {
+    "discovery_cleanup_legacy_identity": false,
+    "discovery_cleanup_legacy": false,
+    "system_diagnostics": true
+  },
+  "web_portal": {
+    "enabled": true,
+    "value_refresh_s": 5,
+    "log_refresh_s": 5,
+    "log_buffer_lines": 200,
+    "log_line_max_chars": 500,
+    "updates_enabled": true,
+    "firmware_updates_enabled": true,
+    "release_manifest_url": "https://hamd-update.home.arpa:8443/{channel}/latest.json",
+    "release_check_interval_s": 21600,
+    "session_timeout_s": 28800
+  },
+  "local_display": {
+    "enabled": false
+  }
+}

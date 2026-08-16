@@ -6,6 +6,8 @@ UART.  The port is always exposed as ``ch0`` for compatibility with WHES
 entity configurations.
 """
 
+MODULE_VERSION = 1
+
 try:
     from . import modbus_transport as modbus_transport
     from .logging import log_output

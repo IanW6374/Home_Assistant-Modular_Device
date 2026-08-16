@@ -71,6 +71,24 @@ class NeoPixelOutput:
 STATUS_COLOUR_OK = (16, 0, 0)
 STATUS_COLOUR_WARNING = (16, 16, 0)
 STATUS_COLOUR_ERROR = (0, 16, 0)
+STATUS_COLOUR_ACTIVITY = (0, 0, 16)
+
+
+def set_status_led_state(output, state):
+    """Apply a user-visible state to the single onboard status pixel."""
+    colour = {
+        'boot': STATUS_COLOUR_ACTIVITY,
+        'wifi': STATUS_COLOUR_ACTIVITY,
+        'setup': STATUS_COLOUR_ACTIVITY,
+        'recovery': STATUS_COLOUR_WARNING,
+        'warning': STATUS_COLOUR_WARNING,
+        'error': STATUS_COLOUR_ERROR,
+        'ok': STATUS_COLOUR_OK,
+    }.get(str(state), STATUS_COLOUR_WARNING)
+    if hasattr(output, 'set_colour'):
+        output.set_colour(colour)
+    output(1)
+    return colour
 
 
 def status_led_mode(main_error=False, module_fault=False):

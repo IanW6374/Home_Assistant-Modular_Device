@@ -1,4 +1,5 @@
 from uhcsr04.hcsr04 import HCSR04
+MODULE_VERSION = 1
 try:
     from .base import DeviceDriver
 except ImportError:

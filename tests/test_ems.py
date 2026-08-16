@@ -76,6 +76,22 @@ class EMSTests(unittest.TestCase):
 
         self.assertEqual(self.driver._crc(frame_without_crc), 0xA5)
 
+    def test_setup_defaults_to_safe_esp32_s3_uart1_pins(self):
+        captured = {}
+
+        def uart_factory(number, **config):
+            captured['number'] = number
+            captured['config'] = config
+            return FakeUART()
+
+        self.ems.UART = uart_factory
+        result = self.ems.setup(ems_device(), 1)
+
+        self.assertEqual(captured['number'], 1)
+        self.assertEqual(captured['config']['tx'].value_arg, 17)
+        self.assertEqual(captured['config']['rx'].value_arg, 18)
+        self.assertIn('driver', result)
+
     def test_decodes_ems_plus_fast_monitor(self):
         frame_without_crc = [
             0x88, 0x00, 0xE4, 0x00, 0x00, 0x2D, 0x2D, 0x00,
@@ -269,6 +285,20 @@ class EMSTests(unittest.TestCase):
             config = json.loads(f.read())
 
         self.assertEqual(validate_device_config(config, [self.ems.DEVICE_TYPE]), [])
+
+    def test_validation_rejects_console_uart_and_reserved_pins(self):
+        from device_modules.validation import validate_device_config
+
+        with open('examples/module_settings.ems.json', 'rb') as stream:
+            config = json.loads(stream.read())
+
+        config['devices'][0]['ems'].update({'uart': 0, 'tx': 38, 'rx': 38})
+        errors = validate_device_config(config, [self.ems.DEVICE_TYPE])
+        joined = '; '.join(errors)
+
+        self.assertIn('UART0 is reserved for the console', joined)
+        self.assertIn('GPIO38 is reserved for the HAMD status LED', joined)
+        self.assertIn('GPIO38 is already used by ems.tx', joined)
 
 
 if __name__ == '__main__':

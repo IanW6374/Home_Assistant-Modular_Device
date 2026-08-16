@@ -1,70 +1,127 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 
+import device_config
 import settings_loader
 
 
 class SettingsLoaderTests(unittest.TestCase):
-    def test_current_device_settings_load(self):
-        with open('device_settings.json', 'r') as fh:
-            config = json.load(fh)
+    def test_signed_application_settings_load(self):
+        with open('app_settings.json', 'r') as settings_file:
+            config = json.load(settings_file)
 
-        self.assertEqual(settings_loader.module_settings_file, config['device']['module_settings_file'])
-        self.assertEqual(settings_loader.ha_device_name, config['device']['name'])
-        self.assertEqual(settings_loader.ha_discovery, config['ha']['discovery'])
         self.assertEqual(
-            settings_loader.ha_discovery_cleanup_legacy_identity,
-            config['ha']['discovery_cleanup_legacy_identity']
-        )
-        self.assertEqual(settings_loader.ha_device_info.get('mdl'), config['ha']['device_info'].get('mdl'))
-        self.assertEqual(settings_loader.web_portal_enabled, config['web_portal']['enabled'])
-        self.assertEqual(settings_loader.web_portal_log_refresh_s, config['web_portal']['log_refresh_s'])
-        self.assertEqual(settings_loader.web_portal_value_refresh_s, config['web_portal']['value_refresh_s'])
-        self.assertEqual(settings_loader.web_log_buffer_lines, config['web_portal']['log_buffer_lines'])
-        self.assertEqual(settings_loader.web_log_line_max_chars, config['web_portal']['log_line_max_chars'])
-        self.assertEqual(settings_loader.web_portal_updates_enabled, config['web_portal']['updates_enabled'])
-        self.assertEqual(settings_loader.web_portal_update_max_bytes, config['web_portal']['update_max_bytes'])
-        self.assertEqual(
-            settings_loader.web_portal_allow_protected_updates,
-            config['web_portal']['allow_protected_updates']
+            settings_loader.ha_system_diagnostics,
+            config['ha']['system_diagnostics']
         )
         self.assertEqual(
-            settings_loader.web_portal_firmware_updates_enabled,
-            config['web_portal']['firmware_updates_enabled']
+            settings_loader.web_portal_enabled,
+            config['web_portal']['enabled']
         )
         self.assertEqual(
-            settings_loader.web_portal_firmware_update_max_bytes,
-            config['web_portal']['firmware_update_max_bytes']
+            settings_loader.web_portal_log_refresh_s,
+            config['web_portal']['log_refresh_s']
         )
-        self.assertEqual(settings_loader.status_led_pin, config['device']['status_led_pin'])
-        self.assertEqual(settings_loader.status_led_type, config['device']['status_led_type'])
-        self.assertEqual(settings_loader.local_display.get('enabled'), config['local_display']['enabled'])
-        self.assertIn(settings_loader.loglevel, ('ERROR', 'INFO', 'DEBUG'))
+        self.assertEqual(
+            settings_loader.web_portal_value_refresh_s,
+            config['web_portal']['value_refresh_s']
+        )
+        self.assertEqual(
+            settings_loader.release_manifest_url,
+            config['web_portal']['release_manifest_url']
+        )
+        self.assertEqual(
+            settings_loader.local_display,
+            config['local_display']
+        )
+
+    def test_immutable_device_policy_comes_from_frozen_module(self):
+        self.assertEqual(
+            settings_loader.module_settings_file,
+            device_config.MODULE_SETTINGS_FILE
+        )
+        self.assertEqual(
+            settings_loader.watchdog_timeout_ms,
+            device_config.WATCHDOG_TIMEOUT_MS
+        )
+        self.assertEqual(
+            settings_loader.status_led_pin,
+            device_config.STATUS_LED_PIN
+        )
+        self.assertEqual(
+            settings_loader.web_portal_cert_path,
+            device_config.WEB_PORTAL_CERT_PATH
+        )
+        self.assertEqual(
+            settings_loader.web_portal_update_max_bytes,
+            device_config.WEB_PORTAL_UPDATE_MAX_BYTES
+        )
+        self.assertEqual(
+            settings_loader.ha_device_info['mdl'],
+            device_config.DEVICE_INFO['mdl']
+        )
+        self.assertEqual(settings_loader.ha_device_info['mf'], 'HAMD')
+        self.assertEqual(
+            settings_loader.ha_device_info['mdl'],
+            'Home Assistant Modular Device'
+        )
+        self.assertEqual(
+            settings_loader.ha_device_info['hw'],
+            'ESP32-S3-DevKitC-1-N8R8'
+        )
+
+    def test_user_preferences_have_safe_unprovisioned_defaults(self):
+        self.assertEqual(settings_loader.loglevel, 'INFO')
+        self.assertTrue(settings_loader.ha_discovery)
+        self.assertFalse(settings_loader.release_auto_download)
+        self.assertFalse(settings_loader.release_auto_activate)
+        self.assertTrue(settings_loader.ntp_servers)
+
+    def test_both_tls_services_use_the_frozen_trust_anchor(self):
+        self.assertEqual(
+            settings_loader.service_ca_path('mqtt'),
+            device_config.TRUST_CA_PATH
+        )
+        self.assertEqual(
+            settings_loader.service_ca_path('release'),
+            device_config.TRUST_CA_PATH
+        )
+        with self.assertRaisesRegex(ValueError, 'unknown TLS service'):
+            settings_loader.service_ca_path('other')
+
+    def test_missing_optional_ca_does_not_prevent_portal_startup(self):
+        original = device_config.TRUST_CA_PATH
+        with tempfile.TemporaryDirectory() as directory:
+            device_config.TRUST_CA_PATH = str(Path(directory) / 'missing.der')
+            try:
+                self.assertEqual(
+                    settings_loader.service_ca_bytes('mqtt', required=False), b''
+                )
+                with self.assertRaisesRegex(RuntimeError, 'trusted CA is unavailable'):
+                    settings_loader.service_ca_bytes('mqtt', required=True)
+            finally:
+                device_config.TRUST_CA_PATH = original
 
     def test_required_json_rejects_missing_file(self):
-        with self.assertRaisesRegex(RuntimeError, 'Required JSON settings file not found'):
-            settings_loader.load_required_json('missing-device-settings-test.json')
+        with self.assertRaisesRegex(
+            RuntimeError, 'Required JSON settings file not found'
+        ):
+            settings_loader.load_required_json('missing-app-settings-test.json')
 
-    def test_ntp_servers_validated_as_non_empty_list(self):
-        with self.assertRaisesRegex(RuntimeError, 'ntp_servers must be a non-empty list'):
-            settings_loader._validate_ntp_servers([])
-
-    def test_loglevel_validated(self):
-        with self.assertRaisesRegex(RuntimeError, 'device.loglevel must be ERROR, INFO, or DEBUG'):
-            settings_loader._validate_loglevel('TRACE')
-
-    def test_optional_sections_default_disabled(self):
+    def test_optional_sections_default_to_empty_objects(self):
         self.assertEqual(settings_loader._section({}, 'ha'), {})
         self.assertEqual(settings_loader._section({}, 'web_portal'), {})
         self.assertEqual(settings_loader._section({}, 'local_display'), {})
 
-    def test_required_device_section_is_enforced(self):
-        with self.assertRaisesRegex(RuntimeError, 'missing device'):
-            settings_loader._section({}, 'device', True)
-
-    def test_unknown_keys_are_rejected(self):
-        with self.assertRaisesRegex(RuntimeError, 'unknown device.old_name'):
-            settings_loader._reject_unknown({'old_name': 'Controller'}, ('name',), 'device')
+    def test_section_type_and_unknown_keys_are_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, 'ha must be an object'):
+            settings_loader._section({'ha': []}, 'ha')
+        with self.assertRaisesRegex(RuntimeError, 'unknown ha.old_name'):
+            settings_loader._reject_unknown(
+                {'old_name': 'Controller'}, ('system_diagnostics',), 'ha'
+            )
 
 
 if __name__ == '__main__':

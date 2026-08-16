@@ -1,5 +1,7 @@
 """MAX31865 PT1000 RTD temperature sensor module."""
 
+MODULE_VERSION = 1
+
 try:
     from math import sqrt
 except ImportError:

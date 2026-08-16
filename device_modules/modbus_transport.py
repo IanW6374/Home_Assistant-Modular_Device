@@ -5,6 +5,8 @@ and publishes readings to MQTT. Also accepts ad-hoc read/write requests via the
 device's MQTT ``/set`` topic and publishes replies to ``/response``.
 """
 
+MODULE_VERSION = 1
+
 try:
     from ustruct import unpack
 except ImportError:

@@ -1,5 +1,5 @@
 {
-    "_comment": "ESP32-S3 example with two MAX31865/PT1000 probes on SPI0, a Grove AC voltage sensor on ADC1/GPIO1, and the local OLED display enabled in device_settings.json. The OLED display uses its own SPI pins from device_settings.json, not this module settings file.",
+    "_comment": "ESP32-S3 example with two MAX31865/PT1000 probes on SPI0 and a Grove AC voltage sensor on ADC1/GPIO1. Local display policy is supplied by the signed application settings, not this module settings file.",
     "devices": [
         {
             "name": "Flow Temperature",

@@ -96,7 +96,7 @@ class WhesTests(unittest.TestCase):
         device = {
             'name': 'WHES',
             'uuid': '0001',
-            '_portal_url': 'http://192.168.1.50:8080/?token=abc',
+            '_portal_url': 'http://192.168.1.50:8080/',
             'type': {'class': 'sensor', 'subclass': 'WHES'},
             'entities': {
                 '0': {'class': 'memory_value', 'key': 'SerialNumber', 'value': 'INV123456'}
@@ -111,7 +111,7 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(discovery['serial_number']['name'], 'INV123456 serial_number')
         self.assertEqual(discovery['serial_number']['dev']['name'], 'WHES Device')
         self.assertEqual(discovery['serial_number']['dev']['sn'], 'abc')
-        self.assertEqual(discovery['serial_number']['dev']['cu'], 'http://192.168.1.50:8080/?token=abc')
+        self.assertEqual(discovery['serial_number']['dev']['cu'], 'http://192.168.1.50:8080/')
         self.assertEqual(discovery['serial_number']['entity_category'], 'diagnostic')
         for index in discovery:
             self.assertTrue(discovery[index]['name'].startswith('INV123456 '))

@@ -1,5 +1,6 @@
 from machine import Pin
 from dht import DHT11
+MODULE_VERSION = 1
 try:
     from .base import DeviceDriver
 except ImportError:

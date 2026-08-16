@@ -1,4 +1,5 @@
 from machine import Pin, PWM
+MODULE_VERSION = 1
 try:
     from .base import DeviceDriver
 except ImportError:

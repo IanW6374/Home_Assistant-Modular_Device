@@ -5,6 +5,8 @@ publishes a calibrated RMS voltage. The optional threshold entity is exposed as
 a Home Assistant binary_sensor while sharing the same MQTT state payload.
 """
 
+MODULE_VERSION = 1
+
 from machine import ADC, Pin
 try:
     import hardware_platform

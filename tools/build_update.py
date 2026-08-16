@@ -16,14 +16,17 @@ from update_security import SIGNATURE_SCHEME, sign_manifest
 MAGIC = b'HAMD1\n'
 CORE_FILES = (
     'HA-Device.py',
+    'app_settings.json',
+    'component_versions.py',
     'settings_loader.py',
     'display.py',
+    'web_portal_ui.py',
     'web_portal.py',
-    'release_update.py',
 )
 CORE_DEVICE_MODULES = (
     'device_modules/__init__.py',
     'device_modules/loader.py',
+    'device_modules/driver_index.py',
     'device_modules/base.py',
     'device_modules/logging.py',
     'device_modules/validation.py',
@@ -116,8 +119,8 @@ def device_type_registry(root):
 
 def configured_driver_files(root, module_config):
     devices = module_config.get('devices')
-    if not isinstance(devices, list) or not devices:
-        raise ValueError('module settings must contain a non-empty devices list')
+    if not isinstance(devices, list):
+        raise ValueError('module settings must contain a devices list')
     registry = device_type_registry(root)
     selected = set()
     configured_types = []
@@ -176,20 +179,61 @@ def selected_library_files(selected_drivers, root):
     return files
 
 
-def resolve_settings_paths(root, device_settings_path=None, module_settings_path=None):
-    device_path = Path(device_settings_path or root / 'device_settings.json').resolve()
-    device_config = load_json_object(device_path, 'device settings')
-    if not device_config.get('device', {}).get('module_settings_file'):
-        raise ValueError('device settings does not define device.module_settings_file')
-    module_path = Path(module_settings_path or root / 'module_settings.json').resolve()
-    module_config = load_json_object(module_path, 'module settings')
-    return device_path, device_config, module_path, module_config
+def _integer_constant(path, constant):
+    tree = ast.parse(path.read_text(), filename=str(path))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        names = [target.id for target in node.targets if isinstance(target, ast.Name)]
+        if constant in names:
+            value = ast.literal_eval(node.value)
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                return value
+    raise ValueError(str(path) + ' must define positive integer ' + constant)
 
 
-def normalized_device_settings(device_config):
-    normalized = json.loads(json.dumps(device_config))
-    normalized['device']['module_settings_file'] = 'module_settings.json'
-    return normalized
+def application_components(root):
+    modules = {}
+    for path in sorted(set(device_type_registry(root).values())):
+        modules[path.stem] = _integer_constant(path, 'MODULE_VERSION')
+    return {
+        'runtime': _integer_constant(root / 'component_versions.py', 'RUNTIME_VERSION'),
+        'modules': modules,
+    }
+
+
+def generated_driver_index(root):
+    entries = []
+    for key, path in sorted(device_type_registry(root).items()):
+        entries.append("    %r: %r," % (key[0] + ':' + key[1], path.stem))
+    versions = []
+    for name, version in sorted(application_components(root)['modules'].items()):
+        versions.append("    %r: %d," % (name, version))
+    return (
+        '"""Generated mapping used to import only configured HAMD device drivers."""\n\n'
+        'DRIVER_MODULES = {\n' + '\n'.join(entries) + '\n}\n\n'
+        'DRIVER_VERSIONS = {\n' + '\n'.join(versions) + '\n}\n'
+    ).encode()
+
+
+def certificate_entry(specification):
+    """Resolve an optional target-relative certificate specification."""
+    value = str(specification)
+    if '=' in value:
+        target, source = value.split('=', 1)
+    else:
+        source = value
+        target = Path(source).name
+    target = target.replace('\\', '/')
+    parts = target.split('/')
+    if (
+        not source or not target or target.startswith('/') or
+        any(part in ('', '.', '..') for part in parts)
+    ):
+        raise ValueError(
+            'certificate target must be a safe path relative to certs/: ' + target
+        )
+    return 'certs/' + target, Path(source).resolve()
 
 
 def collect_files(
@@ -199,15 +243,37 @@ def collect_files(
     protected_only=False,
     include_settings=False,
     device_settings_path=None,
-    module_settings_path=None
+    module_settings_path=None,
+    universal=False
 ):
     paths = []
     ignore_patterns = load_ignore_patterns(root)
-    if not protected_only:
-        device_path, _, module_path, module_config = resolve_settings_paths(
-            root, device_settings_path, module_settings_path
+    if device_settings_path is not None:
+        raise ValueError(
+            'device_settings.json is no longer supported; device policy is '
+            'frozen and app policy is carried by app_settings.json'
         )
-        selected_drivers, configured_types = configured_driver_files(root, module_config)
+    if not protected_only:
+        settings_requested = bool(include_settings or module_settings_path is not None)
+        if universal:
+            selected_drivers = set(device_type_registry(root).values())
+            module_path = None
+            if settings_requested:
+                if include_settings or module_settings_path is not None:
+                    candidate = Path(
+                        module_settings_path or root / 'module_settings.json'
+                    ).resolve()
+                    if candidate.is_file():
+                        load_json_object(candidate, 'module settings')
+                        module_path = candidate
+                    elif module_settings_path is not None:
+                        raise ValueError('module settings file not found: ' + str(candidate))
+        else:
+            module_path = Path(
+                module_settings_path or root / 'module_settings.json'
+            ).resolve()
+            module_config = load_json_object(module_path, 'module settings')
+            selected_drivers, configured_types = configured_driver_files(root, module_config)
         selected_drivers = expand_device_dependencies(selected_drivers, root)
 
         for name in CORE_FILES + CORE_DEVICE_MODULES:
@@ -221,21 +287,13 @@ def collect_files(
                 raise ValueError('required dependency not found: ' + relative)
             if not is_ignored(relative, ignore_patterns):
                 paths.append((relative, path))
-        include_selected_settings = (
-            include_settings or
-            device_settings_path is not None or
-            module_settings_path is not None
-        )
-        if include_selected_settings:
-            paths.append(('device_settings.json', device_path))
-            paths.append(('module_settings.json', module_path))
+        if settings_requested:
+            if module_path is not None:
+                paths.append(('module_settings.json', module_path))
     if include_protected:
-        secrets = root / 'secrets.py'
-        if secrets.is_file():
-            paths.append(('secrets.py', secrets))
         for cert in certificates:
-            path = Path(cert).resolve()
-            paths.append(('certs/' + path.name, path))
+            relative, path = certificate_entry(cert)
+            paths.append((relative, path))
     deduplicated = {}
     for relative, path in paths:
         if relative in deduplicated and deduplicated[relative] != path:
@@ -256,12 +314,17 @@ def load_signing_key(path):
             value = bytes.fromhex(value.decode())
         except ValueError:
             pass
-    if len(value) < 32:
-        raise ValueError('signing key must contain at least 32 bytes')
+    if len(value) != 32:
+        raise ValueError('signing key must be exactly 32 bytes')
     return value
 
 
-def build_bundle(output, version, files, content_overrides=None, signing_key=b''):
+def build_bundle(
+    output, version, files, content_overrides=None, signing_key=b'',
+    release_sequence=1,
+    minimum_core_api=6, minimum_config_api=3, maximum_config_api=3,
+    components=None
+):
     output.parent.mkdir(parents=True, exist_ok=True)
     content_overrides = content_overrides or {}
     entries = []
@@ -275,11 +338,16 @@ def build_bundle(output, version, files, content_overrides=None, signing_key=b''
             'sha256': hashlib.sha256(data).hexdigest()
         })
     manifest_object = {
-        'format_version': 2,
+        'format_version': 6,
         'target_board': 'esp32-s3',
-        'min_recovery_api': 2,
-        'max_recovery_api': 2,
+        'min_recovery_api': 6,
+        'max_recovery_api': 6,
         'version': version,
+        'release_sequence': int(release_sequence),
+        'minimum_core_api': int(minimum_core_api),
+        'minimum_config_api': int(minimum_config_api),
+        'maximum_config_api': int(maximum_config_api),
+        'components': components or {'runtime': 1, 'modules': {}},
         'files': entries
     }
     if signing_key:
@@ -313,27 +381,48 @@ def main():
     parser = argparse.ArgumentParser(description='Build a MicroPython application update bundle')
     parser.add_argument('output', help='Output .hamd bundle path')
     parser.add_argument('--version', required=True, help='Application version label')
-    parser.add_argument('--include-protected', action='store_true', help='Include local secrets.py')
-    parser.add_argument('--protected-only', action='store_true', help='Exclude application files and build a secrets/certificate maintenance bundle')
-    parser.add_argument('--include-settings', action='store_true', help='Include device_settings.json and module_settings.json')
-    parser.add_argument('--device-settings', help='Device settings JSON used to select the active module settings file')
-    parser.add_argument('--module-settings', help='Module settings JSON to analyse instead of the filename in device settings')
-    parser.add_argument('--certificate', action='append', default=[], help='Certificate/key file to place under certs/')
+    parser.add_argument(
+        '--universal', action='store_true',
+        help=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        '--release-sequence', required=True, type=int,
+        help='Fleet-wide monotonically increasing signed release number'
+    )
+    parser.add_argument('--include-protected', action='store_true', help='Include explicitly selected certificates')
+    parser.add_argument('--protected-only', action='store_true', help='Exclude application files and build only certificate maintenance content')
+    parser.add_argument(
+        '--include-module-settings', action='store_true',
+        help='Include module_settings.json as an optional user configuration overwrite'
+    )
+    parser.add_argument(
+        '--module-settings',
+        help='Module settings JSON to package instead of the default module_settings.json'
+    )
+    parser.add_argument(
+        '--certificate', action='append', default=[],
+        help='Certificate/key as PATH or TARGET=PATH; TARGET is relative to certs/'
+    )
     parser.add_argument(
         '--signing-key',
-        help='32-byte raw or 64-character hex HMAC key; signed bundles are required once the same key is provisioned on the device'
+        required=True,
+        help='32-byte raw or 64-character hex ECDSA P-256 private key; never copy it to a device'
     )
     args = parser.parse_args()
 
     if args.protected_only and (
-        args.include_settings or
-        args.device_settings or
+        args.include_module_settings or
         args.module_settings
     ):
         parser.error(
             '--protected-only cannot be combined with settings options; '
             'build an application/settings bundle separately'
         )
+    universal = not args.protected_only
+    if universal and (args.include_protected or args.certificate):
+        parser.error('application releases cannot embed certificates')
+    if args.release_sequence <= 0:
+        parser.error('--release-sequence must be positive')
 
     root = Path(__file__).resolve().parents[1]
     include_protected = args.include_protected or args.protected_only or bool(args.certificate)
@@ -344,16 +433,17 @@ def main():
             include_protected,
             args.certificate,
             args.protected_only,
-            args.include_settings,
-            args.device_settings,
-            args.module_settings
+            args.include_module_settings,
+            None,
+            args.module_settings,
+            universal
         )
-        if not args.protected_only:
-            device_path, device_config, module_path, module_config = resolve_settings_paths(
-                root, args.device_settings, args.module_settings
-            )
+        if not args.protected_only and not universal:
+            module_path = Path(
+                args.module_settings or root / 'module_settings.json'
+            ).resolve()
+            module_config = load_json_object(module_path, 'module settings')
             _, configured_types = configured_driver_files(root, module_config)
-            print('device settings:', device_path)
             print('module settings:', module_path)
             print('configured types:', ', '.join(configured_types))
     except ValueError as exc:
@@ -361,23 +451,23 @@ def main():
     if not files:
         raise SystemExit('no files selected for the update bundle')
     content_overrides = {}
-    settings_included = any(relative == 'device_settings.json' for relative, _ in files)
-    if settings_included:
-        content_overrides['device_settings.json'] = json.dumps(
-            normalized_device_settings(device_config),
-            indent=2
-        ).encode()
+    if not args.protected_only:
+        content_overrides['device_modules/driver_index.py'] = generated_driver_index(root)
     entries = build_bundle(
         Path(args.output),
         args.version,
         files,
         content_overrides,
-        signing_key
+        signing_key,
+        release_sequence=args.release_sequence,
+        components=application_components(root) if not args.protected_only else {
+            'runtime': 1, 'modules': {}
+        }
     )
     print('created', args.output, 'with', len(entries), 'files')
     for entry in entries:
         print('  ', entry['path'])
-    print('signature:', 'hmac-sha256' if signing_key else 'unsigned development bundle')
+    print('signature:', SIGNATURE_SCHEME)
 
 
 if __name__ == '__main__':

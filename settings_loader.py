@@ -1,222 +1,228 @@
-import json
+"""Load signed application policy and combine it with core/user ownership."""
+
+try:
+    import ujson as json
+except ImportError:
+    import json
+
+import app_update
+import credential_store
+import device_config
+import update_support
 
 
-DEVICE_SETTINGS_FILE = 'device_settings.json'
-
-
-def load_required_json(filename):
+def load_required_json(filename, recover_previous=False):
     try:
-        with open(filename, 'rb') as settings_file:
-            data = json.loads(settings_file.read())
+        if recover_previous:
+            data = update_support.load_json_with_backup(filename)
+        else:
+            with open(filename, 'rb') as settings_file:
+                data = json.loads(settings_file.read())
     except OSError as exc:
-        raise RuntimeError('Required JSON settings file not found: ' + filename + ' - ' + str(exc))
+        raise RuntimeError(
+            'Required JSON settings file not found: ' + filename + ' - ' + str(exc)
+        )
     except ValueError as exc:
         raise RuntimeError('Invalid JSON in settings file: ' + filename + ' - ' + str(exc))
-
     if not isinstance(data, dict):
-        raise RuntimeError('Invalid JSON settings file: ' + filename + ' must contain a JSON object')
-
+        raise RuntimeError('Invalid JSON settings file: ' + filename + ' must contain an object')
     return data
 
 
-def _section(config, key, required=False):
-    if key not in config:
-        if required:
-            raise RuntimeError('Invalid device_settings.json: missing ' + key)
-        return {}
-    section = config[key]
-    if not isinstance(section, dict):
-        raise RuntimeError('Invalid device_settings.json: ' + key + ' must be dict')
-    return section
+def _section(config, key):
+    value = config.get(key, {})
+    if not isinstance(value, dict):
+        raise RuntimeError('Invalid app_settings.json: ' + key + ' must be an object')
+    return value
 
 
 def _reject_unknown(config, allowed, path):
     for key in config:
         if key not in allowed:
-            raise RuntimeError('Invalid device_settings.json: unknown ' + path + '.' + str(key))
-
-
-def _require(config, key, expected_type, path):
-    if key not in config:
-        raise RuntimeError('Invalid device_settings.json: missing ' + path)
-    _validate_type(config, key, expected_type, path)
-    return config[key]
-
-
-def _optional(config, key, expected_type, default, path):
-    if key not in config:
-        return default
-    _validate_type(config, key, expected_type, path)
-    return config[key]
-
-
-def _validate_type(config, key, expected_type, path):
-    value = config[key]
-    if not _matches_type(value, expected_type):
-        raise RuntimeError(
-            'Invalid device_settings.json: ' + path +
-            ' must be ' + _type_label(expected_type)
-        )
+            raise RuntimeError('Invalid app_settings.json: unknown ' + path + '.' + str(key))
 
 
 def _matches_type(value, expected_type):
     if isinstance(expected_type, tuple):
-        for item in expected_type:
-            if _matches_type(value, item):
-                return True
-        return False
+        return any(_matches_type(value, item) for item in expected_type)
     if expected_type is int:
         return isinstance(value, int) and not isinstance(value, bool)
     return isinstance(value, expected_type)
 
 
-def _type_label(expected_type):
-    if isinstance(expected_type, tuple):
-        labels = []
-        for item in expected_type:
-            labels.append(_type_label(item))
-        return ' or '.join(labels)
-    if expected_type is type(None):
-        return 'null'
-    return expected_type.__name__
+def _optional(config, key, expected_type, default, path):
+    if key not in config:
+        return default
+    value = config[key]
+    if not _matches_type(value, expected_type):
+        raise RuntimeError('Invalid app_settings.json: ' + path + ' has the wrong type')
+    return value
 
 
-def _validate_ntp_servers(value):
-    if not isinstance(value, list) or not value:
-        raise RuntimeError('Invalid device_settings.json: device.ntp_servers must be a non-empty list')
-    for server in value:
-        if not isinstance(server, str) or not server:
-            raise RuntimeError('Invalid device_settings.json: device.ntp_servers entries must be non-empty strings')
+def _bounded(value, path, minimum=None, maximum=None):
+    if minimum is not None and value < minimum:
+        raise RuntimeError(
+            'Invalid app_settings.json: ' + path + ' must be at least ' +
+            str(minimum)
+        )
+    if maximum is not None and value > maximum:
+        raise RuntimeError(
+            'Invalid app_settings.json: ' + path + ' must not exceed ' +
+            str(maximum)
+        )
+    return value
 
 
-def _validate_loglevel(value):
-    if value not in ('ERROR', 'INFO', 'DEBUG'):
-        raise RuntimeError('Invalid device_settings.json: device.loglevel must be ERROR, INFO, or DEBUG')
+def _application_file(name):
+    root = app_update.application_root()
+    return root + '/' + name if root else name
 
 
-_settings = load_required_json(DEVICE_SETTINGS_FILE)
-_reject_unknown(_settings, ('device', 'ha', 'web_portal', 'local_display'), 'section')
-_device = _section(_settings, 'device', True)
+APP_SETTINGS_FILE = _application_file('app_settings.json')
+_settings = load_required_json(APP_SETTINGS_FILE)
+_reject_unknown(_settings, ('ha', 'web_portal', 'local_display'), 'section')
 _ha = _section(_settings, 'ha')
 _web_portal = _section(_settings, 'web_portal')
 local_display = _section(_settings, 'local_display')
 
-_reject_unknown(_device, (
-    'name',
-    'module_settings_file',
-    'ca_cert_path',
-    'loglevel',
-    'watchdog_timeout_ms',
-    'status_led_pin',
-    'status_led_type',
-    'ntp_servers',
-    'wifi_recovery_enabled',
-    'wifi_recovery_timeout_s'
-), 'device')
 _reject_unknown(_ha, (
-    'discovery',
     'discovery_cleanup_legacy_identity',
     'discovery_cleanup_legacy',
     'discovery_cleanup_legacy_count',
     'system_diagnostics',
-    'device_info'
 ), 'ha')
 _reject_unknown(_web_portal, (
     'enabled',
-    'https',
-    'host',
-    'port',
-    'cert_path',
-    'key_path',
     'log_refresh_s',
     'value_refresh_s',
     'log_buffer_lines',
     'log_line_max_chars',
     'updates_enabled',
-    'update_max_bytes',
-    'allow_protected_updates',
     'firmware_updates_enabled',
-    'firmware_update_max_bytes',
     'release_manifest_url',
-    'release_channel',
     'release_check_interval_s',
-    'release_auto_download',
-    'release_auto_activate',
-    'session_timeout_s'
+    'session_timeout_s',
 ), 'web_portal')
-_reject_unknown(local_display, (
-    'enabled',
-    'type',
-    'width',
-    'height',
-    'spi',
-    'sck',
-    'mosi',
-    'cs',
-    'dc',
-    'rst',
-    'baudrate',
-    'rotate',
-    'refresh_ms',
-    'button_poll_ms',
-    'long_press_ms',
-    'button_a',
-    'button_b',
-    'button_active_low',
-    'button_a_short',
-    'button_a_long',
-    'button_b_short',
-    'button_b_long'
-), 'local_display')
 
-module_settings_file = _require(_device, 'module_settings_file', str, 'device.module_settings_file')
-ca_cert_path = _require(_device, 'ca_cert_path', str, 'device.ca_cert_path')
-ha_device_name = _require(_device, 'name', str, 'device.name')
+try:
+    _runtime_config = credential_store.load(require_provisioned=True)
+    _preferences = _runtime_config.get('preferences', {})
+except Exception:
+    _preferences = {}
 
-ntp_servers = _optional(_device, 'ntp_servers', list, ['pool.ntp.org'], 'device.ntp_servers')
-_validate_ntp_servers(ntp_servers)
+module_settings_file = device_config.MODULE_SETTINGS_FILE
+watchdog_timeout_ms = device_config.WATCHDOG_TIMEOUT_MS
+wifi_recovery_enabled = device_config.WIFI_RECOVERY_ENABLED
+wifi_recovery_timeout_s = device_config.WIFI_RECOVERY_TIMEOUT_S
+network_trial_timeout_s = device_config.NETWORK_TRIAL_TIMEOUT_S
+status_led_pin = device_config.STATUS_LED_PIN
+status_led_type = device_config.STATUS_LED_TYPE
 
-ha_device_info = _optional(_ha, 'device_info', dict, {}, 'ha.device_info')
-loglevel = _optional(_device, 'loglevel', str, 'INFO', 'device.loglevel')
-_validate_loglevel(loglevel)
-watchdog_timeout_ms = _optional(_device, 'watchdog_timeout_ms', int, 0, 'device.watchdog_timeout_ms')
-wifi_recovery_enabled = _optional(_device, 'wifi_recovery_enabled', bool, False, 'device.wifi_recovery_enabled')
-wifi_recovery_timeout_s = _optional(_device, 'wifi_recovery_timeout_s', int, 900, 'device.wifi_recovery_timeout_s')
-status_led_pin = _optional(_device, 'status_led_pin', (int, str, type(None)), None, 'device.status_led_pin')
-status_led_type = _optional(_device, 'status_led_type', str, 'auto', 'device.status_led_type')
-if status_led_type not in ('auto', 'digital', 'neopixel'):
-    raise RuntimeError('Invalid device_settings.json: device.status_led_type must be auto, digital, or neopixel')
-
-ha_discovery = _optional(_ha, 'discovery', bool, False, 'ha.discovery')
-ha_discovery_cleanup_legacy_identity = _optional(_ha, 'discovery_cleanup_legacy_identity', bool, False, 'ha.discovery_cleanup_legacy_identity')
-ha_discovery_cleanup_legacy = _optional(_ha, 'discovery_cleanup_legacy', bool, False, 'ha.discovery_cleanup_legacy')
-ha_discovery_cleanup_legacy_count = _optional(_ha, 'discovery_cleanup_legacy_count', int, 64, 'ha.discovery_cleanup_legacy_count')
-ha_system_diagnostics = _optional(_ha, 'system_diagnostics', bool, False, 'ha.system_diagnostics')
-
-web_portal_enabled = _optional(_web_portal, 'enabled', bool, False, 'web_portal.enabled')
-web_portal_https = _optional(_web_portal, 'https', bool, False, 'web_portal.https')
-web_portal_host = _optional(_web_portal, 'host', str, '0.0.0.0', 'web_portal.host')
-web_portal_port = _optional(_web_portal, 'port', (int, type(None)), None, 'web_portal.port')
-web_portal_cert_path = _optional(_web_portal, 'cert_path', str, '/certs/web.crt.der', 'web_portal.cert_path')
-web_portal_key_path = _optional(_web_portal, 'key_path', str, '/certs/web.key.der', 'web_portal.key_path')
-web_portal_updates_enabled = _optional(_web_portal, 'updates_enabled', bool, False, 'web_portal.updates_enabled')
-web_portal_update_max_bytes = _optional(_web_portal, 'update_max_bytes', int, 2097152, 'web_portal.update_max_bytes')
-web_portal_allow_protected_updates = _optional(_web_portal, 'allow_protected_updates', bool, False, 'web_portal.allow_protected_updates')
-web_portal_firmware_updates_enabled = _optional(_web_portal, 'firmware_updates_enabled', bool, False, 'web_portal.firmware_updates_enabled')
-web_portal_firmware_update_max_bytes = _optional(_web_portal, 'firmware_update_max_bytes', int, 4194304, 'web_portal.firmware_update_max_bytes')
-release_manifest_url = _optional(_web_portal, 'release_manifest_url', str, '', 'web_portal.release_manifest_url')
-release_channel = _optional(_web_portal, 'release_channel', str, 'stable', 'web_portal.release_channel')
-release_check_interval_s = _optional(_web_portal, 'release_check_interval_s', int, 21600, 'web_portal.release_check_interval_s')
-release_auto_download = _optional(_web_portal, 'release_auto_download', bool, False, 'web_portal.release_auto_download')
-release_auto_activate = _optional(_web_portal, 'release_auto_activate', bool, False, 'web_portal.release_auto_activate')
-web_portal_session_timeout_s = _optional(_web_portal, 'session_timeout_s', int, 28800, 'web_portal.session_timeout_s')
-web_portal_log_refresh_s = _optional(
-    _web_portal,
-    'log_refresh_s',
-    int,
-    5,
-    'web_portal.log_refresh_s'
+web_portal_host = device_config.WEB_PORTAL_HOST
+web_portal_port = device_config.WEB_PORTAL_PORT
+web_portal_cert_path = device_config.WEB_PORTAL_CERT_PATH
+web_portal_key_path = device_config.WEB_PORTAL_KEY_PATH
+web_portal_update_max_bytes = device_config.WEB_PORTAL_UPDATE_MAX_BYTES
+web_portal_firmware_update_max_bytes = (
+    device_config.WEB_PORTAL_FIRMWARE_UPDATE_MAX_BYTES
 )
-web_portal_value_refresh_s = _optional(_web_portal, 'value_refresh_s', int, 0, 'web_portal.value_refresh_s')
-web_log_buffer_lines = _optional(_web_portal, 'log_buffer_lines', int, 100, 'web_portal.log_buffer_lines')
-web_log_line_max_chars = _optional(_web_portal, 'log_line_max_chars', int, 300, 'web_portal.log_line_max_chars')
+web_portal_allow_protected_updates = (
+    device_config.WEB_PORTAL_ALLOW_PROTECTED_UPDATES
+)
+
+web_portal_enabled = _optional(
+    _web_portal, 'enabled', bool, True, 'web_portal.enabled'
+)
+web_portal_updates_enabled = _optional(
+    _web_portal, 'updates_enabled', bool, True, 'web_portal.updates_enabled'
+)
+web_portal_firmware_updates_enabled = _optional(
+    _web_portal, 'firmware_updates_enabled', bool, True,
+    'web_portal.firmware_updates_enabled'
+)
+release_manifest_url = _optional(
+    _web_portal, 'release_manifest_url', str, '', 'web_portal.release_manifest_url'
+)
+release_check_interval_s = _optional(
+    _web_portal, 'release_check_interval_s', int, 21600,
+    'web_portal.release_check_interval_s'
+)
+_bounded(release_check_interval_s, 'web_portal.release_check_interval_s', 300)
+web_portal_session_timeout_s = _optional(
+    _web_portal, 'session_timeout_s', int, 28800, 'web_portal.session_timeout_s'
+)
+_bounded(web_portal_session_timeout_s, 'web_portal.session_timeout_s', 300, 86400)
+web_portal_log_refresh_s = _optional(
+    _web_portal, 'log_refresh_s', int, 5, 'web_portal.log_refresh_s'
+)
+_bounded(web_portal_log_refresh_s, 'web_portal.log_refresh_s', 1)
+web_portal_value_refresh_s = _optional(
+    _web_portal, 'value_refresh_s', int, 0, 'web_portal.value_refresh_s'
+)
+_bounded(web_portal_value_refresh_s, 'web_portal.value_refresh_s', 0)
+web_log_buffer_lines = _optional(
+    _web_portal, 'log_buffer_lines', int, 100, 'web_portal.log_buffer_lines'
+)
+_bounded(web_log_buffer_lines, 'web_portal.log_buffer_lines', 0)
+web_log_line_max_chars = _optional(
+    _web_portal, 'log_line_max_chars', int, 300, 'web_portal.log_line_max_chars'
+)
+_bounded(web_log_line_max_chars, 'web_portal.log_line_max_chars', 1)
+
+ntp_servers = _preferences.get(
+    'ntp_servers', ('pool.ntp.org', 'time.google.com')
+)
+loglevel = _preferences.get('loglevel', 'INFO')
+ha_discovery = _preferences.get('ha_discovery', True) is True
+release_auto_download = _preferences.get('release_auto_download', False) is True
+release_auto_activate = _preferences.get('release_auto_activate', False) is True
+
+ha_discovery_cleanup_legacy_identity = _optional(
+    _ha, 'discovery_cleanup_legacy_identity', bool, False,
+    'ha.discovery_cleanup_legacy_identity'
+)
+ha_discovery_cleanup_legacy = _optional(
+    _ha, 'discovery_cleanup_legacy', bool, False, 'ha.discovery_cleanup_legacy'
+)
+ha_discovery_cleanup_legacy_count = _optional(
+    _ha, 'discovery_cleanup_legacy_count', int, 64,
+    'ha.discovery_cleanup_legacy_count'
+)
+_bounded(
+    ha_discovery_cleanup_legacy_count,
+    'ha.discovery_cleanup_legacy_count', 0
+)
+ha_system_diagnostics = _optional(
+    _ha, 'system_diagnostics', bool, False, 'ha.system_diagnostics'
+)
+
+ha_device_info = dict(device_config.DEVICE_INFO)
+_application_state = app_update.update_status()
+if _application_state.get('status') in ('trial', 'committing'):
+    _application_version = str(_application_state.get('version', ''))
+else:
+    _application_version = app_update.running_version('')
+if _application_version:
+    ha_device_info['sw'] = _application_version
+
+
+def service_ca_path(service, exists=None):
+    if service not in ('mqtt', 'release'):
+        raise ValueError('unknown TLS service: ' + str(service))
+    return device_config.TRUST_CA_PATH
+
+
+def service_ca_bytes(service, required=False):
+    path = service_ca_path(service)
+    try:
+        with open(path, 'rb') as stream:
+            value = stream.read()
+        if not value:
+            raise ValueError('trusted CA certificate is empty')
+        return value
+    except Exception as exc:
+        if required:
+            raise RuntimeError(
+                str(service).upper() + ' trusted CA is unavailable: ' + str(exc)
+            )
+        return b''

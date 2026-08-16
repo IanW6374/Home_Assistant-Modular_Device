@@ -32,11 +32,16 @@ try:
     import asyncio
 except ImportError:
     asyncio = None
+try:
+    import core_metadata
+except ImportError:
+    core_metadata = None
 
 
 MAGIC = b'HAMF1\n'
 STATE_PATH = '.firmware-update-state.json'
 VERSION_PATH = '.firmware-version'
+RELEASE_SEQUENCE_PATH = '.firmware-release-sequence'
 BLOCK_SIZE = 4096
 MAX_MANIFEST_BYTES = 2048
 DEFAULT_MAX_BYTES = 4 * 1024 * 1024
@@ -102,11 +107,29 @@ def update_status():
 
 
 def running_version(fallback=''):
+    frozen = str(
+        getattr(core_metadata, 'CORE_FIRMWARE_VERSION', '') if core_metadata else ''
+    ).strip()
+    if frozen:
+        return frozen
     try:
         with open(VERSION_PATH, 'r') as stream:
             return stream.read().strip() or fallback
     except Exception:
         return fallback
+
+
+def running_release_sequence():
+    frozen = int(
+        getattr(core_metadata, 'RELEASE_SEQUENCE', 0) if core_metadata else 0
+    )
+    if frozen > 0:
+        return frozen
+    try:
+        with open(RELEASE_SEQUENCE_PATH, 'r') as stream:
+            return int(stream.read().strip() or 0)
+    except Exception:
+        return 0
 
 
 async def _read_exact(reader, size):
@@ -162,16 +185,17 @@ async def _receive_bundle_locked(
 
     update_security.validate_manifest('hamf', manifest)
     version = str(manifest.get('version', '')).strip()
+    release_sequence = int(manifest.get('release_sequence', 0))
     expected = str(manifest.get('sha256', '')).lower()
     image_size = int(manifest.get('size', 0))
     target_platform = str(manifest.get('platform', ''))
     if not version or len(expected) != 64 or image_size <= 0:
         raise ValueError('firmware manifest is incomplete')
-    installed_version = running_version()
-    if installed_version and version == installed_version:
+    installed_sequence = running_release_sequence()
+    if installed_sequence and release_sequence <= installed_sequence:
         raise ValueError(
-            'firmware version ' + version +
-            ' is already running; build the replacement with a new version label'
+            'firmware release sequence ' + str(release_sequence) +
+            ' is not newer than installed sequence ' + str(installed_sequence)
         )
     if target_platform != 'esp32-s3':
         raise ValueError('firmware target platform is not supported')
@@ -248,6 +272,7 @@ async def _receive_bundle_locked(
     state = {
         'status': 'ready',
         'version': version,
+        'release_sequence': release_sequence,
         'sha256': expected,
         'size': image_size,
         'target': _partition_label(target)
@@ -325,6 +350,10 @@ def confirm_update():
     with open(temp, 'w') as stream:
         stream.write(str(state.get('version', '')))
     _replace(temp, VERSION_PATH)
+    sequence_temp = RELEASE_SEQUENCE_PATH + '.tmp'
+    with open(sequence_temp, 'w') as stream:
+        stream.write(str(int(state.get('release_sequence', 0))))
+    _replace(sequence_temp, RELEASE_SEQUENCE_PATH)
     _remove(STATE_PATH)
     update_support.record_update_event(
         'firmware', 'confirmed', state.get('version', ''), digest=state.get('sha256', '')
@@ -332,7 +361,17 @@ def confirm_update():
     return True
 
 
+def discard_pending_update():
+    state = update_status()
+    if state.get('status') != 'ready':
+        raise ValueError('no staged base firmware update')
+    version = state.get('version', '')
+    _remove(STATE_PATH)
+    update_support.record_update_event('firmware', 'discarded', version)
+    return True
+
+
 def cleanup_interrupted():
     return update_support.cleanup_interrupted_files((
-        STATE_PATH + '.tmp', VERSION_PATH + '.tmp'
+        STATE_PATH + '.tmp', VERSION_PATH + '.tmp', RELEASE_SEQUENCE_PATH + '.tmp'
     ))

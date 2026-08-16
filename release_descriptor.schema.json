@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hamd.example/schemas/release-descriptor.json",
+  "title": "HAMD signed release descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version", "target_board", "channel", "type", "version",
+    "release_sequence", "url", "size", "sha256", "minimum_core_api",
+    "minimum_config_api", "maximum_config_api", "notes", "published_at",
+    "signature_scheme", "signature"
+  ],
+  "properties": {
+    "format_version": {"const": 2},
+    "target_board": {"const": "esp32-s3"},
+    "channel": {"enum": ["stable", "beta"]},
+    "type": {"enum": ["application", "firmware"]},
+    "version": {"type": "string", "minLength": 1, "maxLength": 64},
+    "release_sequence": {"type": "integer", "minimum": 1},
+    "url": {"type": "string", "pattern": "^https://"},
+    "size": {"type": "integer", "minimum": 1},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "minimum_core_api": {"type": "integer", "minimum": 1},
+    "minimum_config_api": {"type": "integer", "minimum": 1},
+    "maximum_config_api": {"type": "integer", "minimum": 1},
+    "notes": {"type": "string", "maxLength": 512},
+    "published_at": {"type": "string", "maxLength": 64},
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "modules"],
+      "properties": {
+        "runtime": {"type": "integer", "minimum": 1},
+        "modules": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[a-z0-9_]{1,64}$"},
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "signature_scheme": {"const": "ecdsa-p256-sha256"},
+    "signature": {"type": "string", "pattern": "^[0-9a-f]{128}$"},
+    "releases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "items": {"$ref": "#"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"type": {"const": "application"}}},
+      "then": {"required": ["components"]}
+    }
+  ]
+}

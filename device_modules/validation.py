@@ -15,6 +15,35 @@ SENSOR_CLASSES = {
     'voltage'
 }
 
+# Pins that are unavailable or owned by the supported HAM ESP32-S3 N8R8 core.
+ESP32_S3_INVALID_GPIOS = {
+    0: 'boot strapping',
+    3: 'boot strapping',
+    19: 'USB/JTAG',
+    20: 'USB/JTAG',
+    22: 'an unavailable ESP32-S3 pin',
+    23: 'an unavailable ESP32-S3 pin',
+    24: 'an unavailable ESP32-S3 pin',
+    25: 'an unavailable ESP32-S3 pin',
+    26: 'flash/PSRAM',
+    27: 'flash/PSRAM',
+    28: 'flash/PSRAM',
+    29: 'flash/PSRAM',
+    30: 'flash/PSRAM',
+    31: 'flash/PSRAM',
+    32: 'flash/PSRAM',
+    33: 'Octal flash/PSRAM',
+    34: 'Octal flash/PSRAM',
+    35: 'Octal flash/PSRAM',
+    36: 'Octal flash/PSRAM',
+    37: 'Octal flash/PSRAM',
+    38: 'the HAMD status LED',
+    43: 'the UART0 console',
+    44: 'the UART0 console',
+    45: 'boot strapping',
+    46: 'boot strapping',
+}
+
 
 def validate_device_config(device_config, device_types):
     errors = []
@@ -73,6 +102,49 @@ def _validate_device(device, device_types, label, uuids):
         errors.extend(_validate_sensor_entities(device, type_entry, label))
     elif entities and not isinstance(entities, dict):
         errors.append(label + ': entities must be an object')
+
+    if device_type.get('subclass') == 'EMS-Boiler':
+        errors.extend(_validate_ems_hardware(device, label))
+
+    return errors
+
+
+def _validate_ems_hardware(device, label):
+    errors = []
+    ems = device.get('ems')
+    if not isinstance(ems, dict):
+        return [label + ': ems must be an object']
+
+    if ems.get('uart') != 1:
+        errors.append(
+            label + '.ems.uart: must be 1; UART0 is reserved for the console'
+        )
+
+    pins = {}
+    for field in ('tx', 'rx'):
+        pin = ems.get(field)
+        field_label = label + '.ems.' + field
+        if not isinstance(pin, int) or isinstance(pin, bool):
+            errors.append(field_label + ': must be an ESP32-S3 GPIO number')
+            continue
+        if pin < 0 or pin > 48:
+            errors.append(
+                field_label + ': GPIO' + str(pin) +
+                ' is outside the ESP32-S3 range'
+            )
+            continue
+        reason = ESP32_S3_INVALID_GPIOS.get(pin)
+        if reason:
+            errors.append(
+                field_label + ': GPIO' + str(pin) + ' is reserved for ' + reason
+            )
+        if pin in pins:
+            errors.append(
+                field_label + ': GPIO' + str(pin) +
+                ' is already used by ems.' + pins[pin]
+            )
+        else:
+            pins[pin] = field
 
     return errors
 

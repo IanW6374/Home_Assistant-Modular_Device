@@ -5,6 +5,8 @@ listens for broadcast monitor telegrams and publishes configured values to MQTT.
 It deliberately does not acknowledge polls, fetch telegrams, or write settings.
 """
 
+MODULE_VERSION = 2
+
 from machine import UART, Pin
 try:
     from .base import DeviceDriver
@@ -39,8 +41,9 @@ DEVICE_TYPE = {
 }
 
 
-DEFAULT_UART = 0
-DEFAULT_RX = 1
+DEFAULT_UART = 1
+DEFAULT_TX = 17
+DEFAULT_RX = 18
 DEFAULT_BAUDRATE = 9600
 DEFAULT_FRAME_GAP_MS = 20
 DEFAULT_POLL_MS = 5
@@ -106,11 +109,9 @@ def setup(device, index):
         'bits': ems.get('bits', 8),
         'parity': ems.get('parity', None),
         'stop': ems.get('stop', 1),
+        'tx': _as_pin(ems.get('tx', DEFAULT_TX)),
         'rx': _as_pin(ems.get('rx', DEFAULT_RX))
     }
-
-    if 'tx' in ems:
-        uart_args['tx'] = _as_pin(ems.get('tx'))
 
     uart = UART(ems.get('uart', DEFAULT_UART), **uart_args)
     return {

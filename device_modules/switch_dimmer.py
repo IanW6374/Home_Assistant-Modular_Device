@@ -1,4 +1,5 @@
 from machine import Pin
+MODULE_VERSION = 1
 from primitives import Pushbutton
 try:
     from .base import DeviceDriver

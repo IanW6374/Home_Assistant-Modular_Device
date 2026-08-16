@@ -9,7 +9,7 @@
             },
             "boiler_id": 8,
             "ems": {
-                "uart": 0,
+                "uart": 1,
                 "tx": 17,
                 "rx": 18,
                 "baudrate": 9600,

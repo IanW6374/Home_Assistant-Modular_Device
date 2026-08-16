@@ -6,13 +6,28 @@ except ImportError:
     time = None
 
 
+def module_diagnostics_need_attention(diagnostics):
+    """Return whether module diagnostics represent an attention state."""
+    diagnostics = diagnostics or {}
+    for key in diagnostics:
+        if key == 'last_ok' or key.endswith('_last_ok'):
+            if diagnostics.get(key) is False:
+                return True
+        if key == 'last_error' or key.endswith('_last_error'):
+            if diagnostics.get(key):
+                return True
+    return False
+
+
 def homeassistant_device_info(deviceid, ha_devicename, configuration_url=None):
     info = {}
     info.update(device_settings.ha_device_info)
 
     info["ids"] = [deviceid]
     info["name"] = ha_devicename
-    info["sn"] = deviceid
+    # The MQTT/Home Assistant identifier also contains the configurable device
+    # name.  Publish only the immutable chip id as the physical serial number.
+    info["sn"] = str(deviceid).split('_', 1)[0]
     if configuration_url:
         info["cu"] = configuration_url
     return info

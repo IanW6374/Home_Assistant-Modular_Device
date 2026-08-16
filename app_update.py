@@ -31,6 +31,7 @@ BUNDLE_PATH = '.app-update.bundle'
 STATE_PATH = '.app-update-state.json'
 BACKUP_ROOT = '.app-update-backup'
 VERSION_PATH = '.app-version'
+RELEASE_SEQUENCE_PATH = '.app-release-sequence'
 SLOT_ROOT = '.app-slots'
 SLOT_STATE_PATH = '.app-slot-state.json'
 SLOT_NAMES = ('a', 'b')
@@ -42,7 +43,12 @@ RECOVERY_FILES = (
     'main.py', 'recovery_boot.py', 'app_update.py', 'firmware_update.py',
     'hardware_platform.py', 'update_security.py', 'update_support.py',
     'wifi_recovery.py',
-    '.update-signing-key'
+    'credential_security.py',
+    'credential_store.py', 'setup_wizard.py', 'factory_config.py',
+    'device_config.py', 'portal_ui.py', 'http_support.py',
+    'release_update.py', 'certificate_manager.py',
+    '.update-verification-key',
+    '.recovery-state.json'
 )
 
 
@@ -62,15 +68,12 @@ def _safe_path(path):
 
 def is_protected_path(path):
     path = str(path).replace('\\', '/').lstrip('/')
-    return path == 'secrets.py' or path.startswith('certs/')
+    return path.startswith('certs/')
 
 
 def is_shared_path(path):
     path = str(path).replace('\\', '/').lstrip('/')
-    return (
-        path in ('device_settings.json', 'module_settings.json') or
-        is_protected_path(path)
-    )
+    return path == 'module_settings.json' or is_protected_path(path)
 
 
 def _slot_path(slot, path=''):
@@ -84,14 +87,17 @@ def slot_status():
     try:
         state = _read_json(SLOT_STATE_PATH)
     except Exception:
-        return {'active': '', 'versions': {}}
+        return {'active': '', 'versions': {}, 'sequences': {}}
     active = state.get('active', '')
     if active not in SLOT_NAMES:
         active = ''
     versions = state.get('versions', {})
     if not isinstance(versions, dict):
         versions = {}
-    return {'active': active, 'versions': versions}
+    sequences = state.get('sequences', {})
+    if not isinstance(sequences, dict):
+        sequences = {}
+    return {'active': active, 'versions': versions, 'sequences': sequences}
 
 
 def active_slot():
@@ -174,6 +180,34 @@ def read_manifest(stream):
     return manifest
 
 
+def running_release_sequence():
+    slots = slot_status()
+    active = slots.get('active', '')
+    sequence = slots.get('sequences', {}).get(active, 0)
+    if sequence:
+        return int(sequence)
+    try:
+        with open(RELEASE_SEQUENCE_PATH, 'r') as stream:
+            return int(stream.read().strip() or 0)
+    except Exception:
+        return 0
+
+
+def _validate_bundle_policy(manifest, paths):
+    application_paths = [path for path in paths if not is_protected_path(path)]
+    if application_paths and APPLICATION_ENTRY not in paths:
+        raise ValueError('application bundle has no ' + APPLICATION_ENTRY)
+    if application_paths and 'app_settings.json' not in paths:
+        raise ValueError('application bundle has no app_settings.json')
+    sequence = int(manifest.get('release_sequence', 0))
+    installed = running_release_sequence()
+    if installed and sequence <= installed:
+        raise ValueError(
+            'application release sequence ' + str(sequence) +
+            ' is not newer than installed sequence ' + str(installed)
+        )
+
+
 def validate_bundle(path=BUNDLE_PATH, allow_protected=False):
     with open(path, 'rb') as stream:
         manifest = read_manifest(stream)
@@ -201,6 +235,7 @@ def validate_bundle(path=BUNDLE_PATH, allow_protected=False):
                 raise ValueError('SHA-256 mismatch: ' + file_path)
         if stream.read(1):
             raise ValueError('unexpected data after update files')
+    _validate_bundle_policy(manifest, seen)
     return manifest
 
 
@@ -248,6 +283,7 @@ async def validate_bundle_async(path=BUNDLE_PATH, allow_protected=False, progres
                 raise ValueError('SHA-256 mismatch: ' + file_path)
         if stream.read(1):
             raise ValueError('unexpected data after update files')
+    _validate_bundle_policy(manifest, seen)
     return manifest
 
 
@@ -257,12 +293,8 @@ def selected_bundle_paths(manifest, selections=None):
     for entry in manifest.get('files', []):
         path = _safe_path(entry.get('path', ''))
         include = True
-        if path == 'device_settings.json':
-            include = bool(selections.get('device_settings', False))
-        elif path == 'module_settings.json':
+        if path == 'module_settings.json':
             include = bool(selections.get('module_settings', False))
-        elif path == 'secrets.py':
-            include = bool(selections.get('secrets', False))
         elif path.startswith('certs/'):
             include = bool(selections.get('certificates', False))
         if include:
@@ -273,12 +305,8 @@ def selected_bundle_paths(manifest, selections=None):
 def optional_bundle_groups(manifest):
     groups = []
     paths = [_safe_path(entry.get('path', '')) for entry in manifest.get('files', [])]
-    if 'device_settings.json' in paths:
-        groups.append('device_settings')
     if 'module_settings.json' in paths:
         groups.append('module_settings')
-    if 'secrets.py' in paths:
-        groups.append('secrets')
     if any(path.startswith('certs/') for path in paths):
         groups.append('certificates')
     return groups
@@ -288,13 +316,15 @@ def stage_bundle(path=BUNDLE_PATH, allow_protected=False, selections=None, manif
     manifest = manifest or validate_bundle(path, allow_protected)
     selected_paths = selected_bundle_paths(manifest, selections)
     has_application = any(
-        path not in ('device_settings.json', 'module_settings.json') and
+        path != 'module_settings.json' and
         not is_protected_path(path)
         for path in selected_paths
     )
     state = {
         'status': 'ready',
         'version': manifest.get('version', ''),
+        'release_sequence': int(manifest.get('release_sequence', 0)),
+        'components': manifest.get('components', {}),
         'allow_protected': bool(allow_protected),
         'applied': [],
         'has_application': has_application,
@@ -315,16 +345,16 @@ def configure_pending_update(selections=None):
     if not requested.issubset(available):
         raise ValueError('selected overwrite is not present in staged update')
     if (
-        ('secrets' in requested or 'certificates' in requested) and
+        'certificates' in requested and
         not state.get('allow_protected', False)
     ):
-        raise ValueError('protected updates are disabled in device settings')
+        raise ValueError('protected updates are disabled by frozen device policy')
 
     manifest = validate_bundle(BUNDLE_PATH, state.get('allow_protected', False))
     selected_paths = selected_bundle_paths(manifest, selections)
     state['selected_paths'] = selected_paths
     state['has_application'] = any(
-        path not in ('device_settings.json', 'module_settings.json') and
+        path != 'module_settings.json' and
         not is_protected_path(path)
         for path in selected_paths
     )
@@ -380,6 +410,20 @@ def update_status():
         return _read_json(STATE_PATH)
     except Exception:
         return {'status': 'idle'}
+
+
+def discard_pending_update():
+    state = update_status()
+    if state.get('status') != 'ready':
+        raise ValueError('no staged application update')
+    version = state.get('version', '')
+    _remove_if_exists(BUNDLE_PATH)
+    _remove_if_exists(STATE_PATH)
+    update_support.record_update_event(
+        'application', 'discarded', version,
+        detail='discarded from recovery portal'
+    )
+    return True
 
 
 def activate_pending():
@@ -514,13 +558,20 @@ def _finish_commit(state):
             raise ValueError('confirmed application slot is unavailable')
         slots = slot_status()
         versions = slots.get('versions', {})
+        sequences = slots.get('sequences', {})
         versions[target_slot] = str(state.get('version', ''))
+        sequences[target_slot] = int(state.get('release_sequence', 0))
         _write_json_atomic(SLOT_STATE_PATH, {
             'active': target_slot,
-            'versions': versions
+            'versions': versions,
+            'sequences': sequences
         })
         if state.get('version'):
             _write_text_atomic(VERSION_PATH, str(state.get('version')))
+        if state.get('release_sequence'):
+            _write_text_atomic(
+                RELEASE_SEQUENCE_PATH, str(int(state.get('release_sequence')))
+            )
     _remove_tree(BACKUP_ROOT)
     _remove_if_exists(BUNDLE_PATH)
     _remove_if_exists(STATE_PATH)
@@ -561,11 +612,15 @@ def _rollback_to_previous_locked():
     slots = slot_status()
     _write_json_atomic(SLOT_STATE_PATH, {
         'active': target,
-        'versions': slots.get('versions', {})
+        'versions': slots.get('versions', {}),
+        'sequences': slots.get('sequences', {})
     })
     version = slots.get('versions', {}).get(target, '')
     if version:
         _write_text_atomic(VERSION_PATH, version)
+    sequence = int(slots.get('sequences', {}).get(target, 0) or 0)
+    if sequence:
+        _write_text_atomic(RELEASE_SEQUENCE_PATH, str(sequence))
     update_support.record_update_event(
         'application', 'manual_rollback', version,
         detail='from slot ' + current + ' to slot ' + target
@@ -594,7 +649,8 @@ def rollback_update():
                 previous_slot = ''
             _write_json_atomic(SLOT_STATE_PATH, {
                 'active': previous_slot,
-                'versions': slots.get('versions', {})
+                'versions': slots.get('versions', {}),
+                'sequences': slots.get('sequences', {})
             })
         _remove_tree(_slot_path(target_slot))
     _remove_tree(BACKUP_ROOT)

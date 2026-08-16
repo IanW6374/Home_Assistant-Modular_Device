@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HAMD signed application settings",
+  "type": "object",
+  "properties": {
+    "ha": {
+      "type": "object",
+      "properties": {
+        "discovery_cleanup_legacy_identity": {"type": "boolean"},
+        "discovery_cleanup_legacy": {"type": "boolean"},
+        "discovery_cleanup_legacy_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "system_diagnostics": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "web_portal": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "log_refresh_s": {"type": "integer", "minimum": 1},
+        "value_refresh_s": {"type": "integer", "minimum": 0},
+        "log_buffer_lines": {"type": "integer", "minimum": 0},
+        "log_line_max_chars": {"type": "integer", "minimum": 1},
+        "updates_enabled": {"type": "boolean"},
+        "firmware_updates_enabled": {"type": "boolean"},
+        "release_manifest_url": {"type": "string"},
+        "release_check_interval_s": {"type": "integer", "minimum": 300},
+        "session_timeout_s": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 86400
+        }
+      },
+      "additionalProperties": false
+    },
+    "local_display": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "type": {"type": "string", "enum": ["SH1107-SPI"]},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "spi": {"type": "integer", "minimum": 0},
+        "sck": {"type": "integer", "minimum": 0},
+        "mosi": {"type": "integer", "minimum": 0},
+        "cs": {"type": "integer", "minimum": 0},
+        "dc": {"type": "integer", "minimum": 0},
+        "rst": {"type": "integer", "minimum": 0},
+        "baudrate": {"type": "integer", "minimum": 1},
+        "rotate": {"type": "integer", "enum": [0, 180]},
+        "refresh_ms": {"type": "integer", "minimum": 250},
+        "button_poll_ms": {"type": "integer", "minimum": 10},
+        "long_press_ms": {"type": "integer", "minimum": 100},
+        "button_a": {"type": ["integer", "null"], "minimum": 0},
+        "button_b": {"type": ["integer", "null"], "minimum": 0},
+        "button_active_low": {"type": "boolean"},
+        "button_a_short": {"type": "string"},
+        "button_a_long": {"type": "string"},
+        "button_b_short": {"type": "string"},
+        "button_b_long": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
