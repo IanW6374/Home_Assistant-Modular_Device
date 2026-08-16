@@ -380,6 +380,16 @@ class UpdateSecurityTests(unittest.TestCase):
         self.assertIn("{'log': 'Checking ' + request_url, 'force': True}", application_source)
         self.assertIn("release_check_status + ' — ' + request_url", application_source)
 
+    def test_portal_restarts_use_hardware_timer(self):
+        application_source = (Path(self.previous_cwd) / 'HA-Device.py').read_text()
+        self.assertIn('scheduled_reset_timer = Timer(-1)', application_source)
+        self.assertIn('mode=Timer.ONE_SHOT', application_source)
+        self.assertIn(
+            "schedule_hardware_reset('module_settings_reboot')",
+            application_source
+        )
+        self.assertNotIn('async def reboot_with_new_modules', application_source)
+
     def test_signed_release_descriptor_detects_metadata_tampering(self):
         descriptor = {
             'format_version': 2, 'target_board': 'esp32-s3',

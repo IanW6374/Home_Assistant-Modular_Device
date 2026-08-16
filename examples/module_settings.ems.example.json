@@ -175,6 +175,24 @@
                     "key": "ems_crc_errors",
                     "value": 0,
                     "entity_category": "diagnostic"
+                },
+                "25": {
+                    "class": "memory_value",
+                    "key": "ems_breaks",
+                    "value": 0,
+                    "entity_category": "diagnostic"
+                },
+                "26": {
+                    "class": "memory_value",
+                    "key": "ems_rx_overflows",
+                    "value": 0,
+                    "entity_category": "diagnostic"
+                },
+                "27": {
+                    "class": "memory_value",
+                    "key": "ems_bus_protocol",
+                    "value": "unknown",
+                    "entity_category": "diagnostic"
                 }
             }
         }

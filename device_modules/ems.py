@@ -5,7 +5,7 @@ listens for broadcast monitor telegrams and publishes configured values to MQTT.
 It deliberately does not acknowledge polls, fetch telegrams, or write settings.
 """
 
-MODULE_VERSION = 2
+MODULE_VERSION = 4
 
 from machine import UART, Pin
 try:
@@ -47,7 +47,9 @@ DEFAULT_RX = 18
 DEFAULT_BAUDRATE = 9600
 DEFAULT_FRAME_GAP_MS = 20
 DEFAULT_POLL_MS = 5
-DEFAULT_MAX_FRAME_BYTES = 96
+DEFAULT_MAX_FRAME_BYTES = 128
+DEFAULT_FRAME_QUEUE = 16
+EMS_MAX_TELEGRAM_BYTES = 32
 
 BOILER_ID = 0x08
 MONITOR_TYPES = (0x18, 0x19, 0x34, 0xE4, 0xE5, 0xE9)
@@ -134,6 +136,16 @@ class EMSBoilerDriver(DeviceDriver):
         self._deviceid = None
         self._log_callable = None
         self._values = {}
+        self._rx_buffer = bytearray()
+        self._rx_frames = []
+        self._break_irq = None
+        self._break_irq_enabled = False
+        self._max_frame_bytes = DEFAULT_MAX_FRAME_BYTES
+        self._max_frame_queue = DEFAULT_FRAME_QUEUE
+        self._bus_mask = None
+        self._ems_plus_seen = False
+        self._fragment_start = 0
+        self._fragment_end = None
         self._debug_frames_enabled = bool(
             self.device.get('ems', {}).get('debug_frames', False)
         )
@@ -143,7 +155,10 @@ class EMSBoilerDriver(DeviceDriver):
             'ems_last_src': '',
             'ems_last_error': '',
             'ems_frames': 0,
-            'ems_crc_errors': 0
+            'ems_crc_errors': 0,
+            'ems_breaks': 0,
+            'ems_rx_overflows': 0,
+            'ems_bus_protocol': 'unknown'
         }
 
         for e in self.device.get('entities', {}):
@@ -192,30 +207,36 @@ class EMSBoilerDriver(DeviceDriver):
 
         async def read_loop():
             uart = self.devchar['uart']
-            buffer = bytearray()
             last_rx = self._ticks_ms()
             ems_cfg = self.device.get('ems', {})
             frame_gap_ms = ems_cfg.get('frame_gap_ms', DEFAULT_FRAME_GAP_MS)
             poll_ms = ems_cfg.get('poll_ms', DEFAULT_POLL_MS)
-            max_frame_bytes = ems_cfg.get('max_frame_bytes', DEFAULT_MAX_FRAME_BYTES)
+            self._max_frame_bytes = ems_cfg.get(
+                'max_frame_bytes', DEFAULT_MAX_FRAME_BYTES
+            )
+            self._max_frame_queue = ems_cfg.get(
+                'frame_queue', DEFAULT_FRAME_QUEUE
+            )
+            self._enable_break_irq(uart)
 
             while True:
                 try:
-                    available = uart.any()
-                    if available:
-                        chunk = uart.read(available)
-                        if chunk:
-                            buffer.extend(chunk)
-                            if len(buffer) > max_frame_bytes:
-                                buffer = buffer[-max_frame_bytes:]
-                            last_rx = self._ticks_ms()
+                    if self._read_uart(uart):
+                        last_rx = self._ticks_ms()
 
-                    if buffer and self._ticks_diff(self._ticks_ms(), last_rx) >= frame_gap_ms:
-                        frame = bytes(buffer)
-                        buffer = bytearray()
-                        changed = self._process_frame(frame)
-                        if changed:
-                            self.publish_state(publish_callable, deviceid)
+                    if (
+                        not self._break_irq_enabled and
+                        self._rx_buffer and
+                        self._ticks_diff(self._ticks_ms(), last_rx) >= frame_gap_ms
+                    ):
+                        self._queue_idle_buffer()
+
+                    changed = False
+                    while self._rx_frames:
+                        frame = self._rx_frames.pop(0)
+                        changed = self._process_frame(frame) or changed
+                    if changed:
+                        self.publish_state(publish_callable, deviceid)
                 except Exception as exc:
                     self._record_error('read error ' + str(exc))
 
@@ -225,6 +246,86 @@ class EMSBoilerDriver(DeviceDriver):
             asyncio.create_task(read_loop())
         except Exception as exc:
             self._record_error('start error ' + str(exc))
+
+    def _enable_break_irq(self, uart):
+        """Use the ESP32 UART break event as the EMS packet delimiter."""
+        trigger = getattr(UART, 'IRQ_BREAK', None)
+        if trigger is None:
+            trigger = getattr(uart, 'IRQ_BREAK', None)
+        if trigger is None or not hasattr(uart, 'irq'):
+            self._break_irq_enabled = False
+            return False
+
+        try:
+            self._break_irq = uart.irq(
+                handler=self._on_uart_break,
+                trigger=trigger
+            )
+            self._break_irq_enabled = True
+            return True
+        except Exception as exc:
+            self._break_irq_enabled = False
+            self._log('UART break IRQ unavailable: ' + str(exc), 'DEBUG')
+            return False
+
+    def _on_uart_break(self, uart):
+        """Finish one packet; ESP32 places a zero byte in RX for the break."""
+        try:
+            self._read_uart(uart)
+            self._diagnostics['ems_breaks'] += 1
+            if not self._rx_buffer:
+                return
+
+            if self._rx_buffer[-1] == 0:
+                # MicroPython bytearray does not implement item deletion.
+                self._rx_buffer = self._rx_buffer[:-1]
+            frame = bytes(self._rx_buffer)
+            self._rx_buffer = bytearray()
+            self._queue_frame(frame)
+        except Exception as exc:
+            # Keep IRQ failures observable without doing MQTT work in the callback.
+            self._diagnostics['ems_last_ok'] = False
+            self._diagnostics['ems_last_error'] = 'break read error ' + str(exc)
+
+    def _read_uart(self, uart):
+        available = uart.any()
+        if not available:
+            return False
+        chunk = uart.read(available)
+        if not chunk:
+            return False
+
+        self._rx_buffer.extend(chunk)
+        if len(self._rx_buffer) > self._max_frame_bytes:
+            self._diagnostics['ems_rx_overflows'] += 1
+            self._diagnostics['ems_last_ok'] = False
+            self._diagnostics['ems_last_error'] = 'receive buffer overflow'
+            self._rx_buffer = bytearray()
+        return True
+
+    def _queue_idle_buffer(self):
+        """Fallback for ports without IRQ_BREAK; idle is less exact than a break."""
+        frame = bytes(self._rx_buffer)
+        self._rx_buffer = bytearray()
+        if frame and frame[-1] == 0:
+            candidate = frame[:-1]
+            if len(candidate) == 1 or self._frame_crc_ok(candidate):
+                frame = candidate
+        self._queue_frame(frame)
+
+    def _queue_frame(self, frame):
+        if not frame:
+            return
+        if len(self._rx_frames) >= self._max_frame_queue:
+            self._rx_frames.pop(0)
+            self._diagnostics['ems_rx_overflows'] += 1
+        self._rx_frames.append(frame)
+
+    def _frame_crc_ok(self, frame):
+        return (
+            5 <= len(frame) <= EMS_MAX_TELEGRAM_BYTES and
+            self._crc(frame[:-1]) == frame[-1]
+        )
 
     def _process_frame(self, frame):
         if len(frame) < 6:
@@ -256,6 +357,8 @@ class EMSBoilerDriver(DeviceDriver):
         if not telegram:
             return False
 
+        self._sense_bus(telegram)
+
         src = telegram['src'] & 0x7f
         if src != self.device.get('boiler_id', BOILER_ID):
             return False
@@ -285,7 +388,8 @@ class EMSBoilerDriver(DeviceDriver):
         if frame[2] == 0xff:
             if len(frame) < 8:
                 return None
-            telegram_type = (frame[4] << 8) | frame[5]
+            # EMS-ESP maps extended types to 0x100..0xFFFF by adding 0x100.
+            telegram_type = ((frame[4] << 8) | frame[5]) + 0x100
             offset = frame[3]
             data = frame[6:-1]
         else:
@@ -301,11 +405,22 @@ class EMSBoilerDriver(DeviceDriver):
             'data': data
         }
 
-    def _decode_values(self, telegram):
-        if telegram['offset'] != 0:
-            return {}
+    def _sense_bus(self, telegram):
+        if self._bus_mask is None:
+            self._bus_mask = telegram['src'] & 0x80
+        if telegram['type'] in (0xE3, 0xE4, 0xE5, 0xE9) or telegram['type'] > 0xff:
+            self._ems_plus_seen = True
 
-        data = telegram['data']
+        family = 'EMS+' if self._ems_plus_seen else 'EMS'
+        addressing = 'HT3/Junkers' if self._bus_mask else 'Buderus'
+        self._diagnostics['ems_bus_protocol'] = family + ' (' + addressing + ')'
+
+    def _decode_values(self, telegram):
+        # EMS telegrams are often split into offset fragments. Prefix with the
+        # normal missing marker so existing absolute EMS-ESP offsets still work.
+        self._fragment_start = telegram['offset']
+        self._fragment_end = telegram['offset'] + len(telegram['data'])
+        data = bytes([0xff]) * telegram['offset'] + telegram['data']
         telegram_type = telegram['type']
         values = {}
 
@@ -487,7 +602,7 @@ class EMSBoilerDriver(DeviceDriver):
         return crc
 
     def _u8(self, data, offset, missing=(0xff,)):
-        if offset is None or offset >= len(data):
+        if not self._fragment_has(offset, 1) or offset >= len(data):
             return None
         value = data[offset]
         if value in missing:
@@ -495,7 +610,7 @@ class EMSBoilerDriver(DeviceDriver):
         return value
 
     def _u16(self, data, offset, missing=(0x8000, 0x7fff, 0xffff)):
-        if offset is None or offset + 1 >= len(data):
+        if not self._fragment_has(offset, 2) or offset + 1 >= len(data):
             return None
         value = (data[offset] << 8) | data[offset + 1]
         if value in missing:
@@ -511,7 +626,7 @@ class EMSBoilerDriver(DeviceDriver):
         return value
 
     def _u24(self, data, offset, missing=(0x800000, 0x7fffff, 0xffffff)):
-        if offset is None or offset + 2 >= len(data):
+        if not self._fragment_has(offset, 3) or offset + 2 >= len(data):
             return None
         value = (data[offset] << 16) | (data[offset + 1] << 8) | data[offset + 2]
         if value in missing:
@@ -546,7 +661,7 @@ class EMSBoilerDriver(DeviceDriver):
         return bool(value & (1 << bit))
 
     def _ascii(self, data, offset, count):
-        if offset is None or offset + count > len(data):
+        if not self._fragment_has(offset, count) or offset + count > len(data):
             return None
         text = ''
         for byte in data[offset:offset + count]:
@@ -554,6 +669,16 @@ class EMSBoilerDriver(DeviceDriver):
                 continue
             text += chr(byte)
         return text or None
+
+    def _fragment_has(self, offset, count):
+        if offset is None:
+            return False
+        if self._fragment_end is None:
+            return True
+        return (
+            offset >= self._fragment_start and
+            offset + count <= self._fragment_end
+        )
 
     def _round(self, value):
         rounded = round(value, 1)

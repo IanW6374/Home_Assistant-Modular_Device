@@ -26,6 +26,23 @@ class FakeUART:
         return chunk
 
 
+class FakeBreakUART(FakeUART):
+    IRQ_BREAK = 4
+
+    def __init__(self):
+        super().__init__()
+        self.irq_handler = None
+        self.irq_trigger = None
+
+    def irq(self, handler=None, trigger=0):
+        self.irq_handler = handler
+        self.irq_trigger = trigger
+        return self
+
+    def fire_break(self):
+        self.irq_handler(self)
+
+
 def load_module():
     machine = types.ModuleType('machine')
     machine.Pin = FakePin
@@ -75,6 +92,77 @@ class EMSTests(unittest.TestCase):
         ])
 
         self.assertEqual(self.driver._crc(frame_without_crc), 0xA5)
+
+    def test_break_irq_removes_esp32_break_byte_before_crc(self):
+        uart = FakeBreakUART()
+        driver = self.ems.EMSBoilerDriver(ems_device(), {'uart': uart})
+        frame = bytes([
+            0x88, 0x00, 0xE5, 0x1C, 0x00, 0x00, 0x00, 0x00, 0x2E
+        ])
+        self.assertEqual(driver._crc(frame[:-1]), frame[-1])
+
+        self.assertTrue(driver._enable_break_irq(uart))
+        uart.reply = frame + b'\x00'
+        uart.fire_break()
+
+        self.assertEqual(driver._rx_frames, [frame])
+        self.assertEqual(driver._diagnostics['ems_breaks'], 1)
+        self.assertEqual(driver._rx_buffer, bytearray())
+
+    def test_idle_fallback_removes_valid_trailing_break_byte(self):
+        frame = self.with_crc([0x88, 0x00, 0xE5, 0x1C, 0, 0, 0, 0])
+        self.driver._rx_buffer.extend(frame + b'\x00')
+
+        self.driver._queue_idle_buffer()
+
+        self.assertEqual(self.driver._rx_frames, [frame])
+
+    def test_senses_ems_plus_and_ht3_addressing_from_valid_frame(self):
+        frame = self.with_crc([0x88, 0x00, 0xE4, 0x00, 0, 0, 0, 0])
+
+        self.driver._process_frame(frame)
+
+        self.assertEqual(
+            self.driver._diagnostics['ems_bus_protocol'],
+            'EMS+ (HT3/Junkers)'
+        )
+
+    def test_parses_ems_plus_extended_type_using_ems_esp_numbering(self):
+        frame = self.with_crc([
+            0x08, 0x00, 0xFF, 0x00, 0x03, 0x95, 0x00
+        ])
+
+        telegram = self.driver._parse_telegram(frame)
+
+        self.assertEqual(telegram['type'], 0x495)
+
+    def test_decodes_monitor_fragment_at_nonzero_offset(self):
+        entities = {
+            '0': {'class': 'memory_value', 'key': 'pc0flow', 'value': None}
+        }
+        driver = self.ems.EMSBoilerDriver(
+            ems_device(entities), {'uart': FakeUART()}
+        )
+        # E4 fragment begins at offset 35; pc0flow is the signed word at 36.
+        frame = bytes([0x88, 0x00, 0xE4, 0x23, 0x00, 0x09, 0x60, 0x00])
+        frame += bytes([driver._crc(frame)])
+
+        self.assertTrue(driver._process_frame(frame))
+        self.assertEqual(driver.get_state_payload()['pc0flow'], 2400)
+
+    def test_fragment_does_not_decode_value_crossing_its_start(self):
+        entities = {
+            '0': {'class': 'temperature', 'key': 'exhausttemp', 'value': None}
+        }
+        driver = self.ems.EMSBoilerDriver(
+            ems_device(entities), {'uart': FakeUART()}
+        )
+        # Exhaust temperature starts at 31, before this fragment's offset 32.
+        frame = bytes([0x88, 0x00, 0xE4, 0x20, 0x20, 0x00, 0x00])
+        frame += bytes([driver._crc(frame)])
+
+        self.assertFalse(driver._process_frame(frame))
+        self.assertIsNone(driver.get_state_payload()['exhausttemp'])
 
     def test_setup_defaults_to_safe_esp32_s3_uart1_pins(self):
         captured = {}

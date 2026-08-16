@@ -26,7 +26,10 @@
         "2": {"class": "temperature", "key": "rettemp", "value": null, "unit": "°C", "state_class": "measurement"},
         "3": {"class": "memory_value", "key": "flameactive", "value": false},
         "4": {"class": "memory_value", "key": "ems_frames", "value": 0, "entity_category": "diagnostic"},
-        "5": {"class": "memory_value", "key": "ems_crc_errors", "value": 0, "entity_category": "diagnostic"}
+        "5": {"class": "memory_value", "key": "ems_crc_errors", "value": 0, "entity_category": "diagnostic"},
+        "6": {"class": "memory_value", "key": "ems_breaks", "value": 0, "entity_category": "diagnostic"},
+        "7": {"class": "memory_value", "key": "ems_rx_overflows", "value": 0, "entity_category": "diagnostic"},
+        "8": {"class": "memory_value", "key": "ems_bus_protocol", "value": "unknown", "entity_category": "diagnostic"}
       }
     }
   ]

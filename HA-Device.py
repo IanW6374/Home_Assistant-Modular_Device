@@ -31,6 +31,10 @@ try:
     from machine import WDT
 except ImportError:
     WDT = None
+try:
+    from machine import Timer
+except ImportError:
+    Timer = None
 from primitives import Encoder
 from mqtt_as import MQTTClient, config
 import asyncio
@@ -116,6 +120,7 @@ watchdog_timeout_ms = device_settings.watchdog_timeout_ms
 watchdog = None
 ntp_synced = False
 web_portal_server = None
+scheduled_reset_timer = None
 web_portal_enabled = device_settings.web_portal_enabled
 web_portal_host = device_settings.web_portal_host
 web_portal_username = runtime_credentials['portal']['username']
@@ -429,6 +434,39 @@ def start_task(name, coroutine, main_device_task=False):
                 set_main_device_error()
 
     return asyncio.create_task(runner())
+
+
+def _perform_scheduled_reset(_timer=None):
+    hardware_platform.reset()
+
+
+def schedule_hardware_reset(name, delay_ms=2000):
+    """Schedule a reset independently of a busy uasyncio event loop."""
+    global scheduled_reset_timer
+    if Timer is not None:
+        try:
+            scheduled_reset_timer = Timer(-1)
+            scheduled_reset_timer.init(
+                mode=Timer.ONE_SHOT,
+                period=max(1, int(delay_ms)),
+                callback=_perform_scheduled_reset,
+            )
+            return
+        except Exception as exc:
+            logOutput(
+                'Local', 'Reset',
+                {'log': 'Hardware timer unavailable; using event loop - ' + str(exc)},
+                'ERROR'
+            )
+
+    async def delayed_reset():
+        if hasattr(asyncio, 'sleep_ms'):
+            await asyncio.sleep_ms(max(1, int(delay_ms)))
+        else:
+            await asyncio.sleep(max(1, int(delay_ms)) / 1000)
+        _perform_scheduled_reset()
+
+    start_task(name, delayed_reset())
 
 
 def start_portal_task(name, coroutine, message):
@@ -831,11 +869,7 @@ def update_portal_settings(params):
 
     updated = credential_store.update_operational_settings(values, network_trial=True)
 
-    async def reboot_with_new_settings():
-        await asyncio.sleep(2)
-        hardware_platform.reset()
-
-    start_task('settings_reboot', reboot_with_new_settings())
+    schedule_hardware_reset('settings_reboot')
     transport = updated.get('portal_transport', 'auto')
     https = transport != 'http'
     port = updated.get('portal_port')
@@ -904,11 +938,7 @@ def update_module_settings(payload):
         stream.write(json.dumps(candidate))
     update_support.commit_file_with_backup(temporary, moduleSettingsFile)
 
-    async def reboot_with_new_modules():
-        await asyncio.sleep(2)
-        hardware_platform.reset()
-
-    start_task('module_settings_reboot', reboot_with_new_modules())
+    schedule_hardware_reset('module_settings_reboot')
     return 'Module settings saved and verified. The device is restarting.'
 
 
@@ -953,11 +983,7 @@ def validate_uploaded_certificates():
     ))
     credential_store.update_certificate_settings('manual')
 
-    async def reboot_with_new_certificates():
-        await asyncio.sleep(2)
-        hardware_platform.reset()
-
-    start_task('certificate_upload_reboot', reboot_with_new_certificates())
+    schedule_hardware_reset('certificate_upload_reboot')
     return 'Certificates validated. The device is restarting.'
 
 
@@ -1132,14 +1158,7 @@ def portal_action(action, params):
         except Exception as exc:
             return 'Application update activation failed: ' + str(exc)
 
-        async def reboot_for_update():
-            await asyncio.sleep(1)
-            try:
-                hardware_platform.reset()
-            except Exception as exc:
-                logOutput('Local', 'Application update', {'log': 'Reboot failed: ' + str(exc)}, 'ERROR')
-
-        start_task('application_update_reboot', reboot_for_update())
+        schedule_hardware_reset('application_update_reboot', 1000)
         return 'Application update staged; rebooting'
 
     if action == 'activate-firmware':
@@ -1150,11 +1169,7 @@ def portal_action(action, params):
         except Exception as exc:
             return 'Base firmware activation failed: ' + str(exc)
 
-        async def reboot_for_firmware_update():
-            await asyncio.sleep(1)
-            hardware_platform.reset()
-
-        start_task('firmware_update_reboot', reboot_for_firmware_update())
+        schedule_hardware_reset('firmware_update_reboot', 1000)
         return 'Base firmware staged; rebooting into trial partition'
 
     if action == 'rollback-application':
@@ -1163,11 +1178,7 @@ def portal_action(action, params):
         except Exception as exc:
             return 'Application rollback failed: ' + str(exc)
 
-        async def reboot_for_application_rollback():
-            await asyncio.sleep(1)
-            hardware_platform.reset()
-
-        start_task('application_manual_rollback', reboot_for_application_rollback())
+        schedule_hardware_reset('application_manual_rollback', 1000)
         return (
             'Application switched to slot ' + str(result.get('active', '')) +
             '; rebooting'
@@ -1457,11 +1468,7 @@ def request_factory_default(setup_password):
         'INFO'
     )
 
-    async def reboot_to_setup():
-        await asyncio.sleep(2)
-        hardware_platform.reset()
-
-    start_task('factory_default_reboot', reboot_to_setup())
+    schedule_hardware_reset('factory_default_reboot')
     return True
 
 

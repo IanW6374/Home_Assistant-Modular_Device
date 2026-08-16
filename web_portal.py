@@ -815,6 +815,9 @@ FRIENDLY_LABELS = {
     'ems_last_error': 'EMS last error',
     'ems_frames': 'Valid EMS frames',
     'ems_crc_errors': 'EMS CRC errors',
+    'ems_breaks': 'Detected EMS breaks',
+    'ems_rx_overflows': 'EMS receive overflows',
+    'ems_bus_protocol': 'Detected EMS bus protocol',
     'adc_rms': 'ADC RMS',
     'adc_midpoint': 'ADC midpoint',
     'adc_min': 'ADC minimum',
@@ -2272,7 +2275,7 @@ async def start_web_portal(
                 await send_redirect(writer, '/')
             elif method == 'POST' and path.startswith('/ems-debug'):
                 apply_portal_action('ems-debug', action_path, action_handler, log_output, form_params)
-                await send_redirect(writer, '/')
+                await send_redirect(writer, '/diagnostics')
             elif method == 'POST' and path.startswith('/activate-update'):
                 result = apply_portal_action(
                     'activate-update', action_path, action_handler, log_output, form_params

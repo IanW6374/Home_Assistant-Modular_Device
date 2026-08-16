@@ -666,6 +666,25 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('<h1>Diagnostics</h1>', diagnostics)
                 self.assertIn('aria-label="Module submenu"', diagnostics)
 
+                debug_body = (
+                    'csrf=' + session_id + '&uuid=0001&enabled=true'
+                ).encode()
+                debug_response = await request(
+                    ('POST /ems-debug HTTP/1.1\r\nCookie: ham_session=' +
+                     session_id + '\r\nContent-Length: ' +
+                     str(len(debug_body)) + '\r\n\r\n').encode() + debug_body
+                )
+                self.assertIn('303 See Other', debug_response)
+                self.assertIn('Location: /diagnostics', debug_response)
+                self.assertIn(
+                    ('ems-debug', {
+                        'csrf': session_id,
+                        'uuid': '0001',
+                        'enabled': 'true',
+                    }),
+                    portal_actions,
+                )
+
                 logging = await request(
                     ('GET /logging HTTP/1.1\r\nCookie: ham_session=' +
                      session_id + '\r\n\r\n').encode()
@@ -1002,6 +1021,21 @@ class WebPortalTests(unittest.TestCase):
     def test_render_log_text_does_not_escape_html_entities(self):
         self.assertEqual(render_log_text(['{"state": "ON"}']), '{"state": "ON"}')
 
+    def test_enabled_ems_debug_renders_disable_control(self):
+        html = web_portal.render_modules_html([{
+            'uuid': '0001',
+            'name': 'Greenstar 8000',
+            'type': 'EMS-Boiler',
+            'state': {},
+            'diagnostics': {'module_last_ok': True},
+            'debug_frames': True,
+        }], 'csrf')
+
+        self.assertIn('action="/ems-debug"', html)
+        self.assertIn('name="enabled" value="false"', html)
+        self.assertIn('Disable debug frames', html)
+        self.assertNotIn('Enable debug frames', html)
+
     def test_render_page_has_auto_refresh_and_scrollable_logs(self):
         status = {
             'device_name': 'Controller', 'mqtt': 'up',
@@ -1132,6 +1166,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertNotIn('action="/activate-update"', html)
         self.assertNotIn('Activate and reboot', html)
         self.assertIn("isFirmware?'/firmware-upload':'/update-upload'", html)
+
         self.assertIn("request.open('POST',updateUrl,true)", html)
         self.assertIn('request.upload.onprogress=function(progressEvent)', html)
         self.assertIn('request.send(file)', html)
