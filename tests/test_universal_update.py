@@ -45,7 +45,7 @@ class UniversalUpdateTests(unittest.TestCase):
     def package(self, firmware_payload=b'firmware bundle', application_payload=b'application bundle'):
         sequence = 40
         manifest = {
-            'format_version': 1,
+            'format_version': 2,
             'target_board': 'esp32-s3',
             'version': '2.0.0',
             'release_sequence': sequence,
@@ -61,6 +61,10 @@ class UniversalUpdateTests(unittest.TestCase):
                 'size': len(application_payload),
                 'sha256': hashlib.sha256(application_payload).hexdigest(),
             },
+            'activation_order': ['application', 'firmware'],
+            'maintenance_required': True,
+            'rollback_policy': 'paired',
+            'trial_timeout_s': 180,
             'signature_scheme': update_security.SIGNATURE_SCHEME,
         }
         manifest['signature'] = update_security.sign_manifest(
@@ -169,6 +173,27 @@ class UniversalUpdateTests(unittest.TestCase):
         activate.assert_called_once_with()
         self.assertEqual(state['status'], 'activating')
 
+    def test_activation_enforces_signed_maintenance_and_trial_timeout(self):
+        Path(universal_update.STATE_PATH).write_text(json.dumps({
+            'status': 'ready', 'version': '2.0.0',
+            'application_sequence': 40, 'firmware_sequence': 40,
+            'application_required': True, 'firmware_required': True,
+            'activation_order': ['firmware', 'application'],
+            'maintenance_required': True, 'trial_timeout_s': 420,
+        }))
+        with self.assertRaisesRegex(ValueError, 'maintenance window'):
+            universal_update.activate_pending(False)
+        calls = []
+        with (
+            patch.object(app_update, 'update_status', return_value={'status': 'ready'}),
+            patch.object(firmware_update, 'update_status', return_value={'status': 'ready'}),
+            patch.object(app_update, 'configure_pending_update', side_effect=lambda _: calls.append('application')),
+            patch.object(firmware_update, 'activate_pending', side_effect=lambda: calls.append('firmware')),
+        ):
+            universal_update.activate_pending(True)
+        self.assertEqual(calls, ['firmware', 'application'])
+        self.assertEqual(universal_update.trial_timeout_ms(), 420000)
+
     def test_matching_installed_core_is_verified_but_not_staged(self):
         payload = self.package()
         calls = []
@@ -232,6 +257,8 @@ class UniversalUpdateTests(unittest.TestCase):
         )
         self.assertEqual(manifest['application']['release_sequence'], 40)
         self.assertEqual(manifest['firmware']['release_sequence'], 40)
+        self.assertEqual(manifest['format_version'], 2)
+        self.assertEqual(manifest['rollback_policy'], 'paired')
         with Path('universal.hamu').open('rb') as stream:
             self.assertEqual(stream.read(6), universal_update.MAGIC)
             length = int.from_bytes(stream.read(4), 'big')

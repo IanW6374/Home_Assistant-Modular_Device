@@ -33,6 +33,11 @@ points for EMS monitoring, RS485 devices, voltage sensing, and PT1000 sensing.
   certificate-expiry, and update-result health history.
 - Versioned non-secret configuration export/import with validation and diff preview.
 - Reboot-safe paired core/application release orchestration.
+- Resumable, digest-verified `.hamd`, `.hamf`, and policy-rich `.hamu` uploads.
+- Multi-user viewer/operator/administrator portal access with independent
+  sessions and CSRF tokens.
+- Structured events, redacted support bundles, signed fleet policy and a Home
+  Assistant ingress add-on for inventory, health and staged rollout cohorts.
 
 ## Repository Layout
 
@@ -70,7 +75,15 @@ portal_ui.py                    Shared portal/wizard visual components
 web_portal.py                   Authenticated portal routes and rendering
 web_portal_ui.py                Portal navigation, styling, and browser behavior
 component_versions.py           Signed universal-runtime component version
+services/                       Narrow network/module/MQTT/portal/update/event adapters
+fleet_management.py             Signed device-side fleet policy and command state
+resumable_upload.py             Power-safe update upload sessions
+support_bundle.py               Bounded secret-redacted support snapshots
+portal_auth.py                  Portal users, roles and route policy
+portal_sessions.py              Independent expiring portal sessions and CSRF
+home_assistant_addons/hamd_fleet Home Assistant fleet-manager add-on
 device_modules/                 Device driver modules
+device_modules/contracts.py     Versioned driver metadata/capability contract
 device_modules/whes.py          WHES inverter presentation/calculation driver
 device_modules/rs485_modbus.py   Generic ESP32-S3 RS485 Modbus driver
 device_modules/ems.py           Read-only EMS boiler monitor
@@ -230,6 +243,12 @@ explicit HTTP uses `8080` by default. Port `80` remains reserved for ACME
 HTTP-01 and recovery. The inactivity timeout is user-configurable from 5
 minutes to 24 hours.
 
+HAMD v2 supports up to eight portal identities. A viewer can inspect status,
+diagnostics, health and logs; an operator can also execute module and approved
+upgrade actions; an administrator owns configuration, trust, users and reset.
+Every login has an independent expiring session and CSRF token. Disabling a
+user or replacing its password invalidates all of that user's sessions.
+
 **System > Logging** accepts `ERROR`, `INFO`, and `DEBUG` log levels. Changes
 are saved to encrypted NVS and survive restart. `DEBUG` also enables MQTT
 topic/payload logging and `mqtt_as` client debug output. The log pane refreshes
@@ -309,6 +328,13 @@ and always requires a CA-validated, enrolled client certificate.
 | `POST /api/v1/modules/{uuid}/commands` | Submit the same JSON command used by MQTT `/set` |
 | `GET /api/v1/operations/{id}` | Retrieve queued/deferred command status |
 | `GET /api/v1/health/history` | Persistent health counters and events |
+| `GET /api/v2/device/inventory` | Fleet-safe identity, versions, capabilities and driver inventory |
+| `GET /api/v2/health` | Current health and bounded history snapshot |
+| `GET /api/v2/events?cursor=N&limit=M` | Cursor-based structured audit/health events |
+| `GET /api/v2/support` | Secret-redacted bounded diagnostic bundle |
+| `GET /api/v2/fleet` | Applied policy, rollout and command state |
+| `POST /api/v2/fleet/policy` | Apply a device/cohort-targeted signed fleet policy |
+| `POST /api/v2/fleet/commands/{id}/result` | Complete a bounded fleet command |
 
 API and MQTT commands enter the same bounded broker and driver path. Deferred
 Modbus responses retain their request ID, and writes from either transport
@@ -332,6 +358,18 @@ curl --cert automation-client.crt --key automation-client.key \
 
 Revocation is immediate for new connections and is available under **System >
 Device API**. The API has no password, bearer-token, or unauthenticated mode.
+
+### Home Assistant fleet add-on
+
+`home_assistant_addons/hamd_fleet` is an ingress-only Home Assistant add-on for
+one device or a future fleet. It polls `/api/v2` using a dedicated mTLS client,
+retains bounded structured events, displays inventory and health, and signs
+maintenance/update policies using an independent P-256 management key. Ordered
+canary/main cohorts advance explicitly and stop at their configured failure
+threshold. The add-on never receives the release-signing or Secure Boot key.
+See [`docs/FLEET_PROTOCOL.md`](docs/FLEET_PROTOCOL.md) and the add-on README.
+Signing-key rotation and compromise response are documented in
+[`docs/SECURITY_OPERATIONS.md`](docs/SECURITY_OPERATIONS.md).
 
 For development-only manual certificate creation:
 
@@ -638,7 +676,8 @@ there is no legacy root application or secrets bootstrap.
 
 A `.hamu` combines one independently signed `.hamf` and one independently
 signed `.hamd` with a third signed manifest that binds both component hashes,
-versions, sizes, and release sequences. Build it after creating the matching
+versions, sizes, release sequences, activation order, maintenance requirement,
+trial timeout and rollback policy. Build it after creating the matching
 component bundles:
 
 ```sh

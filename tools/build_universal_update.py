@@ -45,7 +45,8 @@ def _component(path, expected_type, signing_key):
 
 def build_universal_bundle(
     output, application_bundle, firmware_bundle, version,
-    release_sequence, signing_key
+    release_sequence, signing_key, activation_order=None,
+    maintenance_required=True, rollback_policy='paired', trial_timeout_s=180
 ):
     application = _component(application_bundle, 'application', signing_key)
     firmware = _component(firmware_bundle, 'firmware', signing_key)
@@ -74,8 +75,18 @@ def build_universal_bundle(
         application['source_revision'] != firmware['source_revision']
     ):
         raise ValueError('universal components were built from different source revisions')
+    activation_order = activation_order or ['application', 'firmware']
+    if activation_order not in (
+        ['application', 'firmware'], ['firmware', 'application']
+    ):
+        raise ValueError('universal activation order is invalid')
+    if rollback_policy not in ('paired', 'independent', 'manual'):
+        raise ValueError('universal rollback policy is invalid')
+    trial_timeout_s = int(trial_timeout_s)
+    if trial_timeout_s < 30 or trial_timeout_s > 3600:
+        raise ValueError('universal trial timeout is invalid')
     manifest_object = {
-        'format_version': 1,
+        'format_version': 2,
         'target_board': 'esp32-s3',
         'version': str(version),
         'release_sequence': release_sequence,
@@ -87,6 +98,10 @@ def build_universal_bundle(
             key: application[key]
             for key in ('version', 'release_sequence', 'size', 'sha256')
         },
+        'activation_order': activation_order,
+        'maintenance_required': bool(maintenance_required),
+        'rollback_policy': rollback_policy,
+        'trial_timeout_s': trial_timeout_s,
         'signature_scheme': update_security.SIGNATURE_SCHEME,
     }
     manifest_object['signature'] = update_security.sign_manifest(
@@ -119,11 +134,28 @@ def main():
     parser.add_argument('--version', required=True)
     parser.add_argument('--release-sequence', required=True, type=int)
     parser.add_argument('--signing-key', required=True)
+    parser.add_argument(
+        '--activation-order', choices=('application-first', 'firmware-first'),
+        default='application-first'
+    )
+    parser.add_argument(
+        '--no-maintenance-window', action='store_true',
+        help='permit activation outside a fleet maintenance window'
+    )
+    parser.add_argument(
+        '--rollback-policy', choices=('paired', 'independent', 'manual'),
+        default='paired'
+    )
+    parser.add_argument('--trial-timeout-s', type=int, default=180)
     args = parser.parse_args()
     try:
         manifest = build_universal_bundle(
             args.output, args.application, args.firmware, args.version,
-            args.release_sequence, load_signing_key(args.signing_key)
+            args.release_sequence, load_signing_key(args.signing_key),
+            ['application', 'firmware'] if args.activation_order == 'application-first'
+            else ['firmware', 'application'],
+            not args.no_maintenance_window, args.rollback_policy,
+            args.trial_timeout_s
         )
     except ValueError as exc:
         raise SystemExit('build failed: ' + str(exc))

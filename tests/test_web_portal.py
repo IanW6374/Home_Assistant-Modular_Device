@@ -777,8 +777,17 @@ class WebPortalTests(unittest.TestCase):
                 )
                 self.assertIn('Location: /user', locked)
 
+                account_page = await request(
+                    ('GET /user HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                     '\r\n\r\n').encode()
+                )
+                csrf_token = account_page.split(
+                    'name="csrf" value="', 1
+                )[1].split('"', 1)[0]
+                self.assertNotEqual(csrf_token, session_id)
+
                 wrong_change_body = (
-                    'csrf=' + session_id + '&current_password=incorrect'
+                    'csrf=' + csrf_token + '&current_password=incorrect'
                     '&new_password=New-Secure-Cedar-48%21'
                     '&confirm_password=New-Secure-Cedar-48%21'
                 ).encode()
@@ -793,7 +802,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertEqual(changed_verifiers, [])
 
                 change_body = (
-                    'csrf=' + session_id +
+                    'csrf=' + csrf_token +
                     '&current_password=Correct-Cedar-47%21River'
                     '&new_password=New-Secure-Cedar-48%21'
                     '&confirm_password=New-Secure-Cedar-48%21'
@@ -826,6 +835,9 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('Controller', authorized)
                 self.assertIn('<h1>Overview</h1>', authorized)
                 self.assertNotIn('initial portal log', authorized)
+                csrf_token = authorized.split(
+                    'name="csrf" value="', 1
+                )[1].split('"', 1)[0]
 
                 stylesheet = await request(
                     ('GET /assets/portal.css?v=' + portal_ui.ASSET_VERSION +
@@ -851,7 +863,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('aria-label="Module submenu"', diagnostics)
 
                 debug_body = (
-                    'csrf=' + session_id + '&uuid=0001&enabled=true'
+                    'csrf=' + csrf_token + '&uuid=0001&enabled=true'
                 ).encode()
                 debug_response = await request(
                     ('POST /ems-debug HTTP/1.1\r\nCookie: ham_session=' +
@@ -862,7 +874,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('Location: /diagnostics', debug_response)
                 self.assertIn(
                     ('ems-debug', {
-                        'csrf': session_id,
+                        'csrf': csrf_token,
                         'uuid': '0001',
                         'enabled': 'true',
                     }),
@@ -914,7 +926,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('404 Not Found', removed_user_password_page)
 
                 normal_wrong_body = (
-                    'csrf=' + session_id + '&current_password=incorrect'
+                    'csrf=' + csrf_token + '&current_password=incorrect'
                     '&new_password=Another-Secure-Cedar-49%21'
                     '&confirm_password=Another-Secure-Cedar-49%21'
                 ).encode()
@@ -958,7 +970,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('Not checked', automatic_check)
                 self.assertEqual(len(portal_actions), action_count)
                 settings_body = (
-                    'csrf=' + session_id + '&device_name=New+Controller'
+                    'csrf=' + csrf_token + '&device_name=New+Controller'
                     '&wifi_ssid=new-network&wifi_dhcp=true'
                     '&mqtt_server=mqtt.local&mqtt_port=8883'
                     '&mqtt_username=device-user&portal_username=admin'
@@ -990,7 +1002,15 @@ class WebPortalTests(unittest.TestCase):
                     if line.startswith('Set-Cookie: ham_session=')
                 ).split('ham_session=', 1)[1].split(';', 1)[0]
 
-                logout_body = ('csrf=' + session_id).encode()
+                relogin_page = await request(
+                    ('GET / HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                     '\r\n\r\n').encode()
+                )
+                csrf_token = relogin_page.split(
+                    'name="csrf" value="', 1
+                )[1].split('"', 1)[0]
+
+                logout_body = ('csrf=' + csrf_token).encode()
                 logout = await request(
                     ('POST /logout HTTP/1.1\r\nCookie: ham_session=' + session_id +
                      '\r\nContent-Length: ' + str(len(logout_body)) +
@@ -1018,8 +1038,11 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('>WiFi AP Password<input', reset_page)
                 self.assertIn('>Confirm WiFi AP Password<input', reset_page)
                 self.assertNotIn('New setup Wi-Fi password', reset_page)
+                reset_csrf = reset_page.split(
+                    'name="csrf" value="', 1
+                )[1].split('"', 1)[0]
                 reset_body = (
-                    'csrf=' + reset_session +
+                    'csrf=' + reset_csrf +
                     '&current_password=New-Secure-Cedar-48%21'
                     '&setup_password=Setup-Maple-53%21Harbour'
                     '&confirm_setup_password=Setup-Maple-53%21Harbour'
@@ -1317,12 +1340,13 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('id="update-progress"', updates)
         self.assertIn('class="status-spinner"', updates)
         self.assertNotIn('<progress', updates)
-        self.assertIn('X-Update-ID', updates)
+        self.assertIn('/resumable-upload-chunk', updates)
+        self.assertIn('received_bytes', updates)
         self.assertIn('Writing firmware ', updates)
         self.assertIn('Completed: upload · firmware write', updates)
         self.assertIn('Verification complete', updates)
         self.assertIn('setTimeout(poll,1000)', updates)
-        self.assertIn('x.upload.onload=function()', updates)
+        self.assertIn('f.slice(offset,end)', updates)
         self.assertIn('Writing firmware 0%', updates)
         self.assertIn('previous("Completed: upload");startPolling()', updates)
         self.assertNotIn('Writing firmware on device', updates)

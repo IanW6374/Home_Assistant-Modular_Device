@@ -207,6 +207,55 @@ class DeviceAPITests(unittest.TestCase):
 
         asyncio.run(exercise())
 
+    def test_v2_inventory_events_and_support_endpoints(self):
+        self.registry.enrol(self.cert, 'dashboard', ('read',))
+        self.health.record_event('boot_complete', component='startup')
+        self.api.support_getter = lambda: {
+            'format_version': 1, 'redaction': 'verified'
+        }
+
+        status, inventory = self.api.dispatch(
+            'GET', '/api/v2/device/inventory', b'', self.cert
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(inventory['api_version'], 2)
+        self.assertEqual(inventory['modules'][0]['uuid'], '0001')
+
+        status, events = self.api.dispatch(
+            'GET', '/api/v2/events?cursor=0&limit=1', b'', self.cert
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(len(events['events']), 1)
+
+        status, support = self.api.dispatch(
+            'GET', '/api/v2/support', b'', self.cert
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(support['redaction'], 'verified')
+
+    def test_restful_fleet_command_result_uses_path_identifier(self):
+        class Fleet:
+            def snapshot(fleet_self):
+                return {'pending_commands': [{'id': 'command-7'}]}
+
+            def complete_command(fleet_self, identifier, result, detail):
+                self.assertEqual(identifier, 'command-7')
+                return {'completed': identifier, 'result': result}
+
+        registry_path = str(Path(self.temp.name) / 'fleet-clients.json')
+        registry = api_security.ClientRegistry(registry_path)
+        registry.enrol(self.cert, 'fleet', ('fleet:read', 'fleet:write'))
+        api = DeviceAPI(
+            self.broker, self.health, registry,
+            lambda: {'device_name': 'test'}, fleet=Fleet()
+        )
+        status, result = api.dispatch(
+            'POST', '/api/v2/fleet/commands/command-7/result',
+            b'{"result":"complete"}', self.cert
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(result['completed'], 'command-7')
+
 
 if __name__ == '__main__':
     unittest.main()

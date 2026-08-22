@@ -58,6 +58,27 @@ class RuntimeHealthTests(unittest.TestCase):
         self.assertEqual(restored['counters']['api_requests'], 0)
         self.assertEqual(restored['events'], [])
 
+    def test_structured_events_have_cursor_severity_and_component(self):
+        health = HealthHistory(self.path, max_events=2, checkpoint_changes=100)
+        first = health.record_event(
+            'network_up', 'connected', severity='info', component='network',
+            correlation_id='trial-1'
+        )
+        health.record_event('mqtt_up', component='mqtt')
+        health.record_event('update_ready', component='update')
+        health.record_event('network_stable', component='network')
+
+        page = health.events_since(first['id'], 1)
+        self.assertEqual(page['event_api_version'], 2)
+        self.assertTrue(page['cursor_gap'])
+        self.assertEqual(len(page['events']), 1)
+        self.assertEqual(page['events'][0]['component'], 'update')
+        self.assertEqual(page['events'][0]['severity'], 'info')
+
+    def test_invalid_event_severity_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'severity'):
+            HealthHistory(self.path).record_event('bad', severity='urgent')
+
 
 if __name__ == '__main__':
     unittest.main()

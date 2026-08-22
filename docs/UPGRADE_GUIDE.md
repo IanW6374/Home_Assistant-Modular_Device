@@ -481,6 +481,11 @@ and application release. Each embedded `.hamf` and `.hamd` retains its own
 signature. The outer HAMU manifest is signed separately and binds both files'
 versions, sequences, sizes, and SHA-256 digests.
 
+HAMU format 2 also signs the activation order, whether a maintenance window is
+required, the paired/independent/manual rollback policy, and the trial timeout.
+Because v2 alpha deliberately does not retain the v1 HAMU parser, build new
+universal bundles with the v2 tool after installing the v2 alpha core.
+
 Build the component bundles first with the same release sequence, then combine
 them:
 
@@ -713,6 +718,7 @@ Run host tests with host Python:
 cd "$HAM_PROJECT_ROOT"
 python3 tools/check_repository_hygiene.py
 python3 tools/validate_json_schemas.py
+python3 tools/check_accessibility.py
 python3 -m unittest discover -s tests -v
 python3 -m py_compile tools/*.py tests/*.py
 ```
@@ -731,10 +737,27 @@ Compile device runtime files with the pinned MicroPython compiler, not CPython:
 
 ```sh
 export MPY_CROSS="$MICROPYTHON_ROOT/mpy-cross/build/mpy-cross"
-for file in *.py device_modules/*.py lib/*.py lib/primitives/*.py lib/uhcsr04/*.py; do
+for file in *.py device_modules/*.py services/*.py lib/*.py lib/primitives/*.py lib/uhcsr04/*.py; do
   "$MPY_CROSS" "$file" -o /tmp/ham-device-check.mpy || break
 done
 ```
+
+Generate release evidence beside the signed artifacts:
+
+```sh
+python3 tools/generate_sbom.py --version 2.0.0-alpha.1 \
+  --output releases/hamd-2.0.0-alpha.1.cdx.json
+python3 tools/generate_provenance.py --version 2.0.0-alpha.1 \
+  --output releases/hamd-2.0.0-alpha.1.provenance.json \
+  releases/application-2.0.0-alpha.1.hamd \
+  releases/ham-core-2.0.0-alpha.1.hamf \
+  releases/universal-2.0.0-alpha.1.hamu
+```
+
+Run `tools/hil_qualify.py` with the enrolled fleet mTLS identity to record the
+device API latency and required v2 endpoint checks in a JSON qualification
+report. The interruption, rollback, DST and local-midnight cases remain manual
+fixture steps for the single physical test device.
 
 This compile loop intentionally targets runtime modules. Hardware behavior,
 ESP32 partition switching, power interruption, Wi-Fi failure, network-trial

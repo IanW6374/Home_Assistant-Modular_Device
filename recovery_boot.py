@@ -213,10 +213,15 @@ def _start_trial_deadline():
     global _trial_timer
     try:
         from machine import Timer
+        try:
+            import universal_update
+            deadline_ms = universal_update.trial_timeout_ms(TRIAL_DEADLINE_MS)
+        except Exception:
+            deadline_ms = TRIAL_DEADLINE_MS
         _trial_timer = Timer(-1)
         _trial_timer.init(
             mode=Timer.ONE_SHOT,
-            period=TRIAL_DEADLINE_MS,
+            period=deadline_ms,
             callback=lambda timer: _reset()
         )
         return True

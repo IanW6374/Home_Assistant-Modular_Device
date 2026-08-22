@@ -27,10 +27,17 @@ import component_versions
 import certificate_manager
 import configuration_manager
 import api_security
+import portal_auth
+import fleet_management
+import support_bundle
+import resumable_upload
 from remote_logging import RemoteSyslog
 from device_api import DeviceAPI, start_device_api
 from runtime_health import HealthHistory
 from message_broker import BoundedPublishQueue, ModuleBroker
+from services.event_service import EventService
+from services.module_runtime import ModuleRuntime
+from services.portal_service import PortalService
 import settings_loader as device_settings
 try:
     import network
@@ -48,6 +55,7 @@ from primitives import Encoder
 from mqtt_as import MQTTClient, config
 import asyncio
 from device_modules import setup_device
+from device_modules import loader as driver_loader
 from device_modules.loader import (
     configure_for_devices, configured_driver_names, device_types_for_devices,
     get_device_types
@@ -316,6 +324,16 @@ outputDevices = [
 
 inputDevices = []
 runtime_health = HealthHistory()
+fleet_service = fleet_management.FleetService(
+    hardware_deviceid, 'default',
+    now=lambda: int(time.time()),
+    localtime=lambda epoch: timezone_rules.localtime(epoch, timezone_name)
+)
+resumable_update_store = resumable_upload.ResumableUploadStore(
+    maximum_bytes=(
+        web_portal_update_max_bytes + web_portal_firmware_update_max_bytes + 8192
+    )
+)
 runtime_health.record_boot(hardware_platform.reset_cause())
 saved_release_check = runtime_health.snapshot().get('observations', {}).get(
     'last_release_check', {}
@@ -325,6 +343,9 @@ if isinstance(saved_release_check, dict) and saved_release_check.get('status'):
     release_automatic_last_checked = wall_time_text(saved_release_check.get('time'))
 mqtt_publish_queue = BoundedPublishQueue(state_limit=64, critical_limit=96)
 module_broker = ModuleBroker(lambda: outputDevices + inputDevices)
+event_service = EventService(runtime_health)
+module_runtime = ModuleRuntime(module_broker, driver_loader)
+portal_service = PortalService(start_web_portal)
 
 
 
@@ -934,6 +955,8 @@ def _complete_backup_files():
         'acme_account_key': certificate_manager.ACCOUNT_KEY_PATH,
         'acme_state': certificate_manager.STATE_PATH,
         'api_client_registry': device_settings.api_client_registry_path,
+        'fleet_verification_key': fleet_management.FLEET_VERIFICATION_KEY_PATH,
+        'fleet_state': fleet_management.DEFAULT_STATE_PATH,
     }
     for index, path in enumerate(api_client_ca_store.paths()):
         paths['api_client_ca_' + str(index)] = path
@@ -979,6 +1002,8 @@ def _secure_restore_targets(files):
         'acme_account_key': certificate_manager.ACCOUNT_KEY_PATH,
         'acme_state': certificate_manager.STATE_PATH,
         'api_client_registry': device_settings.api_client_registry_path,
+        'fleet_verification_key': fleet_management.FLEET_VERIFICATION_KEY_PATH,
+        'fleet_state': fleet_management.DEFAULT_STATE_PATH,
     }
     targets = {}
     for name, payload in files.items():
@@ -987,13 +1012,15 @@ def _secure_restore_targets(files):
             name.startswith('api_client_ca_')
         ):
             certificate_manager.decode_certificate(payload)
-        if name in ('acme_state', 'api_client_registry'):
+        if name in ('acme_state', 'api_client_registry', 'fleet_state'):
             try:
                 structured = json.loads(payload.decode())
             except Exception:
                 raise ValueError('encrypted backup contains invalid ' + name)
             if not isinstance(structured, dict):
                 raise ValueError('encrypted backup contains invalid ' + name)
+        if name == 'fleet_verification_key' and len(payload.strip()) not in (64, 128):
+            raise ValueError('encrypted backup contains an invalid fleet verification key')
         if name in fixed:
             targets[fixed[name]] = payload
         elif name.startswith('api_client_ca_'):
@@ -1014,16 +1041,25 @@ def preview_secure_configuration_import(request):
     content = configuration_manager.parse_secure_import(
         request.get('backup'), request.get('password', '')
     )
-    credentials = credential_store.validate(
-        content['credentials'], require_provisioned=True
+    sections = configuration_manager.validate_restore_sections(
+        request.get('sections')
     )
-    modules = content['module_settings']
-    errors = validate_device_config(
-        modules, device_types_for_devices(modules.get('devices', ()))
+    credentials = None
+    if 'credentials' in sections:
+        credentials = credential_store.validate(
+            content['credentials'], require_provisioned=True
+        )
+    modules = content['module_settings'] if 'module_settings' in sections else None
+    if modules is not None:
+        errors = validate_device_config(
+            modules, device_types_for_devices(modules.get('devices', ()))
+        )
+        if errors:
+            raise ValueError('module configuration rejected: ' + '; '.join(errors[:20]))
+    targets = (
+        _secure_restore_targets(content['files'])
+        if 'certificates_and_trust' in sections else {}
     )
-    if errors:
-        raise ValueError('module configuration rejected: ' + '; '.join(errors[:20]))
-    targets = _secure_restore_targets(content['files'])
     portal_payloads = (
         targets.get(web_portal_cert_path), targets.get(web_portal_key_path)
     )
@@ -1036,7 +1072,7 @@ def preview_secure_configuration_import(request):
         current_modules = {'devices': []}
     preview = configuration_manager.secure_restore_preview(
         credential_store.load(require_provisioned=True), current_modules,
-        _complete_backup_files(), content, hardware_deviceid
+        _complete_backup_files(), content, hardware_deviceid, sections
     )
     token = hexlify(os.urandom(16)).decode()
     pending_secure_configuration_import = {
@@ -1045,10 +1081,11 @@ def preview_secure_configuration_import(request):
         'credentials': credentials,
         'modules': modules,
         'files': targets,
+        'sections': sections,
     }
     return {
         'token': token,
-        'groups': ['credentials', 'module_settings', 'certificates_and_trust'],
+        'groups': sections,
         'file_count': len(targets),
         'device_id': content.get('metadata', {}).get('device_id', ''),
         'changes': preview['changes'],
@@ -1065,8 +1102,9 @@ def apply_secure_configuration_import(token):
     ):
         raise ValueError('encrypted backup preview has expired')
     module_temporary = moduleSettingsFile + '.secure-restore'
-    with open(module_temporary, 'w') as stream:
-        json.dump(pending['modules'], stream)
+    if pending['modules'] is not None:
+        with open(module_temporary, 'w') as stream:
+            json.dump(pending['modules'], stream)
     staged_pairs = []
     api_client_ca_store._mkdir()
     for target, payload in pending['files'].items():
@@ -1083,13 +1121,17 @@ def apply_secure_configuration_import(token):
     if staged_portal_certificate and staged_portal_key:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(staged_portal_certificate, staged_portal_key)
-    update_support.commit_file_with_backup(module_temporary, moduleSettingsFile)
+    if pending['modules'] is not None:
+        update_support.commit_file_with_backup(module_temporary, moduleSettingsFile)
     if staged_pairs:
         certificate_manager.commit_certificate_files(tuple(staged_pairs))
-    credential_store.save(pending['credentials'])
+    if pending['credentials'] is not None:
+        credential_store.save(pending['credentials'])
     pending_secure_configuration_import = None
     runtime_health.record_event(
-        'secure_configuration_restore', 'Complete encrypted backup restored', force=True
+        'secure_configuration_restore',
+        'Selected encrypted backup sections restored: ' +
+        ', '.join(pending.get('sections', ())), force=True, component='backup'
     )
     schedule_hardware_reset('secure_configuration_restore_reboot', 5000)
     return 'Complete encrypted backup restored. The device is restarting.'
@@ -1417,6 +1459,7 @@ async def upload_certificate_file(kind, reader, length):
         'release-ca': getattr(__import__('device_config'), 'RELEASE_CA_PATH', release_ca_cert_path),
         'api-client-ca': 'certs/api-client-ca-stage.der',
         'api-client-cert': 'certs/api-client-enrol.der',
+        'fleet-client-cert': 'certs/fleet-client-enrol.der',
         'syslog-ca': device_settings.syslog_ca_path,
         'portal-cert': web_portal_cert_path,
         'portal-key': web_portal_key_path,
@@ -1432,16 +1475,47 @@ async def upload_certificate_file(kind, reader, length):
         payload.extend(chunk)
     if b'-----BEGIN' in payload:
         raise ValueError('certificate files must use DER, not PEM')
-    if kind in ('api-client-ca', 'api-client-cert'):
+    if kind in ('api-client-ca', 'api-client-cert', 'fleet-client-cert'):
         certificate_manager.decode_certificate(bytes(payload))
         fingerprint = api_security.certificate_fingerprint(payload)[:24]
         path = (
             'certs/.api-ca-stage-' if kind == 'api-client-ca' else
-            'certs/.api-client-stage-'
+            ('certs/.fleet-client-stage-' if kind == 'fleet-client-cert' else
+             'certs/.api-client-stage-')
         ) + fingerprint + '.der'
     temporary = path + '.manual'
     with open(temporary, 'wb') as stream:
         stream.write(payload)
+
+
+async def _close_listener(server):
+    if server is None:
+        return
+    server.close()
+    if hasattr(server, 'wait_closed'):
+        await server.wait_closed()
+
+
+async def reload_portal_listener(delay_s=1):
+    """Load a replaced portal identity without rebooting the device."""
+    global web_portal_server
+    await asyncio.sleep(delay_s)
+    await _close_listener(web_portal_server)
+    web_portal_server = None
+    return await start_admin_portal()
+
+
+async def reload_device_api_listener(delay_s=1):
+    """Reload API client trust without interrupting module/MQTT runtime."""
+    global device_api_server
+    await asyncio.sleep(delay_s)
+    await _close_listener(device_api_server)
+    device_api_server = None
+    return await start_module_api()
+
+
+def schedule_portal_certificate_reload():
+    start_task('portal_certificate_reload', reload_portal_listener())
 
 
 def validate_uploaded_certificates():
@@ -1474,6 +1548,7 @@ def validate_uploaded_certificates():
          getattr(__import__('device_config'), 'RELEASE_CA_PATH', release_ca_cert_path)),
         (device_settings.syslog_ca_path + '.manual', device_settings.syslog_ca_path),
     )
+    outbound_trust_changed = False
     for staged, target in ca_stages:
         if not exists(staged):
             continue
@@ -1484,6 +1559,7 @@ def validate_uploaded_certificates():
             with open(staged, 'rb') as stream:
                 context.load_verify_locations(cadata=stream.read())
         pairs.append((staged, target))
+        outbound_trust_changed = True
 
     try:
         staged_names = os.listdir('certs')
@@ -1497,8 +1573,13 @@ def validate_uploaded_certificates():
         'certs/' + name for name in staged_names
         if name.startswith('.api-client-stage-') and name.endswith('.der.manual')
     ]
+    fleet_client_stages = [
+        'certs/' + name for name in staged_names
+        if name.startswith('.fleet-client-stage-') and name.endswith('.der.manual')
+    ]
     api_ca_payloads = []
     client_payloads = []
+    fleet_client_payloads = []
     for staged in api_ca_stages:
         with open(staged, 'rb') as stream:
             payload = stream.read()
@@ -1514,8 +1595,13 @@ def validate_uploaded_certificates():
             payload = stream.read()
         certificate_manager.decode_certificate(payload)
         client_payloads.append((staged, payload))
+    for staged in fleet_client_stages:
+        with open(staged, 'rb') as stream:
+            payload = stream.read()
+        certificate_manager.decode_certificate(payload)
+        fleet_client_payloads.append((staged, payload))
 
-    if not pairs and not api_ca_payloads and not client_payloads:
+    if not pairs and not api_ca_payloads and not client_payloads and not fleet_client_payloads:
         raise ValueError('no staged certificate files were found')
     if pairs:
         certificate_manager.commit_certificate_files(tuple(pairs))
@@ -1531,15 +1617,33 @@ def validate_uploaded_certificates():
             os.remove(staged)
         except OSError:
             pass
+    for staged, payload in fleet_client_payloads:
+        api_client_registry.enrol(payload, scopes=('fleet:read', 'fleet:write'))
+        try:
+            os.remove(staged)
+        except OSError:
+            pass
     if all(portal_staged):
         credential_store.update_certificate_settings('manual')
 
-    restart_required = bool(pairs or api_ca_payloads)
-    if restart_required:
+    if outbound_trust_changed:
         schedule_hardware_reset('certificate_upload_reboot')
         return {
-            'message': 'Certificates validated. The device is restarting once to load the new trust set.',
+            'message': 'Outbound TLS trust validated. The device is restarting once to reload active client connections.',
             'restart': True,
+        }
+    reloaded = []
+    if all(portal_staged):
+        start_task('portal_certificate_reload', reload_portal_listener())
+        reloaded.append('portal HTTPS')
+    if api_ca_payloads:
+        start_task('api_trust_reload', reload_device_api_listener())
+        reloaded.append('Device API trust')
+    if reloaded:
+        return {
+            'message': 'Certificates validated. Reloading ' +
+                       ' and '.join(reloaded) + ' without a device restart.',
+            'restart': False,
         }
     return {
         'message': 'API client certificates enrolled and active without a device restart.',
@@ -1559,7 +1663,22 @@ def device_api_info():
         ),
         'micropython_version': hardware_platform.runtime_version(),
         'uptime_s': uptime_seconds(),
+        'board': hardware_platform.platform_id(),
+        'drivers': module_runtime.inventory()['drivers'],
+        'release_sequence': app_update.running_release_sequence(),
+        'firmware_release_sequence': firmware_update.running_release_sequence(),
     }
+
+
+def device_support_bundle():
+    return support_bundle.build_support_bundle(
+        device_api_info(), event_service.health, module_summaries(), {
+            'product': component_versions.PRODUCT_VERSION,
+            'application': app_update.running_version(''),
+            'firmware': firmware_update.running_version(''),
+            'micropython': hardware_platform.runtime_version(),
+        }, fleet_service, get_log_buffer()
+    )
 
 
 async def start_module_api():
@@ -1574,7 +1693,7 @@ async def start_module_api():
         return None
     api = DeviceAPI(
         module_broker, runtime_health, api_client_registry,
-        device_api_info, logOutput
+        device_api_info, logOutput, fleet_service, device_support_bundle
     )
     settings = {
         'enabled': True,
@@ -1847,7 +1966,12 @@ def portal_action(action, params):
         if not web_portal_firmware_updates_enabled or not firmware_update.supported():
             return 'Universal update activation failed: firmware OTA is unavailable'
         try:
-            universal_update.activate_pending()
+            fleet_snapshot = fleet_service.snapshot()
+            fleet_policy = fleet_snapshot.get('policy') or {}
+            maintenance_allowed = (
+                not fleet_policy or fleet_snapshot.get('within_maintenance_window')
+            )
+            universal_update.activate_pending(maintenance_allowed)
         except Exception as exc:
             return 'Universal update activation failed: ' + str(exc)
         schedule_hardware_reset('universal_update_reboot', 5000)
@@ -1900,6 +2024,66 @@ def portal_action(action, params):
         return 'Configuration is valid. No files were changed.'
 
     return 'Unknown action'
+
+
+def fleet_activation_allowed():
+    snapshot = fleet_service.snapshot()
+    policy = snapshot.get('policy') or {}
+    if not policy:
+        return True
+    updates = policy.get('updates') or {}
+    return bool(
+        updates.get('automatic_activation') and
+        not snapshot.get('rollout_paused') and
+        snapshot.get('within_maintenance_window')
+    )
+
+
+async def fleet_policy_monitor():
+    """Execute only bounded commands carried by a verified fleet policy."""
+    while True:
+        for command in fleet_service.pending_commands():
+            identifier = command.get('id', '')
+            action = command.get('action', '')
+            try:
+                if action == 'check-update':
+                    await check_release_once(False)
+                elif action == 'download-update':
+                    await download_release_once()
+                elif action == 'activate-update':
+                    if not fleet_service.within_maintenance_window():
+                        raise RuntimeError('outside fleet maintenance window')
+                    status = universal_update.update_status()
+                    if status.get('status') == 'ready':
+                        result = portal_action('activate-universal', {})
+                    elif firmware_update.update_status().get('status') == 'ready':
+                        result = portal_action('activate-firmware', {})
+                    else:
+                        result = portal_action('activate-update', {})
+                    if 'failed' in str(result).lower():
+                        raise RuntimeError(result)
+                elif action == 'rollback':
+                    result = portal_action('rollback-application', {})
+                    if 'failed' in str(result).lower():
+                        raise RuntimeError(result)
+                else:
+                    raise RuntimeError('unsupported fleet command')
+            except Exception as exc:
+                fleet_service.complete_command(identifier, 'failed', str(exc))
+                runtime_health.record_event(
+                    'fleet_command_failed', str(exc),
+                    {'command': identifier, 'action': action}, force=True,
+                    severity='error', component='fleet',
+                    correlation_id=identifier
+                )
+            else:
+                fleet_service.complete_command(identifier, 'complete', action)
+                runtime_health.record_event(
+                    'fleet_command_complete', action,
+                    {'command': identifier}, force=True, component='fleet',
+                    correlation_id=identifier
+                )
+        await asyncio.sleep(30)
 
 
 async def portal_update_upload(reader, content_length, params):
@@ -1957,6 +2141,60 @@ async def portal_universal_upload(reader, content_length, params):
         'Universal update ' + str(state.get('version', '')) +
         ' verified; activate both components when ready'
     )
+
+
+class _AsyncUploadFile:
+    def __init__(self, path):
+        self.stream = open(path, 'rb')
+
+    async def read(self, size):
+        return self.stream.read(size)
+
+    def close(self):
+        self.stream.close()
+
+
+def begin_resumable_update(request):
+    if not isinstance(request, dict):
+        raise ValueError('resumable upload request is invalid')
+    return resumable_update_store.begin(
+        request.get('id', ''), request.get('kind', ''),
+        request.get('total_bytes', 0), request.get('sha256', '')
+    )
+
+
+def resumable_update_status(identifier):
+    return resumable_update_store.status(identifier)
+
+
+async def append_resumable_update(identifier, offset, reader, length):
+    length = int(length)
+    if length <= 0 or length > resumable_upload.MAX_CHUNK_BYTES:
+        raise ValueError('resumable upload chunk size is invalid')
+    payload = bytearray()
+    while len(payload) < length:
+        chunk = await reader.read(length - len(payload))
+        if not chunk:
+            raise ValueError('resumable upload chunk ended early')
+        payload.extend(chunk)
+    return resumable_update_store.append(identifier, offset, payload)
+
+
+async def complete_resumable_update(identifier, progress_callback=None):
+    value = resumable_update_store.complete(identifier)
+    reader = _AsyncUploadFile(value['path'])
+    params = {'_progress': progress_callback}
+    try:
+        if value['kind'] == 'application':
+            message = await portal_update_upload(reader, value['total_bytes'], params)
+        elif value['kind'] == 'firmware':
+            message = await portal_firmware_upload(reader, value['total_bytes'], params)
+        else:
+            message = await portal_universal_upload(reader, value['total_bytes'], params)
+    finally:
+        reader.close()
+        resumable_update_store.remove(identifier)
+    return message
 
 
 async def _check_release_once():
@@ -2079,7 +2317,7 @@ async def download_release_once(progress_callback=None):
         'INFO'
     )
     release_available = {}
-    if release_auto_activate:
+    if release_auto_activate and fleet_activation_allowed():
         if release.get('type') == 'firmware':
             firmware_update.activate_pending()
         update_orchestrator.mark_activating(release.get('type'))
@@ -2125,6 +2363,10 @@ async def start_admin_portal():
         'password_verifier': web_portal_password_verifier,
         'password_change_required': web_portal_password_change_required,
         'password_setter': credential_store.update_portal_password,
+        'authenticator': portal_auth.authenticate,
+        'user_password_setter': lambda username, password: portal_auth.update_user(
+            username, password=password
+        ),
         'cert_path': web_portal_cert_path,
         'key_path': web_portal_key_path,
         'levels': tuple(loglevels),
@@ -2150,7 +2392,7 @@ async def start_admin_portal():
 
     try:
         wifi_recovery.schedule_wifi_scan()
-        web_portal_server = await start_web_portal(
+        web_portal_server = await portal_service.start(
             settings,
             get_log_buffer,
             get_loglevel,
@@ -2180,7 +2422,15 @@ async def start_admin_portal():
             apply_secure_configuration_import,
             set_log_buffer_lines,
             wifi_recovery.cached_wifi_networks,
-            portal_universal_upload
+            portal_universal_upload,
+            portal_auth.list_users,
+            portal_auth.add_user,
+            portal_auth.update_user,
+            portal_auth.remove_user,
+            begin_resumable_update,
+            resumable_update_status,
+            append_resumable_update,
+            complete_resumable_update
         )
     except Exception as exc:
         logOutput('Local', 'Web portal', {'log': 'Failed to start - ' + str(exc)}, 'ERROR')
@@ -2820,6 +3070,7 @@ async def main(client):
 
     await sync_ntp_time()
     await start_module_api()
+    start_task('fleet_policy_monitor', fleet_policy_monitor())
     if remote_syslog.enabled:
         start_task('remote_syslog', remote_syslog.run())
     start_task('certificate_alerts', certificate_alert_monitor())
@@ -2863,7 +3114,7 @@ async def main(client):
             'certificate_renewal',
             certificate_manager.renewal_monitor(
                 certificate_config, device_settings.service_ca_path('mqtt'),
-                logOutput, hardware_platform.reset
+                logOutput, schedule_portal_certificate_reload
             )
         )
 

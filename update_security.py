@@ -272,6 +272,13 @@ def manifest_message(bundle_type, manifest):
                 str(component.get('size', '')),
                 str(component.get('sha256', '')).lower(),
             ))
+        if format_version >= 2:
+            fields.extend((
+                ','.join(str(value) for value in manifest.get('activation_order', ())),
+                str(bool(manifest.get('maintenance_required', False))),
+                str(manifest.get('rollback_policy', '')),
+                str(manifest.get('trial_timeout_s', '')),
+            ))
     elif bundle_type == 'release':
         fields.extend((
             str(manifest.get('channel', '')),
@@ -288,6 +295,43 @@ def manifest_message(bundle_type, manifest):
             str(manifest.get('published_at', '')),
         ))
         fields.extend(_component_fields(manifest.get('components')))
+    elif bundle_type == 'fleet-policy':
+        fields.extend((
+            str(manifest.get('policy_sequence', '')),
+            str(manifest.get('issued_at', '')),
+            str(manifest.get('not_before', '')),
+            str(manifest.get('expires_at', '')),
+            str(manifest.get('target_device', '')),
+            str(manifest.get('target_cohort', '')),
+        ))
+        maintenance = manifest.get('maintenance', {}) or {}
+        weekdays = maintenance.get('weekdays', ()) or ()
+        fields.extend((
+            ','.join(str(value) for value in weekdays),
+            str(maintenance.get('start_minute', '')),
+            str(maintenance.get('duration_minutes', '')),
+        ))
+        updates = manifest.get('updates', {}) or {}
+        fields.extend((
+            str(updates.get('channel', '')),
+            str(bool(updates.get('automatic_download', False))),
+            str(bool(updates.get('automatic_activation', False))),
+            str(updates.get('maximum_consecutive_failures', '')),
+        ))
+        telemetry = manifest.get('telemetry', {}) or {}
+        fields.extend((
+            str(bool(telemetry.get('enabled', False))),
+            str(telemetry.get('minimum_interval_s', '')),
+            ','.join(str(value) for value in telemetry.get('severities', ()) or ()),
+        ))
+        commands = manifest.get('commands', ()) or ()
+        fields.append(str(len(commands)))
+        for command in commands:
+            fields.extend((
+                str(command.get('id', '')),
+                str(command.get('action', '')),
+                str(command.get('release_sequence', '')),
+            ))
     else:
         raise ValueError('unsupported signed message type: ' + str(bundle_type))
     return ('\n'.join(fields) + '\n').encode()
@@ -430,7 +474,7 @@ def validate_manifest(bundle_type, manifest, key_path=VERIFICATION_KEY_PATH):
 
 def validate_universal_manifest(manifest, key_path=VERIFICATION_KEY_PATH):
     """Validate a signed manifest binding one HAMF and one HAMD bundle."""
-    if not isinstance(manifest, dict) or int(manifest.get('format_version', 0)) != 1:
+    if not isinstance(manifest, dict) or int(manifest.get('format_version', 0)) != 2:
         raise ValueError('unsupported universal update format')
     if str(manifest.get('target_board', '')) != TARGET_BOARD:
         raise ValueError('universal update target board is not supported')
@@ -457,6 +501,17 @@ def validate_universal_manifest(manifest, key_path=VERIFICATION_KEY_PATH):
             character not in '0123456789abcdef' for character in digest
         ):
             raise ValueError('universal ' + name + ' SHA-256 is invalid')
+    if manifest.get('activation_order') not in (
+        ['application', 'firmware'], ['firmware', 'application']
+    ):
+        raise ValueError('universal activation order is invalid')
+    if not isinstance(manifest.get('maintenance_required'), bool):
+        raise ValueError('universal maintenance policy is invalid')
+    if manifest.get('rollback_policy') not in ('paired', 'independent', 'manual'):
+        raise ValueError('universal rollback policy is invalid')
+    timeout = int(manifest.get('trial_timeout_s', 0))
+    if timeout < 30 or timeout > 3600:
+        raise ValueError('universal trial timeout is invalid')
     public_key = _public_key(key_path)
     if public_key is None:
         raise ValueError('update verification key is not provisioned')

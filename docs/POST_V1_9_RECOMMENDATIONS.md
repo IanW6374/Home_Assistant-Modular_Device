@@ -1,8 +1,9 @@
 # Post-v1.9 engineering recommendations
 
-These items are intentionally deferred until after the v1.9 release boundary.
-They are architectural or fleet-scale improvements rather than unresolved
-v1.9 functional defects.
+These items were intentionally deferred until after the v1.9 release boundary.
+The v2 alpha implements the foundations below. Remaining physical-fixture and
+external-signing work is explicitly identified rather than hidden as a device
+firmware defect.
 
 ## Runtime and portal decomposition
 
@@ -50,3 +51,24 @@ v1.9 functional defects.
   device memory limits.
 - Establish a documented compatibility policy before any post-1.9 schema,
   recovery API, core API, or update-format change.
+
+## v2 alpha implementation status
+
+- Service adapters, driver/event/API/configuration contracts and
+  characterisation tests are implemented; further shrinking of the two legacy
+  composition files continues during alpha without changing these contracts.
+- The one-device HIL recorder is implemented. Power-interruption, ACME, syslog,
+  DST and local-midnight cases still require execution against the physical
+  fixture before promotion beyond alpha.
+- CycloneDX SBOM and SLSA-compatible provenance generators are implemented.
+  External transparency logging or hardware-backed signing remains a release
+  infrastructure deployment choice, not something safely emulated in source.
+- Ordered rollout cohorts, maintenance windows, signed policies, bounded event
+  retention and automatic failure stops are implemented in the Home Assistant
+  add-on.
+- Deterministic parser fuzzing and structural accessibility automation run in
+  CI. Native/event-driven Wi-Fi scanning remains dependent on the MicroPython
+  network API and is not required for alpha correctness.
+- v2 is deliberately breaking while there is one test device. All new formats
+  and APIs are nevertheless versioned, and compatibility must be frozen before
+  v2 stable.

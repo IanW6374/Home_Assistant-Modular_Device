@@ -1,13 +1,16 @@
 try:
     from .logging import log_output
     from .driver_index import DRIVER_MODULES
+    from .contracts import metadata_for
 except ImportError:
     from logging import log_output
     from driver_index import DRIVER_MODULES
+    from contracts import metadata_for
 
 
 _DEVICE_TYPES = {}
 _MODULES = []
+_DRIVER_METADATA = {}
 
 
 def _import_driver(module_name):
@@ -33,6 +36,7 @@ def _load_for_devices(devices):
 
     modules = []
     types = {}
+    metadata = {}
     for module_name in required:
         try:
             module = _import_driver(module_name)
@@ -42,17 +46,18 @@ def _load_for_devices(devices):
             )
         if not hasattr(module, 'supports') or not callable(module.supports):
             raise RuntimeError('configured module "' + module_name + '" is not a device driver')
+        metadata[module_name] = metadata_for(module_name, module)
         modules.append(module)
         if hasattr(module, 'DEVICE_TYPE'):
             types[module_name] = module.DEVICE_TYPE
         if hasattr(module, 'SWITCH_DEVICE_TYPE'):
             types[module_name + '_switch'] = module.SWITCH_DEVICE_TYPE
-    return modules, types
+    return modules, types, metadata
 
 
 def device_types_for_devices(devices):
     """Validate/import drivers without changing the active runtime driver set."""
-    _modules, types = _load_for_devices(devices)
+    _modules, types, _metadata = _load_for_devices(devices)
     return list(types.values())
 
 
@@ -71,8 +76,8 @@ def configured_driver_names(devices):
 
 def configure_for_devices(devices):
     """Import only drivers referenced by the installed module configuration."""
-    global _MODULES, _DEVICE_TYPES
-    _MODULES, _DEVICE_TYPES = _load_for_devices(devices)
+    global _MODULES, _DEVICE_TYPES, _DRIVER_METADATA
+    _MODULES, _DEVICE_TYPES, _DRIVER_METADATA = _load_for_devices(devices)
     return list(_DEVICE_TYPES.values())
 
 
@@ -99,6 +104,11 @@ def _find_module_for_device(device):
 def get_device_types():
     """Return device types for the configured and imported drivers."""
     return list(_DEVICE_TYPES.values())
+
+
+def driver_catalog():
+    """Return bounded v2 metadata for only the currently loaded drivers."""
+    return [dict(_DRIVER_METADATA[name]) for name in sorted(_DRIVER_METADATA)]
 
 
 def setup_device(device, index):

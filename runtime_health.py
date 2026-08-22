@@ -22,8 +22,9 @@ except ImportError:
 
 
 HEALTH_PATH = '.runtime-health.json'
-FORMAT_VERSION = 1
-MAX_EVENTS = 24
+FORMAT_VERSION = 2
+EVENT_API_VERSION = 2
+MAX_EVENTS = 64
 DEFAULT_CHECKPOINT_CHANGES = 10
 
 
@@ -64,6 +65,7 @@ def _empty():
             'last_update_result': {},
         },
         'events': [],
+        'event_sequence': 0,
         'updated_at': 0,
     }
 
@@ -93,6 +95,7 @@ class HealthHistory:
             base['counters'].update(value['counters'])
             base['observations'].update(value['observations'])
             base['events'] = value['events'][-self.max_events:]
+            base['event_sequence'] = int(value.get('event_sequence', 0) or 0)
             base['updated_at'] = int(value.get('updated_at', 0) or 0)
             return base
         except Exception:
@@ -135,12 +138,25 @@ class HealthHistory:
         self.checkpoint(force)
         return value
 
-    def record_event(self, kind, detail='', values=None, force=False):
+    def record_event(self, kind, detail='', values=None, force=False,
+                     severity='info', component='runtime', correlation_id=''):
+        severity = str(severity or 'info').lower()
+        if severity not in ('debug', 'info', 'warning', 'error', 'critical'):
+            raise ValueError('event severity is invalid')
+        self.data['event_sequence'] = int(
+            self.data.get('event_sequence', 0) or 0
+        ) + 1
         event = {
+            'event_api_version': EVENT_API_VERSION,
+            'id': self.data['event_sequence'],
             'time': _now(),
             'kind': str(kind),
+            'severity': severity,
+            'component': str(component or 'runtime')[:48],
             'detail': str(detail)[:192],
         }
+        if correlation_id:
+            event['correlation_id'] = str(correlation_id)[:64]
         if isinstance(values, dict) and values:
             event['values'] = values
         self.data['events'].append(event)
@@ -148,6 +164,29 @@ class HealthHistory:
         self._dirty_changes += 1
         self.checkpoint(force)
         return event
+
+    def events_since(self, cursor=0, limit=32):
+        """Return a bounded event page and explicitly report retention gaps."""
+        cursor = max(0, int(cursor or 0))
+        limit = min(self.max_events, max(1, int(limit or 1)))
+        events = self.data.get('events', ())
+        oldest = int(events[0].get('id', 0) or 0) if events else 0
+        selected = [
+            event for event in events
+            if int(event.get('id', 0) or 0) > cursor
+        ][:limit]
+        latest = int(self.data.get('event_sequence', 0) or 0)
+        next_cursor = (
+            int(selected[-1].get('id', cursor) or cursor)
+            if selected else min(cursor, latest)
+        )
+        return {
+            'event_api_version': EVENT_API_VERSION,
+            'cursor': next_cursor,
+            'latest_cursor': latest,
+            'cursor_gap': bool(events and cursor and cursor < oldest - 1),
+            'events': json.loads(json.dumps(selected)),
+        }
 
     def record_boot(self, reset_cause='', startup_exception=''):
         self.increment('boots')
@@ -157,7 +196,10 @@ class HealthHistory:
             self.increment('watchdog_resets')
         if startup_exception:
             self.observe('last_startup_exception', str(startup_exception)[:256])
-            self.record_event('startup_exception', startup_exception)
+            self.record_event(
+                'startup_exception', startup_exception,
+                severity='error', component='startup'
+            )
         self.record_event('boot', reset_cause, force=True)
 
     def observe_wifi(self, rssi=None, reconnected=False):
@@ -181,7 +223,11 @@ class HealthHistory:
             'detail': str(detail)[:160],
         }
         self.observe('last_update_result', value)
-        self.record_event('update_' + str(result), detail, value, force=True)
+        self.record_event(
+            'update_' + str(result), detail, value, force=True,
+            severity='info' if str(result) in ('confirmed', 'complete') else 'error',
+            component='update'
+        )
         return value
 
     def snapshot(self):

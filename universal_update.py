@@ -252,6 +252,10 @@ async def receive_bundle(
         'application_sequence': int(application.get('release_sequence', 0)),
         'firmware_required': firmware_required,
         'application_required': application_required,
+        'activation_order': list(manifest.get('activation_order', ())),
+        'maintenance_required': bool(manifest.get('maintenance_required')),
+        'rollback_policy': str(manifest.get('rollback_policy', 'paired')),
+        'trial_timeout_s': int(manifest.get('trial_timeout_s', 180)),
     }
     _write_state(state)
     update_support.record_update_event(
@@ -261,26 +265,37 @@ async def receive_bundle(
     return state
 
 
-def activate_pending():
+def activate_pending(maintenance_allowed=True):
     state = update_status()
     if state.get('status') != 'ready':
         raise ValueError('no staged universal update')
+    if state.get('maintenance_required') and not maintenance_allowed:
+        raise ValueError('universal update requires an active maintenance window')
     application_required = state.get('application_required', True)
     firmware_required = state.get('firmware_required', True)
     if application_required and app_update.update_status().get('status') != 'ready':
         raise ValueError('universal application is not ready')
     if firmware_required and firmware_update.update_status().get('status') != 'ready':
         raise ValueError('universal core firmware is not ready')
-    if application_required:
-        app_update.configure_pending_update({})
-    if firmware_required:
-        firmware_update.activate_pending()
+    for component in state.get('activation_order', ('application', 'firmware')):
+        if component == 'application' and application_required:
+            app_update.configure_pending_update({})
+        elif component == 'firmware' and firmware_required:
+            firmware_update.activate_pending()
     state['status'] = 'activating'
     _write_state(state)
     update_support.record_update_event(
         'universal', 'trial', state.get('version', '')
     )
     return state
+
+
+def trial_timeout_ms(default_ms=180000):
+    state = update_status()
+    if state.get('status') != 'activating':
+        return int(default_ms)
+    seconds = int(state.get('trial_timeout_s', int(default_ms) // 1000))
+    return max(30000, min(3600000, seconds * 1000))
 
 
 def confirm_update():

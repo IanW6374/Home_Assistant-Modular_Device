@@ -23,8 +23,8 @@ except ImportError:
 import certificate_manager
 
 
-FORMAT_VERSION = 1
-ALLOWED_SCOPES = ('read', 'write')
+FORMAT_VERSION = 2
+ALLOWED_SCOPES = ('read', 'write', 'fleet:read', 'fleet:write')
 
 
 def certificate_fingerprint(certificate_der):
@@ -183,7 +183,9 @@ class ClientRegistry:
         fingerprint = certificate_fingerprint(certificate_der)
         scopes = sorted(set(str(scope) for scope in scopes))
         if not scopes or any(scope not in ALLOWED_SCOPES for scope in scopes):
-            raise ValueError('API client scopes must contain read and/or write')
+            raise ValueError(
+                'API client scopes must contain read, write, fleet:read and/or fleet:write'
+            )
         label = str(label or details.get('subject') or fingerprint[:12])[:64]
         value = self._load()
         clients = value['clients']

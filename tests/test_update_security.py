@@ -221,7 +221,13 @@ class UpdateSecurityTests(unittest.TestCase):
             'provisioned': True, 'device_name': 'Controller',
             'wifi': {'ssid': 'network', 'password': 'wifi-password'},
             'mqtt': {'server': 'mqtt.local', 'port': 8883, 'username': '', 'password': '', 'ssl': True, 'configured': True},
-            'portal': {'username': 'admin', 'password_verifier': verifier},
+            'portal': {
+                'username': 'admin', 'password_verifier': verifier,
+                'users': [{
+                    'username': 'admin', 'password_verifier': verifier,
+                    'role': 'administrator', 'enabled': True,
+                }],
+            },
             'recovery': {'ap_password': 'Access-Point-Cedar-47!', 'password_verifier': verifier},
             'release': {'channel': 'stable', 'install_mode': 'upload'},
             'certificate': {'mode': 'manual', 'directory_url': '', 'hostname': ''},

@@ -21,10 +21,10 @@ except ImportError:
     import os
 
 
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 MAX_IMPORT_BYTES = 128 * 1024
 SECURE_FORMAT = 'hamd-secure-backup'
-SECURE_FORMAT_VERSION = 1
+SECURE_FORMAT_VERSION = 2
 SECURE_KDF_ITERATIONS = 120000
 SECURE_SALT_BYTES = 16
 SECURE_NONCE_BYTES = 12
@@ -42,6 +42,26 @@ IMPORTABLE_SETTINGS = (
     'api_enabled', 'api_port',
     'syslog_enabled', 'syslog_host', 'syslog_port', 'syslog_transport',
 )
+RESTORE_SECTIONS = (
+    'credentials', 'module_settings', 'certificates_and_trust'
+)
+
+
+def validate_restore_sections(sections=None):
+    if sections is None:
+        return list(RESTORE_SECTIONS)
+    if not isinstance(sections, (list, tuple)):
+        raise ValueError('restore sections must be a list')
+    selected = []
+    for section in sections:
+        section = str(section)
+        if section not in RESTORE_SECTIONS:
+            raise ValueError('restore section is not supported: ' + section)
+        if section not in selected:
+            selected.append(section)
+    if not selected:
+        raise ValueError('select at least one restore section')
+    return selected
 
 
 def export_configuration(public_settings, module_settings, metadata=None):
@@ -309,6 +329,8 @@ def _protected_files_preview(files):
         'mqtt_ca': 'MQTT CA', 'release_ca': 'release CA',
         'syslog_ca': 'syslog CA', 'acme_account_key': 'ACME account key',
         'acme_state': 'ACME state', 'api_client_registry': 'API clients',
+        'fleet_verification_key': 'fleet policy verification key',
+        'fleet_state': 'fleet policy state',
     }
     names = []
     for name in sorted((files or {}).keys()):
@@ -342,7 +364,7 @@ def _preview_row(path, before, after, missing=False):
 
 
 def secure_restore_preview(current_credentials, current_modules, current_files,
-                           backup_content, current_device_id=''):
+                           backup_content, current_device_id='', sections=None):
     """Describe a complete restore without returning any stored secret value."""
     target = backup_content.get('credentials', {}) or {}
     target_modules = backup_content.get('module_settings', {}) or {}
@@ -351,6 +373,7 @@ def secure_restore_preview(current_credentials, current_modules, current_files,
     source_id = str(metadata.get('device_id', '') or 'Not recorded')
     device_name = str(target.get('device_name', '') or 'Missing from backup')
     secret_after = _secret_preview(target)
+    selected = validate_restore_sections(sections)
     rows = [
         _preview_row(
             'Backup source device', str(current_device_id or 'Current device'),
@@ -395,7 +418,25 @@ def secure_restore_preview(current_credentials, current_modules, current_files,
             secret_after == 'Required credential missing'
         ),
     ]
-    return {'changes': rows, 'change_count': len(rows)}
+    credentials_rows = {
+        'Backup source device', 'Device name', 'Wi-Fi network', 'MQTT connection',
+        'Portal access', 'Time and NTP', 'Logging', 'Device API',
+        'Secret credentials'
+    }
+    rows = [
+        row for row in rows
+        if (
+            row['path'] in credentials_rows and 'credentials' in selected
+        ) or (
+            row['path'] == 'Module configuration' and 'module_settings' in selected
+        ) or (
+            row['path'] == 'Certificates, keys and trust' and
+            'certificates_and_trust' in selected
+        )
+    ]
+    return {
+        'changes': rows, 'change_count': len(rows), 'sections': selected
+    }
 
 
 def _diff(before, after, prefix=''):

@@ -19,7 +19,7 @@ class ConfigurationManagerTests(unittest.TestCase):
             'certificate_hostname': 'controller.local',
         }, {'devices': []})
 
-        self.assertEqual(backup['format_version'], 3)
+        self.assertEqual(backup['format_version'], 4)
         self.assertFalse(backup['secrets_included'])
         self.assertNotIn('wifi_password_set', backup['settings'])
         self.assertNotIn('mqtt_password_set', backup['settings'])
@@ -53,7 +53,7 @@ class ConfigurationManagerTests(unittest.TestCase):
 
     def test_rejects_secret_or_unknown_settings(self):
         payload = {
-            'format_version': 3,
+            'format_version': 4,
             'secrets_included': False,
             'settings': {'wifi_password': 'secret'},
         }
@@ -139,6 +139,27 @@ class ConfigurationManagerTests(unittest.TestCase):
         self.assertNotIn('backup-secret', encoded)
         self.assertNotIn('current-private-key', encoded)
         self.assertNotIn('backup-ca', encoded)
+
+    def test_secure_restore_preview_can_select_sections(self):
+        preview = configuration_manager.secure_restore_preview(
+            {}, {'devices': []}, {}, {
+                'metadata': {}, 'credentials': {},
+                'module_settings': {'devices': [{'name': 'Only module'}]},
+                'files': {},
+            }, sections=['module_settings']
+        )
+
+        self.assertEqual(preview['sections'], ['module_settings'])
+        self.assertEqual(
+            [row['path'] for row in preview['changes']],
+            ['Module configuration']
+        )
+
+    def test_restore_sections_reject_empty_and_unknown_values(self):
+        with self.assertRaisesRegex(ValueError, 'at least one'):
+            configuration_manager.validate_restore_sections([])
+        with self.assertRaisesRegex(ValueError, 'not supported'):
+            configuration_manager.validate_restore_sections(['shell'])
 
 
 if __name__ == '__main__':

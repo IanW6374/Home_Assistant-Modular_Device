@@ -18,8 +18,10 @@ except ImportError:
 
 
 NAMESPACE = 'ham_config'
-SCHEMA_VERSION = 6
-MAX_CONFIG_BYTES = 4096
+SCHEMA_VERSION = 7
+MAX_CONFIG_BYTES = 8192
+MAX_PORTAL_USERS = 8
+PORTAL_ROLES = ('viewer', 'operator', 'administrator')
 NETWORK_TRIAL_KEY = 'nettrial'
 MAX_NETWORK_TRIAL_BYTES = 8192
 FACTORY_RESET_KEY = 'factoryreset'
@@ -178,6 +180,7 @@ def configure_station(station, wifi):
 
 
 def validate(config, require_provisioned=False):
+    import credential_security
     if not isinstance(config, dict):
         raise ValueError('credential configuration must be an object')
     if int(config.get('schema', 0)) != SCHEMA_VERSION:
@@ -228,6 +231,30 @@ def validate(config, require_provisioned=False):
         raise ValueError('MQTT TLS is mandatory')
 
     _text(portal.get('username', ''), 'portal username', 1, 32)
+    users = portal.get('users')
+    if not isinstance(users, list) or not users or len(users) > MAX_PORTAL_USERS:
+        raise ValueError('portal users must contain 1..' + str(MAX_PORTAL_USERS) + ' records')
+    usernames = set()
+    administrators = 0
+    for user in users:
+        if not isinstance(user, dict) or set(user) != {
+            'username', 'password_verifier', 'role', 'enabled'
+        }:
+            raise ValueError('portal user record is invalid')
+        user_name = _text(user.get('username', ''), 'portal username', 1, 32)
+        folded = user_name.lower()
+        if folded in usernames:
+            raise ValueError('portal usernames must be unique')
+        usernames.add(folded)
+        if user.get('role') not in PORTAL_ROLES:
+            raise ValueError('portal user role is invalid')
+        if not isinstance(user.get('enabled'), bool):
+            raise ValueError('portal user enabled state must be boolean')
+        credential_security.parse_password_verifier(user.get('password_verifier', ''))
+        if user.get('role') == 'administrator' and user.get('enabled'):
+            administrators += 1
+    if administrators < 1:
+        raise ValueError('at least one enabled portal administrator is required')
     if portal.get('transport', 'auto') not in ('auto', 'https', 'http'):
         raise ValueError('portal transport must be auto, https or http')
     portal_port = portal.get('port')
@@ -239,7 +266,6 @@ def validate(config, require_provisioned=False):
     ):
         raise ValueError('portal port must be blank or 1..65535 excluding reserved port 80')
     _text(recovery.get('ap_password', ''), 'recovery AP password', MIN_PASSWORD_LENGTH, 63)
-    import credential_security
     credential_security.validate_password_strength(recovery.get('ap_password', ''))
     credential_security.parse_password_verifier(portal.get('password_verifier', ''))
     credential_security.parse_password_verifier(recovery.get('password_verifier', ''))
@@ -363,6 +389,8 @@ def load(require_provisioned=False):
                 config = _migrate_v4(config)
             if int(config.get('schema', 0)) == 5:
                 config = _migrate_v5(config)
+            if int(config.get('schema', 0)) == 6:
+                config = _migrate_v6(config)
             return validate(config, require_provisioned)
         except Exception:
             continue
@@ -390,6 +418,19 @@ def _migrate_v5(config):
     # explicit non-default choices while moving untouched devices to 60 min.
     if int(portal.get('session_timeout_s', 28800)) == 28800:
         portal['session_timeout_s'] = 3600
+    return config
+
+
+def _migrate_v6(config):
+    config = json.loads(json.dumps(config))
+    config['schema'] = SCHEMA_VERSION
+    portal = config.setdefault('portal', {})
+    portal['users'] = [{
+        'username': portal.get('username', 'admin'),
+        'password_verifier': portal.get('password_verifier', ''),
+        'role': 'administrator',
+        'enabled': True,
+    }]
     return config
 
 
@@ -572,6 +613,12 @@ def build_configuration(values, portal_password, recovery_password):
         'portal': {
             'username': values.get('portal_username', ''),
             'password_verifier': portal_verifier,
+            'users': [{
+                'username': values.get('portal_username', ''),
+                'password_verifier': portal_verifier,
+                'role': 'administrator',
+                'enabled': True,
+            }],
             'transport': values.get('portal_transport', 'auto'),
             'port': (
                 int(values.get('portal_port'))
@@ -646,6 +693,11 @@ def update_portal_password(password):
     config['portal']['password_verifier'] = credential_security.password_verifier(
         password, os.urandom(credential_security.PASSWORD_SALT_BYTES)
     )
+    primary_name = str(config['portal'].get('username', '')).lower()
+    for user in config['portal'].get('users', ()):
+        if str(user.get('username', '')).lower() == primary_name:
+            user['password_verifier'] = config['portal']['password_verifier']
+            break
     save(config)
     return config['portal']['password_verifier']
 
@@ -727,7 +779,12 @@ def _apply_operational_settings(config, values):
     if 'mqtt_password' in values:
         config['mqtt']['password'] = values['mqtt_password']
     if 'portal_username' in values:
+        old_username = str(config['portal'].get('username', '')).lower()
         config['portal']['username'] = values['portal_username']
+        for user in config['portal'].get('users', ()):
+            if str(user.get('username', '')).lower() == old_username:
+                user['username'] = values['portal_username']
+                break
     if 'portal_transport' in values:
         config['portal']['transport'] = values['portal_transport']
     if 'portal_port' in values:

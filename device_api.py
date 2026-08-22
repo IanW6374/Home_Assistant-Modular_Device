@@ -18,7 +18,7 @@ except ImportError:
 import http_support
 
 
-API_VERSION = 1
+API_VERSION = 2
 
 
 def make_mtls_context(cert_path, key_path, client_ca_path):
@@ -44,18 +44,80 @@ def make_mtls_context(cert_path, key_path, client_ca_path):
 
 
 class DeviceAPI:
-    def __init__(self, broker, health, registry, device_getter, log_output=None):
+    def __init__(self, broker, health, registry, device_getter, log_output=None,
+                 fleet=None, support_getter=None):
         self.broker = broker
         self.health = health
         self.registry = registry
         self.device_getter = device_getter
         self.log_output = log_output
+        self.fleet = fleet
+        self.support_getter = support_getter
 
     def dispatch(self, method, path, body, identity):
         route = str(path).split('?', 1)[0]
-        scope = 'write' if method == 'POST' else 'read'
+        is_fleet = route.startswith('/api/v2/fleet')
+        scope = (
+            'fleet:write' if method == 'POST' else 'fleet:read'
+        ) if is_fleet else ('write' if method == 'POST' else 'read')
         client = self.registry.authenticate(identity, scope)
         self._record_request(client, method, route)
+
+        if method == 'GET' and route == '/api/v2/device/inventory':
+            return 200, {
+                'api_version': API_VERSION,
+                'device': self.device_getter(),
+                'modules': self.broker.catalog(),
+                'fleet': self.fleet.snapshot() if self.fleet else None,
+            }
+        if method == 'GET' and route == '/api/v2/health':
+            return 200, {
+                'api_version': API_VERSION, 'health': self.health.snapshot()
+            }
+        if method == 'GET' and route == '/api/v2/events':
+            cursor = self._query_integer(path, 'cursor', 0)
+            limit = self._query_integer(path, 'limit', 32)
+            return 200, self.health.events_since(cursor, limit)
+        if method == 'GET' and route == '/api/v2/support':
+            if not self.support_getter:
+                raise RuntimeError('support bundle is unavailable')
+            return 200, self.support_getter()
+        if method == 'GET' and route == '/api/v2/fleet':
+            if not self.fleet:
+                raise RuntimeError('fleet management is unavailable')
+            return 200, self.fleet.snapshot()
+        if method == 'POST' and route == '/api/v2/fleet/policy':
+            if not self.fleet:
+                raise RuntimeError('fleet management is unavailable')
+            policy = json.loads(body.decode() if isinstance(body, bytes) else body)
+            result = self.fleet.apply_policy(policy)
+            self.health.record_event(
+                'fleet_policy_applied', 'Applied fleet policy',
+                {'policy_sequence': result['policy_sequence']}, force=True,
+                component='fleet'
+            )
+            return 202, result
+        if method == 'POST' and (
+            route == '/api/v2/fleet/command-result' or
+            (
+                route.startswith('/api/v2/fleet/commands/') and
+                route.endswith('/result')
+            )
+        ):
+            if not self.fleet:
+                raise RuntimeError('fleet management is unavailable')
+            value = json.loads(body.decode() if isinstance(body, bytes) else body)
+            if not isinstance(value, dict):
+                raise ValueError('command result must be an object')
+            route_identifier = (
+                route.split('/')[-2]
+                if route.startswith('/api/v2/fleet/commands/') else ''
+            )
+            result = self.fleet.complete_command(
+                route_identifier or value.get('id', ''), value.get('result', 'complete'),
+                value.get('detail', '')
+            )
+            return 200, result
 
         if method == 'GET' and route == '/api/v1/device':
             return 200, {
@@ -103,6 +165,17 @@ class DeviceAPI:
                     return 202, operation
         return 404, {'error': 'endpoint not found'}
 
+    @staticmethod
+    def _query_integer(path, name, default):
+        query = str(path).split('?', 1)
+        if len(query) == 1:
+            return default
+        for item in query[1].split('&'):
+            key_value = item.split('=', 1)
+            if key_value[0] == name:
+                return int(key_value[1]) if len(key_value) == 2 else default
+        return default
+
     def _record_request(self, client, method, route):
         label = str(client.get('label', 'client'))
         if self.health:
@@ -112,7 +185,8 @@ class DeviceAPI:
             if method == 'POST' or count % 100 == 0:
                 self.health.record_event(
                     'api_request', str(method) + ' ' + str(route),
-                    {'client': label, 'request_count': count}, force=False
+                    {'client': label, 'request_count': count}, force=False,
+                    component='api'
                 )
         if self.log_output:
             self.log_output(
@@ -125,7 +199,8 @@ class DeviceAPI:
             self.health.increment('api_failures')
             self.health.record_event(
                 'api_not_found', 'Unknown module UUID ' + str(uuid),
-                {'client': str(client.get('label', 'client'))}, force=False
+                {'client': str(client.get('label', 'client'))}, force=False,
+                severity='warning', component='api'
             )
         return 404, {'error': 'module not found', 'module': uuid}
 

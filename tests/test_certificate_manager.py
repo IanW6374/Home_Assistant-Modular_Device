@@ -255,6 +255,7 @@ class CertificateManagerTests(unittest.TestCase):
         self.assertIn('/validate-certificates', certificates)
         self.assertIn('Import certificate', certificates)
         self.assertIn('id="certificate-type"', certificates)
+        self.assertIn('value="fleet-client-cert"', certificates)
         self.assertIn('Installed certificates', certificates)
         self.assertIn('CA Trust', certificates)
         self.assertIn('Device Certificates', certificates)

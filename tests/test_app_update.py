@@ -395,13 +395,20 @@ class AppUpdateTests(unittest.TestCase):
             'web_portal_ui.py', 'web_portal.py',
             'release_update.py', 'certificate_manager.py',
             'api_security.py', 'configuration_manager.py', 'device_api.py',
+            'fleet_management.py', 'portal_auth.py', 'portal_sessions.py',
+            'resumable_upload.py', 'support_bundle.py',
             'message_broker.py', 'runtime_health.py', 'remote_logging.py',
             'timezone_rules.py', 'update_orchestrator.py',
             'device_modules/__init__.py', 'device_modules/loader.py',
             'device_modules/driver_index.py',
+            'device_modules/contracts.py',
             'device_modules/base.py', 'device_modules/logging.py',
             'device_modules/validation.py', 'lib/mqtt_as.py',
-            'lib/primitives/__init__.py', 'lib/primitives/encoder.py'
+            'lib/primitives/__init__.py', 'lib/primitives/encoder.py',
+            'services/__init__.py', 'services/network_service.py',
+            'services/messaging_service.py', 'services/portal_service.py',
+            'services/update_service.py', 'services/event_service.py',
+            'services/module_runtime.py'
         ):
             path = Path(name)
             path.parent.mkdir(parents=True, exist_ok=True)

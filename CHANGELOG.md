@@ -3,6 +3,27 @@
 All notable user-visible changes are recorded here. This project follows
 Semantic Versioning for product release labels.
 
+## [2.0.0-alpha.1] - 2026-08-22
+
+### Added
+
+- Service-oriented runtime and portal internals with explicit driver, event,
+  fleet-management and configuration contracts.
+- A Home Assistant add-on for single-device management initially, with staged
+  rollout, maintenance-window and fleet expansion support built into its data
+  model.
+- Role-based portal access, selective restore, support bundles, resumable
+  uploads, restart-minimised certificate activation and richer universal
+  update policy.
+- Reproducible-build metadata, SBOM output, parser fuzzing, portal accessibility
+  checks and single-device hardware-in-the-loop release qualification.
+- Versioned `/api/v2` inventory, structured event, support-bundle and signed
+  fleet-policy resources over mandatory mutual TLS.
+- Exact-offset, SHA-256-verified resumable application, core and universal
+  uploads with independently reported staging and verification progress.
+- Independent portal identities and sessions with viewer, operator and
+  administrator roles.
+
 ## [1.9.0] - 2026-08-22
 
 ### Added

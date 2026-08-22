@@ -31,6 +31,8 @@ except ImportError:
 import web_portal_ui as portal_ui
 import http_support
 import timezone_rules
+import portal_auth
+from portal_sessions import PortalSessions
 from device_modules.base import module_diagnostics_need_attention
 
 
@@ -550,9 +552,37 @@ def render_device_api_page(csrf, settings, message='', error=False):
 
 
 def render_user_settings_page(
-    csrf, settings, message='', error=False, password_message='', password_error=False
+    csrf, settings, message='', error=False, password_message='', password_error=False,
+    users=None, current_user=''
 ):
     settings = settings or {}
+    user_rows = []
+    for user in users or ():
+        name = str(user.get('username', ''))
+        enabled = bool(user.get('enabled'))
+        role = str(user.get('role', 'viewer'))
+        options = ''.join(
+            '<option value="' + value + '"' + (' selected' if role == value else '') +
+            '>' + value.title() + '</option>'
+            for value in ('viewer', 'operator', 'administrator')
+        )
+        user_rows.append(
+            '<article class="module-card"><div class="module-card-title"><strong>' +
+            html_escape(name) + '</strong><span class="badge">' + html_escape(role) +
+            '</span></div><form action="/user/update" method="post">'
+            '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">'
+            '<input type="hidden" name="username" value="' + html_escape(name) + '">'
+            '<label class="field">Role<select name="role">' + options + '</select></label>'
+            '<label class="check"><input type="checkbox" name="enabled" value="true"' +
+            (' checked' if enabled else '') + '>Enabled</label><div class="actions"><span></span>'
+            '<button class="secondary" type="submit">Update user</button></div></form>' +
+            ('' if name == current_user else (
+                '<form action="/user/remove" method="post"><input type="hidden" name="csrf" value="' +
+                html_escape(csrf) + '"><input type="hidden" name="username" value="' +
+                html_escape(name) + '"><div class="actions"><span></span>'
+                '<button class="danger" type="submit">Remove user</button></div></form>'
+            )) + '</article>'
+        )
     body = (
         portal_ui.page_heading(
             'User', 'Account',
@@ -567,7 +597,17 @@ def render_user_settings_page(
         '<div class="actions"><span></span><button type="submit">Save username and restart</button>'
         '</div></section></form>' + render_password_change_form(
             csrf, password_message if password_error else ''
-        )
+        ) + '<section class="card"><div class="section-title"><h2>Portal users</h2>'
+        '<span class="badge">Maximum 8</span></div><div class="module-grid">' +
+        ''.join(user_rows) + '</div><form action="/user/add" method="post" autocomplete="off">'
+        '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '"><div class="grid">'
+        '<label class="field">Username<input name="username" required maxlength="32"></label>'
+        '<label class="field">Role<select name="role"><option value="viewer">Viewer</option>'
+        '<option value="operator">Operator</option><option value="administrator">Administrator</option>'
+        '</select></label><label class="field">Initial password<input type="password" name="password" '
+        'minlength="16" maxlength="256" required autocomplete="new-password"></label></div>'
+        '<div class="actions"><span></span><button type="submit">Add portal user</button></div>'
+        '</form></section>'
     )
     return portal_ui.shell('HAMD account', 'user_settings', body, csrf)
 
@@ -720,7 +760,8 @@ def render_certificate_page(csrf, message='', certificates=None):
         '<select id="certificate-type"><option value="portal">Portal certificate and private key</option>'
         '<option value="mqtt-ca">MQTT trusted CA</option><option value="release-ca">Release-server trusted CA</option>'
         '<option value="syslog-ca">Syslog trusted CA</option><option value="api-client-ca">API client CA trust</option>'
-        '<option value="api-client-cert">API client certificate enrolment</option></select></label>'
+        '<option value="api-client-cert">Module API client certificate</option>'
+        '<option value="fleet-client-cert">Fleet manager client certificate</option></select></label>'
         '<div class="grid"><label id="certificate-primary-label" class="field">Portal certificate'
         '<input id="certificate-primary" type="file" accept=".der,application/pkix-cert" required></label>'
         '<label id="certificate-secondary-label" class="field">Portal private key'
@@ -741,10 +782,12 @@ def render_certificate_page(csrf, message='', certificates=None):
         '"Authenticates the signed release server."],"syslog-ca":["Syslog trusted CA","",'
         '"Authenticates an encrypted syslog server."],"api-client-ca":["API client CA files","",'
         '"Install one or more issuing CAs; the device restarts once."],"api-client-cert":['
-        '"API client certificates","","Enrol one or more client identities without a restart."]};'
+        '"API client certificates","","Enrol module API identities with read/write scopes without a restart."],'
+        '"fleet-client-cert":["Fleet client certificates","","Enrol Home Assistant fleet identities with fleet read/write scopes."]};'
         'function configureCertificateImport(){var d=descriptions[type.value];primaryLabel.firstChild.nodeValue=d[0];'
         'secondaryLabel.firstChild.nodeValue=d[1];secondaryLabel.hidden=!d[1];primary.multiple='
-        'type.value==="api-client-ca"||type.value==="api-client-cert";secondary.required=!!d[1];help.textContent=d[2];}'
+        'type.value==="api-client-ca"||type.value==="api-client-cert"||type.value==="fleet-client-cert";'
+        'secondary.required=!!d[1];help.textContent=d[2];}'
         'type.onchange=configureCertificateImport;configureCertificateImport();'
         'document.getElementById("acme-enabled").onchange=function(){document.getElementById('
         '"acme-fields").disabled=!this.checked;};'
@@ -834,7 +877,14 @@ def render_configuration_backup_page(csrf, message=''):
         'type="file" accept="application/json,.json" required></label>'
         '<fieldset id="import-encryption" class="conditional-fields" disabled>'
         '<label class="field">Encryption password<input id="configuration-import-password" '
-        'type="password" minlength="16" maxlength="256"></label></fieldset>'
+        'type="password" minlength="16" maxlength="256"></label>'
+        '<fieldset><legend>Restore sections</legend><div class="grid">'
+        '<label class="check"><input class="restore-section" type="checkbox" value="credentials" checked>'
+        'Operational settings and credentials</label>'
+        '<label class="check"><input class="restore-section" type="checkbox" value="module_settings" checked>'
+        'Module configuration</label>'
+        '<label class="check"><input class="restore-section" type="checkbox" value="certificates_and_trust" checked>'
+        'Certificates, keys and trust</label></div></fieldset></fieldset>'
         '<div class="actions"><span id="configuration-import-result" class="muted"></span>'
         '<button id="configuration-action" type="button">Upload and preview</button></div>'
         '<div id="configuration-preview-panel" hidden><div class="section-title">'
@@ -890,9 +940,12 @@ def render_configuration_backup_page(csrf, message=''):
         'this.disabled=true;importEncrypted=encryptedImport.checked;try{var r,p,diffRows=[];if(importEncrypted){'
         'var password=document.getElementById("configuration-import-password").value;if(!password){'
         'portalRequire(importPassword,"Enter the encryption password");throw new Error("Enter the encryption password");}'
+        'var sections=[],sectionBoxes=document.querySelectorAll(".restore-section");for(var s=0;s<sectionBoxes.length;s++)'
+        'if(sectionBoxes[s].checked)sections.push(sectionBoxes[s].value);if(!sections.length)throw new Error('
+        '"Select at least one restore section");'
         'var backup=JSON.parse(await readBackup(f,label));r=await uploadBackup('
         '"/secure-configuration-import-preview","application/json",JSON.stringify({password:password,'
-        'backup:backup}),label);p=JSON.parse(r);importToken=p.token;diffRows=p.changes||[];'
+        'backup:backup,sections:sections}),label);p=JSON.parse(r);importToken=p.token;diffRows=p.changes||[];'
         'out.textContent="Encrypted backup verified. Review the restore preview below.";}else{r=await uploadBackup('
         '"/configuration-import-preview","application/json",f,label);p=JSON.parse(r);importToken=p.token;'
         'diffRows=p.changes;out.textContent=p.change_count+'
@@ -2054,8 +2107,7 @@ def update_upload_script():
         'if(!firmware&&!application&&!universal){failure("Choose a .hamd, .hamf or .hamu update bundle.");return;}'
         'box.classList.remove("complete","failed");box.hidden=false;label.textContent="Uploading 0%";'
         'out.className="status-history";out.textContent="";'
-        'var id=Date.now().toString(36)+"-"+Math.random().toString(36).slice(2),x=new XMLHttpRequest(),'
-        'polling=false,finished=false,timer=null;function schedulePoll(){if(!finished)timer=setTimeout(poll,1000);}'
+        'var id="",polling=false,finished=false,timer=null;function schedulePoll(){if(!finished)timer=setTimeout(poll,1000);}'
         'function startPolling(){if(polling)return;polling=true;poll();}function poll(){fetch("/update-progress?id="+encodeURIComponent(id),'
         '{cache:"no-store",credentials:"same-origin"}).then(function(r){if(r.status===401){location.replace('
         '"/login");return null;}return r.json();}).then(function(s){if(!s)return;if(s.phase==="writing"){'
@@ -2071,17 +2123,25 @@ def update_upload_script():
         'setTimeout(function(){location.replace("/updates");},900);return;}else if(s.phase==="failed"){'
         'finished=true;box.classList.add("failed");label.textContent="Failed";failure(s.message||"Verification failed");return;}'
         'schedulePoll();}).catch(function(){schedulePoll();});}'
-        'x.open("POST",universal?"/universal-upload":(firmware?"/firmware-upload":"/update-upload"),true);x.setRequestHeader("Content-Type",'
-        '"application/octet-stream");x.setRequestHeader("X-CSRF-Token",csrfToken);x.setRequestHeader("X-Update-ID",id);'
-        'x.upload.onprogress=function(p){if(!p.lengthComputable)return;var n=Math.round(p.loaded*100/p.total);'
-        'label.textContent="Uploading "+n+"%";};x.upload.onload=function(){'
-        'label.textContent=universal?"Writing core firmware 0%":(firmware?"Writing firmware 0%":"Verifying application 0%");'
-        'previous("Completed: upload");startPolling();};x.onload=function(){'
-        'if(x.status===401){location.replace("/login");return;}if(x.status===202){startPolling();return;}'
-        'if(x.status>=200&&x.status<300){finished=true;box.classList.add("complete");label.textContent="Verification complete";'
-        'setTimeout(function(){location.replace("/updates");},900);}else{box.classList.add("failed");label.textContent="Failed";'
-        'finished=true;failure(x.responseText||"Upload failed");}};x.onerror=function(){finished=true;box.classList.add("failed");label.textContent="Failed";'
-        'failure("Connection lost during upload");};x.send(f);};'
+        'function jsonPost(url,value){return fetch(url,{method:"POST",credentials:"same-origin",headers:{'
+        '"Content-Type":"application/json","X-CSRF-Token":csrfToken},body:JSON.stringify(value)}).then(function(r){'
+        'if(r.status===401){location.replace("/login");throw new Error("Session expired");}if(!r.ok)return r.text().then(function(t){'
+        'throw new Error(t||"Request failed");});return r.json();});}'
+        'function sendChunk(offset){if(offset>=f.size){label.textContent=universal?"Writing core firmware 0%":'
+        '(firmware?"Writing firmware 0%":"Verifying application 0%");previous("Completed: upload");startPolling();'
+        'return fetch("/resumable-upload-complete",{method:"POST",credentials:"same-origin",headers:{'
+        '"Content-Type":"application/json","X-CSRF-Token":csrfToken},body:JSON.stringify({id:id})}).then(function(r){'
+        'if(r.status===401){location.replace("/login");return;}if(r.status===202||r.ok){startPolling();return;}return r.text().then(function(t){'
+        'throw new Error(t||"Verification failed");});});}var end=Math.min(offset+65536,f.size);return fetch('
+        '"/resumable-upload-chunk?id="+encodeURIComponent(id)+"&offset="+offset,{method:"POST",credentials:"same-origin",'
+        'headers:{"Content-Type":"application/octet-stream","X-CSRF-Token":csrfToken},body:f.slice(offset,end)}).then(function(r){'
+        'if(!r.ok)return r.text().then(function(t){throw new Error(t||"Chunk upload failed");});return r.json();}).then(function(s){'
+        'var received=Number(s.received_bytes||end),n=Math.round(received*100/f.size);label.textContent="Uploading "+n+"%";return sendChunk(received);});}'
+        'f.arrayBuffer().then(function(data){return crypto.subtle.digest("SHA-256",data);}).then(function(hash){var hex=Array.from(new Uint8Array(hash)).map(function(b){'
+        'return b.toString(16).padStart(2,"0");}).join("");id=hex.slice(0,24)+"-"+f.size;var kind=universal?"universal":'
+        '(firmware?"firmware":"application");return jsonPost("/resumable-upload-begin",{id:id,kind:kind,total_bytes:f.size,sha256:hex});'
+        '}).then(function(s){return sendChunk(Number(s.received_bytes||0));}).catch(function(err){finished=true;box.classList.add("failed");'
+        'label.textContent="Failed";failure(err&&err.message?err.message:"Upload failed");});};'
     )
 
 
@@ -2184,34 +2244,41 @@ async def start_web_portal(
     network_trial_confirmer=None, factory_reset_handler=None,
     secure_config_backup_getter=None, secure_config_import_preview_handler=None,
     secure_config_import_apply_handler=None, log_buffer_lines_setter=None,
-    wifi_scan_getter=None, universal_upload_handler=None
+    wifi_scan_getter=None, universal_upload_handler=None,
+    portal_user_getter=None, portal_user_add=None, portal_user_update=None,
+    portal_user_remove=None, resumable_begin=None, resumable_status=None,
+    resumable_append=None, resumable_complete=None
 ):
     if asyncio is None:
         return None
 
     username = settings.get('username', 'admin') or 'admin'
     password_verifier = settings.get('password_verifier', '')
+    authenticator = settings.get('authenticator')
     password_change_required = bool(settings.get('password_change_required', False))
     password_setter = settings.get('password_setter')
+    user_password_setter = settings.get('user_password_setter')
     if not isinstance(username, str):
         raise ValueError('web portal username must be text')
-    try:
-        import credential_security
-        credential_security.parse_password_verifier(password_verifier)
-    except ValueError as exc:
-        raise ValueError('web portal password verifier is invalid: ' + str(exc))
+    import credential_security
+    if authenticator is None:
+        try:
+            credential_security.parse_password_verifier(password_verifier)
+        except ValueError as exc:
+            raise ValueError('web portal password verifier is invalid: ' + str(exc))
     levels = settings.get('levels', ('ERROR', 'INFO', 'DEBUG'))
     log_refresh_ms = settings.get('log_refresh_ms', 5000)
     value_refresh_ms = settings.get('value_refresh_ms', 0)
     upload_progress = {'phase': 'idle', 'percent': 0}
     upload_progress_by_id = {}
-    session_id = new_session_id()
-    session_started = monotonic_ms()
     session_timeout_ms = int(settings.get('session_timeout_s', 3600)) * 1000
+    sessions = PortalSessions(
+        new_session_id, monotonic_ms, session_timeout_ms,
+        int(settings.get('maximum_sessions', 8))
+    )
     login_failures = 0
     cached_page = {'level': None, 'body': None}
     secure_cookie = settings.get('https', False)
-    cookie = session_cookie(session_id, secure_cookie)
     login_url = settings.get('login_url', '/login')
 
     async def send_response(writer, status, body, content_type='text/html; charset=utf-8', extra_headers=None):
@@ -2230,7 +2297,7 @@ async def start_web_portal(
         )
 
     async def handle_client(reader, writer):
-        nonlocal session_id, session_started, cookie, login_failures
+        nonlocal login_failures
         nonlocal password_verifier, password_change_required
         path = ''
         upload_state = ''
@@ -2324,6 +2391,12 @@ async def start_web_portal(
 
             action_path = path or ''
             route = action_path.split('?', 1)[0]
+            cookie_session_id = parse_cookies(headers).get('ham_session', '')
+            session = sessions.get(cookie_session_id)
+            session_id = cookie_session_id
+            csrf_token = session.get('csrf', '') if session else ''
+            session_role = session.get('role', '') if session else ''
+            session_username = session.get('username', '') if session else ''
             is_login = route == '/login'
             is_password_change = (
                 route == '/user' and
@@ -2338,6 +2411,7 @@ async def start_web_portal(
             is_device_api = route == '/device-api'
             is_logging_settings = route == '/logging-settings'
             is_user_settings = route == '/user'
+            is_user_management = route in ('/user/add', '/user/update', '/user/remove')
             is_operational_settings = (
                 is_settings or is_portal_settings or is_wifi_settings or
                 is_ntp_settings or is_mqtt or is_home_assistant or is_device_api or
@@ -2364,6 +2438,7 @@ async def start_web_portal(
                     path.startswith('/update-upload') or
                     path.startswith('/firmware-upload') or
                     path.startswith('/universal-upload') or
+                    path.startswith('/resumable-upload-chunk') or
                     path.startswith('/certificate-upload')
                 )
             )
@@ -2374,7 +2449,7 @@ async def start_web_portal(
                     headers.get('content-type', '').split(';', 1)[0].strip() == 'application/json'
                 )
                 max_form_size = 393216 if is_configuration_import else (65536 if is_module_settings else (8192 if is_operational_settings else (
-                    2048 if (is_login or is_password_change or is_factory_default) else 65536
+                    2048 if (is_login or is_password_change or is_factory_default or is_user_management) else 65536
                 )))
                 if length > max_form_size:
                     raise ValueError('portal form is too large')
@@ -2395,20 +2470,17 @@ async def start_web_portal(
                 form_csrf = form_params.get('csrf', '')
                 header_csrf = headers.get('x-csrf-token', '')
                 csrf_error = False if is_login else (
-                    form_csrf != session_id and header_csrf != session_id
+                    form_csrf != csrf_token and header_csrf != csrf_token
                 )
             elif method == 'POST' and is_upload:
-                csrf_error = headers.get('x-csrf-token', '') != session_id
+                csrf_error = headers.get('x-csrf-token', '') != csrf_token
 
             quiet_audit_routes = (
                 '/assets/portal.css', '/assets/portal.js', '/logs', '/partials',
                 '/api/status', '/api/overview', '/api/module-diagnostics',
-                '/update-progress', '/task-status'
+                '/update-progress', '/task-status', '/resumable-upload-status'
             )
-            session_valid = (
-                has_portal_session(headers, session_id) and
-                elapsed_ms(session_started) <= session_timeout_ms
-            )
+            session_valid = session is not None
             if (
                 route not in quiet_audit_routes and not is_login and
                 session_valid
@@ -2418,8 +2490,11 @@ async def start_web_portal(
                     {'log': peer_address + ' ' + str(method) + ' ' + str(route), 'force': True}, 'INFO'
                 )
             if session_valid and not is_login and route not in quiet_audit_routes:
-                # The configured portal timeout is an inactivity timeout.
-                session_started = monotonic_ms()
+                log_output(
+                    'Local', 'Web portal audit identity',
+                    {'log': session_username + ' (' + session_role + ')', 'force': False},
+                    'DEBUG'
+                )
 
             if is_asset and method == 'GET':
                 asset = (
@@ -2436,10 +2511,7 @@ async def start_web_portal(
                 body = 'Method not allowed'
                 await send_response(writer, '405 Method Not Allowed', body, 'text/plain')
             elif is_login and method == 'GET':
-                if (
-                    has_portal_session(headers, session_id) and
-                    elapsed_ms(session_started) <= session_timeout_ms
-                ):
+                if session_valid:
                     await send_redirect(
                         writer,
                         '/user' if password_change_required else '/'
@@ -2448,18 +2520,30 @@ async def start_web_portal(
                     await send_response(writer, '200 OK', render_login_page(username))
             elif is_login and method == 'POST':
                 params = form_params
-                if await credentials_match_async(
-                    params.get('username', ''), params.get('password', ''),
-                    username, password_verifier
-                ):
-                    session_id = new_session_id()
-                    session_started = monotonic_ms()
+                identity = (
+                    await authenticator(
+                        params.get('username', ''), params.get('password', '')
+                    ) if authenticator else (
+                        {'username': username, 'role': 'administrator'}
+                        if await credentials_match_async(
+                            params.get('username', ''), params.get('password', ''),
+                            username, password_verifier
+                        ) else None
+                    )
+                )
+                if identity:
+                    session = sessions.create(identity)
+                    session_id = session['id']
+                    csrf_token = session['csrf']
+                    session_role = session['role']
+                    session_username = session['username']
                     cookie = session_cookie(session_id, secure_cookie)
                     cached_page['body'] = None
                     login_failures = 0
                     log_output(
                         'Local', 'Web portal audit',
-                        {'log': 'Successful login for ' + str(username) + ' from ' + peer_address,
+                        {'log': 'Successful login for ' + str(session_username) +
+                         ' (' + str(session_role) + ') from ' + peer_address,
                          'force': True},
                         'INFO'
                     )
@@ -2492,15 +2576,24 @@ async def start_web_portal(
                         writer, '401 Unauthorized',
                         render_login_page(username, 'Invalid username or password.')
                     )
-            elif (
-                not has_portal_session(headers, session_id) or
-                elapsed_ms(session_started) > session_timeout_ms
-            ):
+            elif not session_valid:
                 await send_response(
                     writer, '401 Unauthorized', render_login_page(username)
                 )
             elif csrf_error:
                 await send_response(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
+            elif not portal_auth.role_allows(
+                session_role, portal_auth.required_role(method, route)
+            ):
+                log_output(
+                    'Local', 'Web portal audit',
+                    {'log': 'Denied ' + session_username + ' ' + method + ' ' + route,
+                     'force': True}, 'ERROR'
+                )
+                await send_response(
+                    writer, '403 Forbidden', 'Your portal role cannot perform this action.',
+                    'text/plain'
+                )
             elif method == 'GET' and route in ('/change-password', '/user/password'):
                 await send_response(writer, '404 Not Found', 'Not found', 'text/plain')
             elif method == 'POST' and route == '/logout':
@@ -2508,9 +2601,7 @@ async def start_web_portal(
                     'Local', 'Web portal audit',
                     {'log': 'Authenticated session logged out', 'force': True}, 'INFO'
                 )
-                session_id = new_session_id()
-                session_started = monotonic_ms()
-                cookie = session_cookie(session_id, secure_cookie)
+                sessions.revoke(session_id)
                 cached_page['body'] = None
                 await send_redirect(
                     writer, '/login',
@@ -2521,14 +2612,21 @@ async def start_web_portal(
                 current_password = params.get('current_password', '')
                 new_password = params.get('new_password', '')
                 confirmation = params.get('confirm_password', '')
-                if not await credential_security.verify_password_async(
-                    current_password, password_verifier
-                ):
+                current_identity = (
+                    await authenticator(session_username, current_password)
+                    if authenticator else (
+                        {'username': username, 'role': 'administrator'}
+                        if await credential_security.verify_password_async(
+                            current_password, password_verifier
+                        ) else None
+                    )
+                )
+                if not current_identity:
                     await send_response(writer, '400 Bad Request', (
                         render_password_change_page(
-                            session_id, 'Current password is incorrect.', True
+                            csrf_token, 'Current password is incorrect.', True
                         ) if password_change_required else render_user_settings_page(
-                            session_id, settings_getter() if settings_getter else {},
+                            csrf_token, settings_getter() if settings_getter else {},
                             password_message='Current password is incorrect.',
                             password_error=True
                         )
@@ -2536,9 +2634,9 @@ async def start_web_portal(
                 elif new_password != confirmation:
                     await send_response(writer, '400 Bad Request', (
                         render_password_change_page(
-                            session_id, 'New passwords do not match.', True
+                            csrf_token, 'New passwords do not match.', True
                         ) if password_change_required else render_user_settings_page(
-                            session_id, settings_getter() if settings_getter else {},
+                            csrf_token, settings_getter() if settings_getter else {},
                             password_message='New passwords do not match.',
                             password_error=True
                         )
@@ -2547,22 +2645,27 @@ async def start_web_portal(
                     try:
                         if password_setter is None:
                             raise RuntimeError('portal password storage is unavailable')
-                        password_verifier = password_setter(new_password)
+                        if user_password_setter:
+                            user_password_setter(session_username, new_password)
+                        else:
+                            password_verifier = password_setter(new_password)
                     except Exception as exc:
                         await send_response(writer, '400 Bad Request', (
                             render_password_change_page(
-                                session_id, str(exc), True
+                                csrf_token, str(exc), True
                             ) if password_change_required else render_user_settings_page(
-                                session_id, settings_getter() if settings_getter else {},
+                                csrf_token, settings_getter() if settings_getter else {},
                                 password_message=str(exc), password_error=True
                             )
                         ))
                     else:
                         was_password_change_required = password_change_required
                         password_change_required = False
-                        session_id = new_session_id()
-                        session_started = monotonic_ms()
-                        cookie = session_cookie(session_id, secure_cookie)
+                        sessions.revoke_user(session_username)
+                        session = sessions.create({
+                            'username': session_username, 'role': session_role
+                        })
+                        cookie = session_cookie(session['id'], secure_cookie)
                         cached_page['body'] = None
                         log_output(
                             'Local', 'Web portal',
@@ -2577,22 +2680,25 @@ async def start_web_portal(
                 if method == 'GET' and is_user_settings:
                     await send_response(
                         writer, '200 OK',
-                        render_password_change_page(session_id, required=True)
+                        render_password_change_page(csrf_token, required=True)
                     )
                 else:
                     await send_redirect(writer, '/user')
             elif method == 'GET' and is_factory_default:
                 await send_response(
                     writer, '200 OK',
-                    render_factory_default_page(session_id)
+                    render_factory_default_page(csrf_token)
                 )
             elif method == 'POST' and is_factory_default:
                 current_password = form_params.get('current_password', '')
                 setup_password = form_params.get('setup_password', '')
                 confirmation = form_params.get('confirm_setup_password', '')
                 reset_error = ''
-                if not await credential_security.verify_password_async(
-                    current_password, password_verifier
+                if not (
+                    await authenticator(session_username, current_password)
+                    if authenticator else await credential_security.verify_password_async(
+                        current_password, password_verifier
+                    )
                 ):
                     reset_error = 'Current administrator password is incorrect.'
                 elif form_params.get('reset_confirmation', '') != 'RESET':
@@ -2602,7 +2708,7 @@ async def start_web_portal(
                 if reset_error:
                     await send_response(
                         writer, '400 Bad Request',
-                        render_factory_default_page(session_id, reset_error)
+                        render_factory_default_page(csrf_token, reset_error)
                     )
                 else:
                     try:
@@ -2612,7 +2718,7 @@ async def start_web_portal(
                     except Exception as exc:
                         await send_response(
                             writer, '400 Bad Request',
-                            render_factory_default_page(session_id, str(exc))
+                            render_factory_default_page(csrf_token, str(exc))
                         )
                     else:
                         log_output(
@@ -2620,9 +2726,8 @@ async def start_web_portal(
                             {'log': 'Authenticated factory reset requested', 'force': True},
                             'INFO'
                         )
-                        previous_session = session_id
-                        session_id = new_session_id()
-                        session_started = monotonic_ms()
+                        previous_session = csrf_token
+                        sessions.revoke(session_id)
                         cached_page['body'] = None
                         await send_response(
                             writer, '200 OK',
@@ -2652,10 +2757,51 @@ async def start_web_portal(
                         renderer = render_logging_settings_page
                     elif is_user_settings:
                         renderer = render_user_settings_page
+                    users = portal_user_getter() if (
+                        is_user_settings and portal_user_getter
+                    ) else None
                     await send_response(
                         writer, '200 OK',
-                        renderer(session_id, settings_getter())
+                        renderer(
+                            csrf_token, settings_getter(), users=users,
+                            current_user=session_username
+                        ) if is_user_settings else renderer(
+                            csrf_token, settings_getter()
+                        )
                     )
+            elif method == 'POST' and is_user_management:
+                try:
+                    if route == '/user/add':
+                        if portal_user_add is None:
+                            raise RuntimeError('portal user management is unavailable')
+                        portal_user_add(
+                            form_params.get('username', ''),
+                            form_params.get('password', ''),
+                            form_params.get('role', 'viewer')
+                        )
+                    elif route == '/user/update':
+                        if portal_user_update is None:
+                            raise RuntimeError('portal user management is unavailable')
+                        portal_user_update(
+                            form_params.get('username', ''),
+                            role=form_params.get('role', 'viewer'),
+                            enabled=form_params.get('enabled') == 'true'
+                        )
+                    else:
+                        if portal_user_remove is None:
+                            raise RuntimeError('portal user management is unavailable')
+                        portal_user_remove(form_params.get('username', ''))
+                except Exception as exc:
+                    await send_response(
+                        writer, '400 Bad Request', render_user_settings_page(
+                            csrf_token, settings_getter() if settings_getter else {},
+                            str(exc), True,
+                            users=portal_user_getter() if portal_user_getter else (),
+                            current_user=session_username
+                        )
+                    )
+                else:
+                    await send_redirect(writer, '/user')
             elif method == 'POST' and is_operational_settings:
                 try:
                     if settings_setter is None:
@@ -2683,7 +2829,7 @@ async def start_web_portal(
                         renderer = render_user_settings_page
                     await send_response(
                         writer, '400 Bad Request',
-                        renderer(session_id, current_settings, str(exc), True)
+                        renderer(csrf_token, current_settings, str(exc), True)
                     )
                 else:
                     cached_page['body'] = None
@@ -2697,8 +2843,7 @@ async def start_web_portal(
                     if isinstance(message, dict):
                         target = message.get('login_url', target)
                         text = message.get('message', '')
-                    session_id = new_session_id()
-                    session_started = monotonic_ms()
+                    sessions.revoke(session_id)
                     await send_response(
                         writer, '200 OK',
                         portal_ui.restart_page(target, text),
@@ -2712,7 +2857,7 @@ async def start_web_portal(
                 else:
                     await send_response(
                         writer, '200 OK',
-                        render_module_settings_page(session_id, module_settings_getter())
+                        render_module_settings_page(csrf_token, module_settings_getter())
                     )
             elif method == 'POST' and is_module_settings:
                 submitted = form_params.get('module_settings_json', '')
@@ -2723,15 +2868,14 @@ async def start_web_portal(
                 except Exception as exc:
                     await send_response(
                         writer, '400 Bad Request',
-                        render_module_settings_page(session_id, submitted, str(exc), True)
+                        render_module_settings_page(csrf_token, submitted, str(exc), True)
                     )
                 else:
                     log_output(
                         'Local', 'Web portal',
                         {'log': 'Module settings changed', 'force': True}, 'INFO'
                     )
-                    session_id = new_session_id()
-                    session_started = monotonic_ms()
+                    sessions.revoke(session_id)
                     await send_response(
                         writer, '200 OK',
                         portal_ui.restart_page(login_url, message),
@@ -2742,7 +2886,7 @@ async def start_web_portal(
             elif method == 'GET' and is_certificates:
                 await send_response(
                     writer, '200 OK', render_certificate_page(
-                        session_id,
+                        csrf_token,
                         certificates=(
                             certificate_info_getter()
                             if certificate_info_getter else {}
@@ -2753,7 +2897,7 @@ async def start_web_portal(
                 await send_response(
                     writer, '200 OK',
                     render_updates_page(
-                        session_id,
+                        csrf_token,
                         status_getter() if status_getter else {},
                         settings_getter() if settings_getter else {}
                     )
@@ -2762,7 +2906,7 @@ async def start_web_portal(
                 await send_response(
                     writer, '200 OK',
                     render_module_diagnostics_page(
-                        session_id,
+                        csrf_token,
                         module_getter() if module_getter else [],
                         value_refresh_ms or 5000
                     )
@@ -2771,7 +2915,7 @@ async def start_web_portal(
                 await send_response(
                     writer, '200 OK',
                     render_logging_page(
-                        session_id, loglevel_getter(), levels, log_getter(),
+                        csrf_token, loglevel_getter(), levels, log_getter(),
                         log_refresh_ms, settings_getter() if settings_getter else {}
                     )
                 )
@@ -2783,13 +2927,12 @@ async def start_web_portal(
                 except Exception as exc:
                     await send_response(
                         writer, '400 Bad Request', render_logging_page(
-                            session_id, loglevel_getter(), levels, log_getter(),
+                            csrf_token, loglevel_getter(), levels, log_getter(),
                             log_refresh_ms, settings_getter() if settings_getter else {}
                         ) + '<p>' + html_escape(exc) + '</p>'
                     )
                 else:
-                    session_id = new_session_id()
-                    session_started = monotonic_ms()
+                    sessions.revoke(session_id)
                     await send_response(
                         writer, '200 OK', portal_ui.restart_page(
                             login_url,
@@ -2800,12 +2943,12 @@ async def start_web_portal(
                     )
             elif method == 'GET' and is_configuration_backup:
                 await send_response(
-                    writer, '200 OK', render_configuration_backup_page(session_id)
+                    writer, '200 OK', render_configuration_backup_page(csrf_token)
                 )
             elif method == 'GET' and is_health_history:
                 await send_response(
                     writer, '200 OK', render_health_history_page(
-                        session_id, status_getter() if status_getter else {}
+                        csrf_token, status_getter() if status_getter else {}
                     )
                 )
             elif method == 'POST' and route == '/reset-health-history':
@@ -2851,8 +2994,7 @@ async def start_web_portal(
                 else:
                     request = json.loads(body.decode())
                     message = secure_config_import_apply_handler(request.get('token', ''))
-                    session_id = new_session_id()
-                    session_started = monotonic_ms()
+                    sessions.revoke(session_id)
                     await send_response(
                         writer, '200 OK', portal_ui.restart_page(login_url, message),
                         extra_headers=(('Set-Cookie', session_cookie('', secure_cookie, True)),)
@@ -2863,8 +3005,7 @@ async def start_web_portal(
                 else:
                     request = json.loads(body.decode())
                     message = config_import_apply_handler(request.get('token', ''))
-                    session_id = new_session_id()
-                    session_started = monotonic_ms()
+                    sessions.revoke(session_id)
                     await send_response(
                         writer, '200 OK', portal_ui.restart_page(login_url, message),
                         extra_headers=(('Set-Cookie', session_cookie('', secure_cookie, True)),)
@@ -2878,7 +3019,7 @@ async def start_web_portal(
                     await send_response(
                         writer, '400 Bad Request',
                         render_updates_page(
-                            session_id,
+                            csrf_token,
                             status_getter() if status_getter else {},
                             settings_getter() if settings_getter else {},
                             str(exc), True
@@ -2897,8 +3038,7 @@ async def start_web_portal(
                     'update-acme-settings', action_path, action_handler, log_output,
                     form_params
                 )
-                session_id = new_session_id()
-                session_started = monotonic_ms()
+                sessions.revoke(session_id)
                 await send_response(
                     writer, '200 OK', portal_ui.restart_page(
                         login_url,
@@ -2907,6 +3047,51 @@ async def start_web_portal(
                         'Set-Cookie', session_cookie('', secure_cookie, True)
                     ),)
                 )
+            elif method == 'POST' and route == '/resumable-upload-begin':
+                if resumable_begin is None:
+                    await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
+                else:
+                    result = resumable_begin(json.loads(body.decode()))
+                    await send_response(writer, '200 OK', json.dumps(result), 'application/json')
+            elif method == 'GET' and route == '/resumable-upload-status':
+                if resumable_status is None:
+                    await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
+                else:
+                    identifier = parse_query(action_path).get('id', '')
+                    await send_response(
+                        writer, '200 OK', json.dumps(resumable_status(identifier)),
+                        'application/json'
+                    )
+            elif method == 'POST' and route == '/resumable-upload-chunk':
+                if resumable_append is None:
+                    await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
+                else:
+                    params = parse_query(action_path)
+                    result = await resumable_append(
+                        params.get('id', ''), params.get('offset', 0), reader,
+                        int(headers.get('content-length', '0') or 0)
+                    )
+                    await send_response(writer, '200 OK', json.dumps(result), 'application/json')
+            elif method == 'POST' and route == '/resumable-upload-complete':
+                if resumable_complete is None:
+                    await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
+                else:
+                    request = json.loads(body.decode())
+                    progress_id = str(request.get('id', ''))[:64]
+                    progress_record = upload_progress_by_id.setdefault(
+                        progress_id, {'phase': 'receiving', 'percent': 100}
+                    )
+                    try:
+                        result = await resumable_complete(
+                            progress_id, report_upload_progress
+                        )
+                    except Exception as exc:
+                        message = 'Update rejected: ' + str(exc)
+                        if not await finish_progress_response('failed', message):
+                            await send_response(writer, '400 Bad Request', message, 'text/plain')
+                    else:
+                        if not await finish_progress_response('complete', result):
+                            await send_response(writer, '200 OK', str(result), 'text/plain')
             elif method == 'POST' and path.startswith('/certificate-upload'):
                 if certificate_upload_handler is None:
                     await send_response(writer, '503 Service Unavailable', 'Certificate upload is unavailable', 'text/plain')
@@ -2932,13 +3117,12 @@ async def start_web_portal(
                     if isinstance(result, dict) and not result.get('restart', True):
                         await send_response(
                             writer, '200 OK', render_certificate_page(
-                                session_id, message,
+                                csrf_token, message,
                                 certificate_info_getter() if certificate_info_getter else {}
                             )
                         )
                     else:
-                        session_id = new_session_id()
-                        session_started = monotonic_ms()
+                        sessions.revoke(session_id)
                         await send_response(
                             writer, '200 OK',
                             portal_ui.restart_page(login_url, message),
@@ -3160,7 +3344,7 @@ async def start_web_portal(
             elif path.startswith('/api/module-diagnostics'):
                 body = json.dumps({
                     'modules': render_modules_html(
-                        module_getter() if module_getter else [], session_id
+                        module_getter() if module_getter else [], csrf_token
                     )
                 })
                 await send_response(writer, '200 OK', body, 'application/json')
@@ -3170,11 +3354,11 @@ async def start_web_portal(
                     'live_sections': render_live_sections_html(
                         current_status,
                         module_getter() if module_getter else [],
-                        session_id
+                        csrf_token
                     ),
                     'update_summary': render_update_summary_html(current_status),
                     'update_actions': render_update_actions_html(
-                        current_status, session_id
+                        current_status, csrf_token
                     )
                 }
                 body = json.dumps(payload)
@@ -3192,8 +3376,7 @@ async def start_web_portal(
                 result = apply_portal_action(
                     'activate-update', action_path, action_handler, log_output, form_params
                 )
-                session_id = new_session_id()
-                session_started = monotonic_ms()
+                sessions.revoke(session_id)
                 await send_response(
                     writer, '200 OK',
                     portal_ui.restart_page(
@@ -3208,8 +3391,7 @@ async def start_web_portal(
                 result = apply_portal_action(
                     'activate-universal', action_path, action_handler, log_output, form_params
                 )
-                session_id = new_session_id()
-                session_started = monotonic_ms()
+                sessions.revoke(session_id)
                 await send_response(
                     writer, '200 OK',
                     portal_ui.restart_page(
@@ -3224,8 +3406,7 @@ async def start_web_portal(
                 result = apply_portal_action(
                     'activate-firmware', action_path, action_handler, log_output, form_params
                 )
-                session_id = new_session_id()
-                session_started = monotonic_ms()
+                sessions.revoke(session_id)
                 await send_response(
                     writer, '200 OK',
                     portal_ui.restart_page(
@@ -3240,8 +3421,7 @@ async def start_web_portal(
                 result = apply_portal_action(
                     'rollback-application', action_path, action_handler, log_output, form_params
                 )
-                session_id = new_session_id()
-                session_started = monotonic_ms()
+                sessions.revoke(session_id)
                 await send_response(
                     writer, '200 OK',
                     portal_ui.restart_page(
@@ -3299,7 +3479,7 @@ async def start_web_portal(
                 await send_response(writer, '405 Method Not Allowed', 'Method not allowed', 'text/plain')
             else:
                 body = render_overview_page(
-                    session_id,
+                    csrf_token,
                     status_getter() if status_getter else {},
                     module_getter() if module_getter else [],
                     value_refresh_ms or 5000
