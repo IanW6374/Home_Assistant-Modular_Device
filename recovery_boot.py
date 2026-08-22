@@ -15,7 +15,7 @@ import device_config
 
 
 RECOVERY_API_VERSION = 6
-CORE_API_VERSION = 6
+CORE_API_VERSION = 8
 TRIAL_DEADLINE_MS = 180000
 RECOVERY_STATE_PATH = '.recovery-state.json'
 MAX_UNHEALTHY_BOOTS = 2
@@ -98,7 +98,9 @@ def _complete_factory_reset(app_update, certificate_manager, credential_store,
     module_path = device_config.MODULE_SETTINGS_FILE
     for path in (
         module_path, module_path + '.previous', module_path + '.tmp',
-        module_path + '.copying', '.update-history.json'
+        module_path + '.copying', '.update-history.json',
+        '.runtime-health.json', '.paired-update-state.json',
+        '.universal-update-state.json', '.universal-update-state.json.tmp'
     ):
         _remove_user_file(path)
     clear_recovery_request()
@@ -254,6 +256,7 @@ def run():
     import credential_store
     import firmware_update
     import hardware_platform
+    import universal_update
 
     status_led = hardware_platform.status_output(38, 'neopixel')
     hardware_platform.set_status_led_state(status_led, 'boot')
@@ -268,6 +271,9 @@ def run():
     if cleanup:
         cleanup()
     cleanup = getattr(firmware_update, 'cleanup_interrupted', None)
+    if cleanup:
+        cleanup()
+    cleanup = getattr(universal_update, 'cleanup_interrupted', None)
     if cleanup:
         cleanup()
     certificate_manager.recover_certificate_transaction()

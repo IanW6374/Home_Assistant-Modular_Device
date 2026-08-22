@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from tools.release_provenance import git_source_revision, source_marker
 from update_security import SIGNATURE_SCHEME, sign_manifest
 
 
@@ -22,6 +23,14 @@ CORE_FILES = (
     'display.py',
     'web_portal_ui.py',
     'web_portal.py',
+    'api_security.py',
+    'configuration_manager.py',
+    'device_api.py',
+    'message_broker.py',
+    'runtime_health.py',
+    'remote_logging.py',
+    'timezone_rules.py',
+    'update_orchestrator.py',
 )
 CORE_DEVICE_MODULES = (
     'device_modules/__init__.py',
@@ -322,7 +331,7 @@ def load_signing_key(path):
 def build_bundle(
     output, version, files, content_overrides=None, signing_key=b'',
     release_sequence=1,
-    minimum_core_api=6, minimum_config_api=3, maximum_config_api=3,
+    minimum_core_api=8, minimum_config_api=3, maximum_config_api=3,
     components=None
 ):
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -408,6 +417,10 @@ def main():
         required=True,
         help='32-byte raw or 64-character hex ECDSA P-256 private key; never copy it to a device'
     )
+    parser.add_argument(
+        '--allow-dirty', action='store_true',
+        help='permit a non-production bundle stamped with the current dirty revision'
+    )
     args = parser.parse_args()
 
     if args.protected_only and (
@@ -427,6 +440,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     include_protected = args.include_protected or args.protected_only or bool(args.certificate)
     try:
+        source_revision = git_source_revision(root, args.allow_dirty)
         signing_key = load_signing_key(args.signing_key)
         files = collect_files(
             root,
@@ -453,6 +467,12 @@ def main():
     content_overrides = {}
     if not args.protected_only:
         content_overrides['device_modules/driver_index.py'] = generated_driver_index(root)
+        component_versions = (root / 'component_versions.py').read_bytes()
+        content_overrides['component_versions.py'] = (
+            component_versions + b'\nSOURCE_REVISION = ' + repr(source_revision).encode() +
+            b'\nSOURCE_REVISION_MARKER = ' + repr(source_marker(source_revision)).encode() +
+            b'\n'
+        )
     entries = build_bundle(
         Path(args.output),
         args.version,
@@ -468,6 +488,7 @@ def main():
     for entry in entries:
         print('  ', entry['path'])
     print('signature:', SIGNATURE_SCHEME)
+    print('source revision:', source_revision)
 
 
 if __name__ == '__main__':

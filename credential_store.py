@@ -18,13 +18,22 @@ except ImportError:
 
 
 NAMESPACE = 'ham_config'
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 MAX_CONFIG_BYTES = 4096
 NETWORK_TRIAL_KEY = 'nettrial'
 MAX_NETWORK_TRIAL_BYTES = 8192
 FACTORY_RESET_KEY = 'factoryreset'
 MIN_PASSWORD_LENGTH = 16
 _memory_values = {}
+
+SUPPORTED_TIMEZONES = (
+    'UTC', 'Europe/London', 'Europe/Paris', 'Europe/Athens',
+    'America/New_York', 'America/Chicago', 'America/Denver',
+    'America/Los_Angeles', 'America/Phoenix', 'America/Sao_Paulo',
+    'Africa/Johannesburg', 'Asia/Dubai', 'Asia/Kolkata', 'Asia/Shanghai',
+    'Asia/Singapore', 'Asia/Tokyo', 'Australia/Perth',
+    'Australia/Adelaide', 'Australia/Sydney', 'Pacific/Auckland',
+)
 
 
 class _MemoryNVS:
@@ -184,10 +193,13 @@ def validate(config, require_provisioned=False):
     release = config.get('release', {})
     certificate = config.get('certificate', {})
     preferences = config.get('preferences', {})
+    api = config.get('api', {})
+    syslog = config.get('syslog', {})
     for value, label in (
         (wifi, 'wifi'), (mqtt, 'mqtt'), (portal, 'portal'),
         (recovery, 'recovery'), (release, 'release'),
-        (certificate, 'certificate'), (preferences, 'preferences')
+        (certificate, 'certificate'), (preferences, 'preferences'),
+        (api, 'api'), (syslog, 'syslog')
     ):
         if not isinstance(value, dict):
             raise ValueError(label + ' credentials must be an object')
@@ -247,6 +259,70 @@ def validate(config, require_provisioned=False):
     for name in ('ha_discovery', 'release_auto_download', 'release_auto_activate'):
         if not isinstance(preferences.get(name), bool):
             raise ValueError('user preference ' + name + ' must be true or false')
+    release_schedule = preferences.get('release_check_schedule', 'disabled')
+    if release_schedule not in ('disabled', 'daily', 'weekly'):
+        raise ValueError('automatic update check schedule is invalid')
+    release_time = str(preferences.get('release_check_time', '03:00'))
+    try:
+        release_hour, release_minute = [int(part) for part in release_time.split(':')]
+    except Exception:
+        raise ValueError('automatic update check time must use HH:MM')
+    if not 0 <= release_hour <= 23 or not 0 <= release_minute <= 59:
+        raise ValueError('automatic update check time is invalid')
+    release_weekday = preferences.get('release_check_weekday', 0)
+    if (
+        not isinstance(release_weekday, int) or isinstance(release_weekday, bool) or
+        not 0 <= release_weekday <= 6
+    ):
+        raise ValueError('automatic update check weekday is invalid')
+    timezone_offset = preferences.get('timezone_offset_minutes', 0)
+    if (
+        not isinstance(timezone_offset, int) or isinstance(timezone_offset, bool) or
+        not -720 <= timezone_offset <= 840
+    ):
+        raise ValueError('time-zone offset must be between UTC-12:00 and UTC+14:00')
+    timezone_name = preferences.get('timezone_name', 'UTC')
+    if timezone_name not in SUPPORTED_TIMEZONES:
+        raise ValueError('selected time zone is not supported')
+    log_buffer_lines = preferences.get('log_buffer_lines', 200)
+    if (
+        not isinstance(log_buffer_lines, int) or isinstance(log_buffer_lines, bool) or
+        not 0 <= log_buffer_lines <= 500
+    ):
+        raise ValueError('log entry limit must be between 0 and 500')
+    session_timeout_s = portal.get('session_timeout_s', 3600)
+    if (
+        not isinstance(session_timeout_s, int) or isinstance(session_timeout_s, bool) or
+        not 300 <= session_timeout_s <= 86400
+    ):
+        raise ValueError('portal timeout must be between 300 and 86400 seconds')
+    if not isinstance(syslog.get('enabled', False), bool):
+        raise ValueError('syslog enabled setting must be true or false')
+    syslog_host = _text(
+        syslog.get('host', ''), 'syslog server',
+        1 if syslog.get('enabled', False) else 0, 253
+    )
+    syslog_port = syslog.get('port', 6514 if syslog.get('transport') == 'tls' else 514)
+    if (
+        not isinstance(syslog_port, int) or isinstance(syslog_port, bool) or
+        not 1 <= syslog_port <= 65535
+    ):
+        raise ValueError('syslog port must be between 1 and 65535')
+    if syslog.get('transport', 'udp') not in ('udp', 'tls'):
+        raise ValueError('syslog transport must be udp or tls')
+    if syslog.get('enabled') and not syslog_host:
+        raise ValueError('syslog server is required when remote logging is enabled')
+    if not isinstance(api.get('enabled', False), bool):
+        raise ValueError('device API enabled setting must be true or false')
+    api_port = api.get('port', 8444)
+    if (
+        not isinstance(api_port, int) or isinstance(api_port, bool) or
+        not 1 <= api_port <= 65535 or api_port == 80 or
+        (api.get('enabled', False) and api_port == portal_port)
+    ):
+        raise ValueError('device API port must be 1..65535 and differ from the portal port')
+    if api.get('auth', 'mtls') != 'mtls':
+        raise ValueError('device API authentication must be mtls')
     certificate_mode = certificate.get('mode', 'manual')
     if certificate_mode not in ('self_signed', 'manual', 'acme'):
         raise ValueError('certificate mode must be self_signed, manual or acme')
@@ -283,12 +359,38 @@ def load(require_provisioned=False):
     for slot in candidates:
         try:
             config = json.loads(_read_blob(store, 'cfg' + str(slot)).decode())
+            if int(config.get('schema', 0)) == 4:
+                config = _migrate_v4(config)
+            if int(config.get('schema', 0)) == 5:
+                config = _migrate_v5(config)
             return validate(config, require_provisioned)
         except Exception:
             continue
     if require_provisioned:
         raise RuntimeError('device setup is incomplete or unreadable')
     return {}
+
+
+def _migrate_v4(config):
+    config = json.loads(json.dumps(config))
+    config['schema'] = 5
+    config['api'] = {
+        'enabled': False,
+        'port': getattr(__import__('device_config'), 'DEVICE_API_PORT', 8444),
+        'auth': 'mtls',
+    }
+    return config
+
+
+def _migrate_v5(config):
+    config = json.loads(json.dumps(config))
+    config['schema'] = SCHEMA_VERSION
+    portal = config.setdefault('portal', {})
+    # RC4 and earlier stored eight hours as the implicit default. Preserve
+    # explicit non-default choices while moving untouched devices to 60 min.
+    if int(portal.get('session_timeout_s', 28800)) == 28800:
+        portal['session_timeout_s'] = 3600
+    return config
 
 
 def save(config):
@@ -475,6 +577,7 @@ def build_configuration(values, portal_password, recovery_password):
                 int(values.get('portal_port'))
                 if str(values.get('portal_port', '')).strip() else None
             ),
+            'session_timeout_s': int(values.get('portal_session_timeout_s', 3600)),
         },
         'recovery': {
             'ap_password': values.get('recovery_ap_password', ''),
@@ -494,6 +597,9 @@ def build_configuration(values, portal_password, recovery_password):
             'ntp_servers': values.get(
                 'ntp_servers', ['pool.ntp.org', 'time.google.com']
             ),
+            'timezone_offset_minutes': int(values.get('timezone_offset_minutes', 0)),
+            'timezone_name': values.get('timezone_name', 'UTC'),
+            'log_buffer_lines': int(values.get('log_buffer_lines', 200)),
             'ha_discovery': bool(values.get('ha_discovery', True)),
             'release_auto_download': bool(
                 values.get('release_auto_download', False)
@@ -501,6 +607,22 @@ def build_configuration(values, portal_password, recovery_password):
             'release_auto_activate': bool(
                 values.get('release_auto_activate', False)
             ),
+            'release_check_schedule': str(
+                values.get('release_check_schedule', 'disabled')
+            ),
+            'release_check_time': str(values.get('release_check_time', '03:00')),
+            'release_check_weekday': int(values.get('release_check_weekday', 0)),
+        },
+        'api': {
+            'enabled': bool(values.get('api_enabled', False)),
+            'port': int(values.get('api_port', 8444)),
+            'auth': 'mtls',
+        },
+        'syslog': {
+            'enabled': bool(values.get('syslog_enabled', False)),
+            'host': str(values.get('syslog_host', '')).strip(),
+            'port': int(values.get('syslog_port', 514)),
+            'transport': str(values.get('syslog_transport', 'udp')),
         },
     }
     return validate(config)
@@ -531,6 +653,11 @@ def update_portal_password(password):
 def public_settings():
     """Return portal-editable settings without returning stored secrets."""
     config = load(require_provisioned=True)
+    portal_transport = config['portal'].get('transport', 'auto')
+    portal_port = config['portal'].get('port')
+    if portal_port is None:
+        portal_port = 8080 if portal_transport == 'http' else 8443
+    syslog = config.get('syslog', {})
     return {
         'device_name': config['device_name'],
         'wifi_ssid': config['wifi']['ssid'],
@@ -547,24 +674,37 @@ def public_settings():
         'mqtt_username': config['mqtt']['username'],
         'mqtt_password_set': bool(config['mqtt']['password']),
         'portal_username': config['portal']['username'],
-        'portal_transport': config['portal'].get('transport', 'auto'),
-        'portal_port': config['portal'].get('port'),
+        'portal_transport': portal_transport,
+        'portal_port': portal_port,
+        'portal_session_timeout_s': config['portal'].get('session_timeout_s', 3600),
         'release_channel': config['release']['channel'],
         'certificate_mode': config['certificate']['mode'],
         'acme_directory_url': config['certificate']['directory_url'],
         'certificate_hostname': config['certificate']['hostname'],
         'loglevel': config['preferences']['loglevel'],
         'ntp_servers': list(config['preferences']['ntp_servers']),
+        'timezone_offset_minutes': config['preferences'].get('timezone_offset_minutes', 0),
+        'timezone_name': config['preferences'].get('timezone_name', 'UTC'),
+        'log_buffer_lines': config['preferences'].get('log_buffer_lines', 200),
         'ha_discovery': config['preferences']['ha_discovery'],
         'release_auto_download': config['preferences']['release_auto_download'],
         'release_auto_activate': config['preferences']['release_auto_activate'],
+        'release_check_schedule': config['preferences'].get(
+            'release_check_schedule', 'disabled'
+        ),
+        'release_check_time': config['preferences'].get('release_check_time', '03:00'),
+        'release_check_weekday': config['preferences'].get('release_check_weekday', 0),
+        'api_enabled': config.get('api', {}).get('enabled', False),
+        'api_port': config.get('api', {}).get('port', 8444),
+        'api_auth': config.get('api', {}).get('auth', 'mtls'),
+        'syslog_enabled': syslog.get('enabled', False),
+        'syslog_host': syslog.get('host', ''),
+        'syslog_port': syslog.get('port', 514),
+        'syslog_transport': syslog.get('transport', 'udp'),
     }
 
 
-def update_operational_settings(values, network_trial=False):
-    """Atomically update user-serviceable configuration in encrypted NVS."""
-    config = load(require_provisioned=True)
-    previous = json.loads(json.dumps(config))
+def _apply_operational_settings(config, values):
     if 'device_name' in values:
         config['device_name'] = values['device_name']
     if 'wifi_ssid' in values:
@@ -593,14 +733,34 @@ def update_operational_settings(values, network_trial=False):
     if 'portal_port' in values:
         value = values['portal_port']
         config['portal']['port'] = (
-            int(value) if str(value).strip() else None
+            int(value) if value is not None and str(value).strip() else None
         )
+    if 'portal_session_timeout_s' in values:
+        config['portal']['session_timeout_s'] = int(values['portal_session_timeout_s'])
     if 'release_channel' in values:
         config['release']['channel'] = values['release_channel']
+    if any(key in values for key in (
+        'certificate_mode', 'acme_directory_url', 'certificate_hostname'
+    )):
+        certificate = config.setdefault('certificate', {})
+        if 'certificate_mode' in values:
+            certificate['mode'] = str(values['certificate_mode'])
+        if 'acme_directory_url' in values:
+            certificate['directory_url'] = str(values['acme_directory_url']).strip()
+        if 'certificate_hostname' in values:
+            certificate['hostname'] = str(values['certificate_hostname']).strip()
     if 'loglevel' in values:
         config['preferences']['loglevel'] = values['loglevel']
     if 'ntp_servers' in values:
         config['preferences']['ntp_servers'] = list(values['ntp_servers'])
+    if 'timezone_offset_minutes' in values:
+        config['preferences']['timezone_offset_minutes'] = int(
+            values['timezone_offset_minutes']
+        )
+    if 'timezone_name' in values:
+        config['preferences']['timezone_name'] = str(values['timezone_name'])
+    if 'log_buffer_lines' in values:
+        config['preferences']['log_buffer_lines'] = int(values['log_buffer_lines'])
     if 'ha_discovery' in values:
         config['preferences']['ha_discovery'] = bool(values['ha_discovery'])
     if 'release_auto_download' in values:
@@ -611,6 +771,46 @@ def update_operational_settings(values, network_trial=False):
         config['preferences']['release_auto_activate'] = bool(
             values['release_auto_activate']
         )
+    if 'release_check_schedule' in values:
+        config['preferences']['release_check_schedule'] = str(
+            values['release_check_schedule']
+        )
+    if 'release_check_time' in values:
+        config['preferences']['release_check_time'] = str(values['release_check_time'])
+    if 'release_check_weekday' in values:
+        config['preferences']['release_check_weekday'] = int(
+            values['release_check_weekday']
+        )
+    if 'api_enabled' in values:
+        config['api']['enabled'] = bool(values['api_enabled'])
+    if 'api_port' in values:
+        config['api']['port'] = int(values['api_port'])
+    if any(key in values for key in (
+        'syslog_enabled', 'syslog_host', 'syslog_port', 'syslog_transport'
+    )):
+        syslog = config.setdefault('syslog', {})
+        if 'syslog_enabled' in values:
+            syslog['enabled'] = bool(values['syslog_enabled'])
+        if 'syslog_host' in values:
+            syslog['host'] = str(values['syslog_host']).strip()
+        if 'syslog_port' in values:
+            syslog['port'] = int(values['syslog_port'])
+        if 'syslog_transport' in values:
+            syslog['transport'] = str(values['syslog_transport'])
+    return validate(config, require_provisioned=True)
+
+
+def preview_operational_settings(values):
+    """Validate an operational update without writing encrypted NVS."""
+    config = json.loads(json.dumps(load(require_provisioned=True)))
+    return _apply_operational_settings(config, values)
+
+
+def update_operational_settings(values, network_trial=False):
+    """Atomically update user-serviceable configuration in encrypted NVS."""
+    config = load(require_provisioned=True)
+    previous = json.loads(json.dumps(config))
+    config = _apply_operational_settings(config, values)
     if network_trial:
         begin_network_trial(previous, config)
     else:

@@ -360,8 +360,9 @@ class AppUpdateTests(unittest.TestCase):
             Reader(payload), len(payload), progress_callback=lambda *value: progress.append(value)
         ))
 
-        self.assertEqual(progress[0][0], 'verification')
+        self.assertEqual(progress[0][0], 'receiving')
         self.assertEqual(progress[0][1], 0)
+        self.assertIn('verification', [entry[0] for entry in progress])
         self.assertEqual(progress[-1][1], progress[-1][2])
 
     def test_receive_bundle_enforces_size_limit(self):
@@ -393,6 +394,9 @@ class AppUpdateTests(unittest.TestCase):
             'settings_loader.py', 'hardware_platform.py', 'display.py',
             'web_portal_ui.py', 'web_portal.py',
             'release_update.py', 'certificate_manager.py',
+            'api_security.py', 'configuration_manager.py', 'device_api.py',
+            'message_broker.py', 'runtime_health.py', 'remote_logging.py',
+            'timezone_rules.py', 'update_orchestrator.py',
             'device_modules/__init__.py', 'device_modules/loader.py',
             'device_modules/driver_index.py',
             'device_modules/base.py', 'device_modules/logging.py',

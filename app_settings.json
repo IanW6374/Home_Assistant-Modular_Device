@@ -13,8 +13,7 @@
     "updates_enabled": true,
     "firmware_updates_enabled": true,
     "release_manifest_url": "https://hamd-update.home.arpa:8443/{channel}/latest.json",
-    "release_check_interval_s": 21600,
-    "session_timeout_s": 28800
+    "session_timeout_s": 3600
   },
   "local_display": {
     "enabled": false

@@ -41,6 +41,39 @@ class UpdateSecurityTests(unittest.TestCase):
         self.assertEqual(update_security._highest_bit(255), 128)
         self.assertEqual(update_security._highest_bit(256), 256)
 
+    def test_automatic_release_check_schedule_uses_local_time(self):
+        monday_at_three = (2026, 8, 24, 3, 0, 0, 0, 236)
+        self.assertEqual(
+            release_update.automatic_check_slot(
+                'daily', '03:00', 6, monday_at_three
+            ),
+            '20260824'
+        )
+        self.assertEqual(
+            release_update.automatic_check_slot(
+                'weekly', '03:00', 0, monday_at_three
+            ),
+            '20260824'
+        )
+        self.assertEqual(
+            release_update.automatic_check_slot(
+                'weekly', '03:00', 6, monday_at_three
+            ),
+            ''
+        )
+        self.assertEqual(
+            release_update.automatic_check_slot(
+                'disabled', '03:00', 0, monday_at_three
+            ),
+            ''
+        )
+        self.assertEqual(
+            release_update.automatic_check_slot(
+                'daily', '03:01', 0, monday_at_three
+            ),
+            ''
+        )
+
     def test_shared_json_recovers_previous_generation_after_interruption(self):
         Path('module_settings.json').write_text('{"devices":[{"name":"old"}]}')
         Path('module_settings.json.tmp').write_text('{"devices":[{"name":"new"}]}')
@@ -215,7 +248,7 @@ class UpdateSecurityTests(unittest.TestCase):
 
         self.assertIn('HAMD core recovery', html)
         self.assertIn('Wi-Fi credentials', html)
-        self.assertIn('accept=".hamd,.hamf"', html)
+        self.assertIn('accept=".hamd,.hamf,.hamu"', html)
         self.assertIn('X-CSRF-Token', html)
         self.assertIn('application failed', html)
 

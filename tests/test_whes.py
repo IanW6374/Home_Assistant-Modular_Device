@@ -3,6 +3,9 @@ import asyncio
 import sys
 import types
 import unittest
+from unittest.mock import patch
+
+import timezone_rules
 
 
 def load_whes_module():
@@ -28,6 +31,9 @@ def load_whes_module():
 
 
 class WhesTests(unittest.TestCase):
+    def setUp(self):
+        timezone_rules.configure('UTC')
+
     def test_payload_calculations_and_rounded_energy(self):
         whes = load_whes_module()
         device = {
@@ -90,6 +96,19 @@ class WhesTests(unittest.TestCase):
         self.assertEqual(values['battery_p'], -300)
         self.assertEqual(values['grid_p'], 500)
         self.assertEqual(values['home_p'], 1200)
+
+    def test_daily_energy_day_uses_configured_local_timezone(self):
+        whes = load_whes_module()
+        timezone_rules.configure('Europe/London')
+        unix_epoch = timezone_rules._epoch(2026, 6, 1, 23, 30)
+
+        with patch.object(whes.time, 'time', return_value=unix_epoch):
+            driver = whes.WHESDriver({
+                'name': 'WHES', 'uuid': '0001',
+                'type': {'class': 'sensor', 'subclass': 'WHES'},
+                'entities': {}
+            }, {})
+            self.assertEqual(driver._current_day(), (2026, 6, 2))
 
     def test_discovery_uses_presentation_key_ids(self):
         whes = load_whes_module()

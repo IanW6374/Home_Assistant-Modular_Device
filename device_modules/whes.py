@@ -20,6 +20,7 @@ except ImportError:
     from base import sensor_discovery_payload
 
 import time
+import timezone_rules
 
 
 DEVICE_TYPE = {
@@ -309,7 +310,7 @@ class WHESDriver(rs485_module.RS485ModbusDriver):
             return 0
 
     def _current_day(self):
-        now = time.localtime()
+        now = timezone_rules.localtime()
         return (now[0], now[1], now[2])
 
     def _ticks_ms(self):

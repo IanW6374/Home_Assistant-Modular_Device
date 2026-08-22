@@ -77,16 +77,31 @@ class SettingsLoaderTests(unittest.TestCase):
         self.assertTrue(settings_loader.ha_discovery)
         self.assertFalse(settings_loader.release_auto_download)
         self.assertFalse(settings_loader.release_auto_activate)
+        self.assertEqual(settings_loader.release_check_schedule, 'disabled')
+        self.assertEqual(settings_loader.release_check_time, '03:00')
+        self.assertEqual(settings_loader.release_check_weekday, 0)
         self.assertTrue(settings_loader.ntp_servers)
 
-    def test_both_tls_services_use_the_frozen_trust_anchor(self):
+    def test_tls_services_have_independent_paths_with_legacy_fallback(self):
         self.assertEqual(
-            settings_loader.service_ca_path('mqtt'),
+            settings_loader.service_ca_path('mqtt', exists=lambda _path: False),
             device_config.TRUST_CA_PATH
         )
         self.assertEqual(
-            settings_loader.service_ca_path('release'),
+            settings_loader.service_ca_path('release', exists=lambda _path: False),
             device_config.TRUST_CA_PATH
+        )
+        self.assertEqual(
+            settings_loader.service_ca_path('mqtt', exists=lambda _path: True),
+            device_config.MQTT_CA_PATH
+        )
+        self.assertEqual(
+            settings_loader.service_ca_path('release', exists=lambda _path: True),
+            device_config.RELEASE_CA_PATH
+        )
+        self.assertEqual(
+            settings_loader.service_ca_path('api_client', exists=lambda _path: False),
+            device_config.API_CLIENT_CA_PATH
         )
         with self.assertRaisesRegex(ValueError, 'unknown TLS service'):
             settings_loader.service_ca_path('other')

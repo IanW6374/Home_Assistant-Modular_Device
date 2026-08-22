@@ -5,13 +5,14 @@ current build is pinned by `firmware/build-lock.json` to:
 
 | Component | Required value |
 | --- | --- |
-| MicroPython | `v1.28.0` |
-| ESP-IDF | `v5.5.1` |
+| MicroPython | `v1.28.0` at `e0e9fbb17ed6fd06bb76e266ae554784c9c80804` |
+| ESP-IDF | `v5.5.1` at `fcae32885b0296b32044cb99ecbdc50d98dddb83` |
 | Project board | `HAM_ESP32_S3` |
 | Board variant | `SPIRAM_OCT` |
 | Flash/PSRAM | 8 MB / 8 MB Octal |
 | OTA application slots | `ota_0` and `ota_1`, 2 MiB each |
 | Frozen recovery API | `6` |
+| Frozen core API | `8` |
 
 ## Host Python and MicroPython are different
 
@@ -43,6 +44,14 @@ Release sequences, not display labels, are the anti-rollback authority. Never
 reuse a confirmed sequence for a different build. Application and core bundles
 for one product release should share the same HAMD version label; MicroPython is
 reported separately.
+
+When both bundles are published in one signed channel descriptor, the device
+treats them as a persistent paired update. It stages and activates core firmware
+first, confirms the firmware trial at the normal health boundary, then resumes
+the application download automatically after reboot. The portal reports
+**Firmware step 1 of 2** and **Application step 2 of 2**. Do not remove either
+bundle from the channel until devices have had enough time to complete both
+steps.
 
 ## Before any remote update
 
@@ -308,9 +317,11 @@ installed recovery/core API, selects a needed compatible firmware release
 first, then selects an applicable application release without requiring the
 server operator to replace the descriptor.
 
-Opening **Maintenance > Upgrades** checks the channel automatically; **Check
-for updates** remains available for an explicit retry. The verified descriptor
-and notes are shown before **Download and verify** streams it to the inactive
+Opening **Maintenance > Upgrades** shows the last automatic-check result and
+does not initiate network activity. Automatic checks are disabled by default;
+select a daily or weekly schedule, local time, and (for weekly checks) day on
+that page. **Check for updates** remains available for an explicit retry. The
+verified descriptor and notes are shown before **Download and verify** streams it to the inactive
 application slot or firmware partition. HTTPS redirects and chunked transfer
 are supported. The device rejects an incompatible core/configuration API, a
 changed size or hash,
@@ -360,14 +371,17 @@ metadata. Increment the release sequence for every distinct signed build.
 
 The helper:
 
-1. verifies the pinned MicroPython and ESP-IDF versions;
+1. verifies the exact pinned MicroPython and ESP-IDF commits and rejects
+   tracked changes in either dependency checkout;
 2. builds the host `mpy-cross` separately;
 3. configures `HAM_ESP32_S3` with `SPIRAM_OCT`;
 4. freezes the recovery API and security modules;
 5. applies the encrypted 8 MB dual-OTA partition table, Secure Boot v2,
    release-mode flash encryption, NVS encryption, and rollback settings;
 6. builds `micropython.bin`, `firmware.bin`, and the USB flash artifacts; and
-7. wraps only application image `micropython.bin` in the signed `.hamf`.
+7. embeds the clean HAMD Git revision inside the signed image content;
+8. warns at 85% OTA-slot use, refuses packaging at 95%, and wraps only
+   application image `micropython.bin` in the signed `.hamf`.
 
 Core helper options:
 
@@ -383,6 +397,7 @@ Core helper options:
 | `--secure-boot-signing-key PATH` | Yes | Offline ESP-IDF Secure Boot v2 RSA-3072 PEM key. |
 | `--factory-setup-password-output PATH` | Yes | New mode-0600 unique setup key output; refuses overwrite. |
 | `--allow-version-mismatch` | No | Intentionally bypass both the MicroPython and ESP-IDF build-lock checks. This is unsafe for a normal release and should be reflected in the version label and release notes. |
+| `--allow-dirty` | No | Permit an explicitly non-production project build whose provenance is marked dirty. Production releases must use a clean project worktree. |
 | `-h`, `--help` | No | Show the current command syntax. |
 
 Do not run `make clean` before the helper as a routine step. It reconfigures the
@@ -459,7 +474,41 @@ and in the internal `.firmware-version`. The portal's **MicroPython version** is
 the runtime's `sys.implementation.version`, so it independently displays
 `1.28.0`.
 
-## 3. Installing a new ESP32-S3
+## 3. Combined universal upgrade (`.hamu`)
+
+HAMU packages provide one upload and one activation action for a matched core
+and application release. Each embedded `.hamf` and `.hamd` retains its own
+signature. The outer HAMU manifest is signed separately and binds both files'
+versions, sequences, sizes, and SHA-256 digests.
+
+Build the component bundles first with the same release sequence, then combine
+them:
+
+```sh
+python3 tools/build_universal_update.py \
+  releases/universal-1.5.0.hamu \
+  --firmware releases/ham-core-1.5.0.hamf \
+  --application releases/application-1.5.0.hamd \
+  --version 1.5.0 \
+  --release-sequence 1500 \
+  --signing-key "$UPDATE_SIGNING_KEY"
+```
+
+Upload the `.hamu` through **Maintenance > Upgrades** or the authenticated core
+recovery portal. The device streams the core to the inactive OTA partition,
+stages the application in the inactive VFS slot, verifies both inner packages
+and the outer binding, then presents **Activate universal update and reboot**.
+Progress is reported separately for core writing, core read-back verification,
+and application verification.
+
+If either component sequence is already installed, that component is still
+read and hash-verified but is not staged again. If neither component is newer,
+the package is rejected. Core recovery API versions before 8 and their existing
+application portals cannot parse or route HAMU. Install the first HAMU-capable
+`.hamf` and its matching `.hamd` separately as a one-time bootstrap. Subsequent
+matched core-and-application releases can be installed using only `.hamu`.
+
+## 4. Installing a new ESP32-S3
 
 A new device cannot become OTA-capable by uploading `.hamf`. It must first
 receive the bootloader, OTA partition table, initial OTA metadata, and recovery-
@@ -474,7 +523,7 @@ Clone or select MicroPython `v1.28.0`, including submodules:
 git clone --recursive https://github.com/micropython/micropython.git \
   "$MICROPYTHON_ROOT"
 cd "$MICROPYTHON_ROOT"
-git checkout v1.28.0
+git checkout e0e9fbb17ed6fd06bb76e266ae554784c9c80804
 git submodule update --init --recursive
 ```
 
@@ -486,6 +535,8 @@ over them:
 git clone --recursive --branch v5.5.1 \
   https://github.com/espressif/esp-idf.git "$IDF_ROOT"
 cd "$IDF_ROOT"
+git checkout fcae32885b0296b32044cb99ecbdc50d98dddb83
+git submodule update --init --recursive
 ./install.sh esp32s3
 source "$IDF_ROOT/export.sh"
 idf.py --version
@@ -666,11 +717,15 @@ python3 -m unittest discover -s tests -v
 python3 -m py_compile tools/*.py tests/*.py
 ```
 
-The CI release gate runs the same hygiene and schema checks. Hygiene rejects
+The CI release gate runs the same hygiene and schema checks and performs a
+complete secure ESP32-S3 firmware build using the pinned MicroPython commit and
+ESP-IDF container. Hygiene rejects
 tracked credentials, private keys, Python caches, and platform metadata. The
 schema gate validates application policy, module configuration, and every
-published `latest.json`. Production publication also requires a clean Git
-worktree and embeds its full source revision into the signed descriptor notes.
+published `latest.json`. Production builds embed the source revision in content
+covered by the signed application/core hashes. Publication requires the same
+clean revision, revalidates all bundle payload hashes, and records the revision
+in the signed descriptor notes.
 
 Compile device runtime files with the pinned MicroPython compiler, not CPython:
 

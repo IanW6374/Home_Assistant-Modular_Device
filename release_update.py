@@ -46,6 +46,26 @@ def application_release_applicable(
     return False
 
 
+def automatic_check_slot(schedule, check_time, weekday, current):
+    """Return the local-date slot when an automatic release check is due."""
+    schedule = str(schedule or 'disabled').lower()
+    if schedule not in ('daily', 'weekly') or len(current) < 7:
+        return ''
+    try:
+        hour_text, minute_text = str(check_time).split(':', 1)
+        hour, minute = int(hour_text), int(minute_text)
+        configured_weekday = int(weekday)
+    except (TypeError, ValueError):
+        return ''
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        return ''
+    if current[3] != hour or current[4] != minute:
+        return ''
+    if schedule == 'weekly' and current[6] != configured_weekday:
+        return ''
+    return '{:04}{:02}{:02}'.format(current[0], current[1], current[2])
+
+
 def _parse_https_url(url):
     url = str(url)
     if not url.startswith('https://'):
@@ -246,33 +266,33 @@ async def _read_body(reader, length, maximum):
     return bytes(payload)
 
 
-async def check_release(manifest_url, channel, ca_path):
+async def fetch_releases(manifest_url, channel, ca_path):
     url = release_manifest_request_url(manifest_url, channel)
     reader, writer, length = await _open_response(url, ca_path)
     try:
         payload = await _read_body(reader, length, MAX_DESCRIPTOR_BYTES)
         document = json.loads(payload.decode())
-        releases = release_descriptors(document, channel)
-        try:
-            import app_update
-            import firmware_update
-            import hardware_platform
-            selected = select_release(
-                releases,
-                app_update.running_release_sequence(),
-                firmware_update.running_release_sequence(),
-                app_update.running_version(''),
-                firmware_update.running_version(
-                    hardware_platform.runtime_version()
-                ),
-            )
-        except Exception:
-            selected = None
-        if selected is not None:
-            return selected
-        return {}
+        return release_descriptors(document, channel)
     finally:
         _close(writer)
+
+
+async def check_release(manifest_url, channel, ca_path):
+    releases = await fetch_releases(manifest_url, channel, ca_path)
+    try:
+        import app_update
+        import firmware_update
+        import hardware_platform
+        selected = select_release(
+            releases,
+            app_update.running_release_sequence(),
+            firmware_update.running_release_sequence(),
+            app_update.running_version(''),
+            firmware_update.running_version(hardware_platform.runtime_version()),
+        )
+    except Exception:
+        selected = None
+    return selected or {}
 
 
 def release_descriptors(document, channel=''):

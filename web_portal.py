@@ -30,6 +30,7 @@ except ImportError:
 
 import web_portal_ui as portal_ui
 import http_support
+import timezone_rules
 from device_modules.base import module_diagnostics_need_attention
 
 
@@ -237,7 +238,10 @@ def render_operational_hidden_fields(settings, excluded=()):
         ('portal_username', settings.get('portal_username', 'admin')),
         ('portal_transport', settings.get('portal_transport', 'auto')),
         ('portal_port', '' if port is None else str(port)),
+        ('portal_session_timeout_s', settings.get('portal_session_timeout_s', 3600)),
         ('ntp_servers', ', '.join(settings.get('ntp_servers', ()))),
+        ('timezone_offset_minutes', settings.get('timezone_offset_minutes', 0)),
+        ('timezone_name', settings.get('timezone_name', 'UTC')),
         ('wifi_ssid', settings.get('wifi_ssid', '')),
         ('wifi_dhcp', 'true' if settings.get('wifi_dhcp', True) else 'false'),
         ('wifi_ip_address', settings.get('wifi_ip_address', '')),
@@ -248,6 +252,11 @@ def render_operational_hidden_fields(settings, excluded=()):
         ('mqtt_port', settings.get('mqtt_port', 8883)),
         ('mqtt_username', settings.get('mqtt_username', '')),
         ('ha_discovery', 'true' if settings.get('ha_discovery') else 'false'),
+        ('log_buffer_lines', settings.get('log_buffer_lines', 200)),
+        ('syslog_enabled', 'true' if settings.get('syslog_enabled') else 'false'),
+        ('syslog_host', settings.get('syslog_host', '')),
+        ('syslog_port', settings.get('syslog_port', 514)),
+        ('syslog_transport', settings.get('syslog_transport', 'udp')),
     )
     parts = []
     for name, value in values:
@@ -274,17 +283,25 @@ def render_settings_page(csrf, settings, message='', error=False):
         '<form action="/settings" method="post" autocomplete="off">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">' +
         render_operational_hidden_fields(settings, (
-            'device_name', 'wifi_ssid', 'wifi_dhcp', 'wifi_ip_address',
+            'device_name', 'wifi_dhcp', 'wifi_ip_address',
             'wifi_subnet_mask', 'wifi_gateway', 'wifi_dns_server'
         )) +
         '<section class="card"><div class="section-title"><h2>Device identity</h2></div>'
         '<label class="field">Device name<input name="device_name" required maxlength="64" value="' +
         html_escape(settings.get('device_name', '')) + '"></label></section>'
-        '<section class="card"><div class="section-title"><h2>Wi-Fi network</h2></div>'
-        '<div class="grid"><label class="field">Network name (SSID)<input name="wifi_ssid" '
-        'required maxlength="32" value="' + html_escape(settings.get('wifi_ssid', '')) + '"></label>'
+        '<section class="card"><div class="section-title"><h2>Wi-Fi network</h2>'
+        '<button id="wifi-rescan" class="secondary compact" type="button">Scan again</button></div>'
+        '<div class="grid"><label class="field">Available network<select id="wifi-network-select" required>'
+        '<option value="">Select a Wi-Fi network</option>' +
+        (('<option value="' + html_escape(settings.get('wifi_ssid', '')) + '" selected>' +
+          html_escape(settings.get('wifi_ssid', '')) + ' (current)</option>')
+         if settings.get('wifi_ssid') else '') +
+        '<option value="__manual__">Enter network name manually…</option></select></label>'
+        '<label id="wifi-manual-field" class="field" hidden>Network name (SSID)<input id="wifi-ssid-input" '
+        'name="wifi_ssid" maxlength="32" value="' + html_escape(settings.get('wifi_ssid', '')) + '"></label>'
         '<label class="field">Network password<input name="wifi_password" type="password" '
         'maxlength="64" autocomplete="new-password"' + placeholder + '></label></div>'
+        '<p id="wifi-scan-status" class="muted">Scanning for nearby networks…</p>'
         '<p class="muted">' + password_hint + '</p>'
         '<label class="check"><input id="wifi-dhcp" name="wifi_dhcp" type="checkbox" value="true"' +
         (' checked' if settings.get('wifi_dhcp', True) else '') +
@@ -307,6 +324,26 @@ def render_settings_page(csrf, settings, message='', error=False):
         '</div></form>'
     )
     script = (
+        'var wifiSelect=document.getElementById("wifi-network-select"),wifiInput=document.getElementById('
+        '"wifi-ssid-input"),wifiManual=document.getElementById("wifi-manual-field"),wifiStatus='
+        'document.getElementById("wifi-scan-status"),wifiRescan=document.getElementById("wifi-rescan");'
+        'function syncWifiSelection(){var manual=wifiSelect.value==="__manual__";wifiManual.hidden=!manual;'
+        'wifiInput.required=manual;if(!manual&&wifiSelect.value)wifiInput.value=wifiSelect.value;}'
+        'function wifiOption(value,text){var option=document.createElement("option");option.value=value;'
+        'option.textContent=text;return option;}function scanWifi(){var current=wifiInput.value;wifiRescan.disabled=true;'
+        'wifiStatus.textContent="Scanning for nearby networks…";fetch("/api/wifi-networks",{cache:"no-store",'
+        'credentials:"same-origin"}).then(function(response){if(!response.ok)throw new Error("HTTP "+response.status);'
+        'return response.json();}).then(function(networks){wifiSelect.textContent="";wifiSelect.appendChild('
+        'wifiOption("","Select a Wi-Fi network"));var found=false;for(var i=0;i<networks.length;i++){var network='
+        'networks[i],label=network.ssid+(typeof network.rssi==="number"?" ("+network.rssi+" dBm)":"");'
+        'wifiSelect.appendChild(wifiOption(network.ssid,label));if(network.ssid===current)found=true;}'
+        'wifiSelect.appendChild(wifiOption("__manual__","Enter network name manually…"));if(current){wifiSelect.value='
+        'found?current:"__manual__";}else wifiSelect.value="";syncWifiSelection();wifiStatus.textContent=networks.length?'
+        'networks.length+" network"+(networks.length===1?"":"s")+" found.":"No visible networks found; use manual entry.";'
+        'if(!networks.length){wifiSelect.value="__manual__";syncWifiSelection();}}).catch(function(){wifiSelect.value='
+        '"__manual__";syncWifiSelection();wifiStatus.textContent="Network scan unavailable; enter the SSID manually.";'
+        '}).finally(function(){wifiRescan.disabled=false;});}wifiSelect.onchange=syncWifiSelection;wifiRescan.onclick=scanWifi;'
+        'syncWifiSelection();scanWifi();'
         'var dhcp=document.getElementById("wifi-dhcp"),staticBox='
         'document.getElementById("wifi-static-settings");function syncNetworkMode(){'
         'var manual=!dhcp.checked;staticBox.hidden=!manual;var fields=staticBox.querySelectorAll("input");'
@@ -321,13 +358,17 @@ def render_portal_settings_page(csrf, settings, message='', error=False):
     transport = settings.get('portal_transport', 'auto')
     port = settings.get('portal_port')
     port_value = '' if port is None else str(port)
+    session_timeout_s = int(settings.get('portal_session_timeout_s', 3600) or 3600)
+    session_timeout_minutes = max(5, min(1440, (session_timeout_s + 59) // 60))
     body = (
         portal_ui.page_heading(
             'System', 'Portal', 'Configure portal transport and listening port.'
         ) + _notice(message, error) +
         '<form action="/portal-settings" method="post" autocomplete="off">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">' +
-        render_operational_hidden_fields(settings, ('portal_transport', 'portal_port')) +
+        render_operational_hidden_fields(settings, (
+            'portal_transport', 'portal_port', 'portal_session_timeout_s'
+        )) +
         '<section class="card"><div class="section-title"><h2>Portal access</h2></div>'
         '<div class="grid">'
         '<label class="field">Portal transport<select name="portal_transport">'
@@ -337,8 +378,11 @@ def render_portal_settings_page(csrf, settings, message='', error=False):
         '<option value="http"' + (' selected' if transport == 'http' else '') +
         '>HTTP (unencrypted)</option></select></label>'
         '<label class="field">Portal port<input name="portal_port" type="number" min="1" max="65535" '
-        'placeholder="8443 (default)" value="' + html_escape(port_value) + '"></label></div>'
-        '<p class="muted">Leave the port blank to use 8443 for HTTPS. Port 80 is reserved for '
+        'required value="' + html_escape(port_value) + '"></label>'
+        '<label class="field">Inactive session timeout (minutes)<input '
+        'name="portal_session_timeout_minutes" type="number" min="5" max="1440" required value="' +
+        html_escape(session_timeout_minutes) + '"></label></div>'
+        '<p class="muted">HTTPS defaults to port 8443 and explicit HTTP defaults to 8080. Port 80 is reserved for '
         'certificate enrollment and recovery.</p><div class="actions"><span></span>'
         '<button type="submit">Save settings and restart</button></div></section></form>'
     )
@@ -353,20 +397,39 @@ def render_wifi_settings_page(csrf, settings, message='', error=False):
 def render_ntp_settings_page(csrf, settings, message='', error=False):
     settings = settings or {}
     ntp_servers = ', '.join(settings.get('ntp_servers', ()))
+    timezone_name = str(settings.get('timezone_name', 'UTC'))
+    timezone_options = ''.join(
+        '<option value="' + html_escape(name) + '"' +
+        (' selected' if name == timezone_name else '') + '>' +
+        html_escape(label) + '</option>'
+        for name, label in timezone_rules.choices()
+    )
+    current_offset = timezone_rules.offset_minutes(timezone_name)
+    offset_text = ('+' if current_offset >= 0 else '−') + (
+        '{:02}:{:02}'.format(abs(current_offset) // 60, abs(current_offset) % 60)
+    )
     body = (
         portal_ui.page_heading(
-            'System', 'NTP', 'Configure the time servers used to set the device clock.'
+            'System', 'Time / Date',
+            'Configure UTC time synchronisation and automatic local daylight-saving rules.'
         ) + _notice(message, error) +
         '<form action="/ntp-settings" method="post" autocomplete="off">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">' +
-        render_operational_hidden_fields(settings, ('ntp_servers',)) +
+        render_operational_hidden_fields(settings, (
+            'ntp_servers', 'timezone_offset_minutes', 'timezone_name'
+        )) +
         '<section class="card"><div class="section-title"><h2>Time synchronisation</h2></div>'
         '<label class="field">NTP servers (comma separated)<input name="ntp_servers" required '
         'maxlength="1024" value="' + html_escape(ntp_servers) + '"></label>'
+        '<label class="field">Time zone<select name="timezone_name">' +
+        timezone_options + '</select></label>'
+        '<p class="muted">Current UTC offset for this zone: UTC' + offset_text +
+        '. Daylight-saving changes are applied automatically using the selected city’s current regional rules. '
+        'The RTC and NTP protocol remain in UTC.</p>'
         '<div class="actions"><span></span><button type="submit">Save settings and restart</button>'
         '</div></section></form>'
     )
-    return portal_ui.shell('HAMD NTP settings', 'ntp_settings', body, csrf)
+    return portal_ui.shell('HAMD time and date settings', 'ntp_settings', body, csrf)
 
 
 def render_mqtt_page(csrf, settings, message='', error=False):
@@ -427,6 +490,63 @@ def render_home_assistant_page(csrf, settings, message='', error=False):
         html_escape(csrf) + '"><button type="submit">Publish discovery</button></form></div></section>'
     )
     return portal_ui.shell('HAMD Home Assistant', 'home_assistant', body, csrf)
+
+
+def render_device_api_page(csrf, settings, message='', error=False):
+    enabled = ' checked' if settings.get('api_enabled') else ''
+    clients = settings.get('api_clients', []) or []
+    rows = []
+    for client in clients:
+        fingerprint = str(client.get('fingerprint', ''))
+        expiry_level = client.get('expiry_level', 'unknown')
+        badge_text = (
+            'expired' if expiry_level == 'expired' else
+            (str(client.get('days_remaining')) + ' days'
+             if expiry_level in ('warning', 'critical') else 'enrolled')
+        )
+        rows.append(
+            '<article class="module-card"><div class="module-head"><div><h3>' +
+            html_escape(client.get('label', 'API client')) + '</h3><p class="muted">' +
+            html_escape(', '.join(client.get('scopes', []))) + '</p></div>' +
+            render_badge(
+                badge_text,
+                'good' if expiry_level in ('ok', 'unknown') else 'warn'
+            ) + '</div><div class="property-grid">'
+            '<div class="property-row"><span>Subject</span><strong>' +
+            html_escape(client.get('subject', '')) + '</strong></div>'
+            '<div class="property-row"><span>Fingerprint</span><strong>' +
+            html_escape(fingerprint) + '</strong></div>'
+            '<div class="property-row"><span>Expires</span><strong>' +
+            html_escape(client.get('not_after', 'unknown')) + '</strong></div></div>'
+            '<form method="post" action="/revoke-api-client"><input type="hidden" '
+            'name="csrf" value="' + html_escape(csrf) + '"><input type="hidden" '
+            'name="fingerprint" value="' + html_escape(fingerprint) + '">'
+            '<div class="actions"><span></span><button class="danger compact" type="submit">'
+            'Revoke client</button></div></form></article>'
+        )
+    if not rows:
+        rows.append('<p class="muted">No API client certificates are enrolled.</p>')
+    body = (
+        portal_ui.page_heading(
+            'System', 'Device API',
+            'Expose module state and commands over a versioned HTTPS API secured with mutual TLS.'
+        ) + _notice(message, error) +
+        '<section class="card"><div class="section-title"><h2>API listener</h2></div>'
+        '<form action="/device-api" method="post"><input type="hidden" name="csrf" value="' +
+        html_escape(csrf) + '">' + render_operational_hidden_fields(settings) +
+        '<label class="check"><input name="api_enabled" type="checkbox" '
+        'value="true"' + enabled + '>Enable the mTLS device API</label><div class="grid">'
+        '<label class="field">API port<input name="api_port" type="number" min="1" max="65535" '
+        'required value="' + html_escape(settings.get('api_port', 8444)) + '"></label>'
+        '<div class="property-row"><span>Authentication</span><strong>Mutual TLS (required)</strong></div>'
+        '</div><p class="muted">A dedicated API client CA and at least one enrolled client '
+        'certificate are required. Configure these under Maintenance / Certificates.</p>'
+        '<div class="actions"><span></span><button type="submit">Save settings &amp; restart</button>'
+        '</div></form></section><section class="card"><div class="section-title">'
+        '<h2>Enrolled clients</h2></div><div class="module-grid">' + ''.join(rows) +
+        '</div></section>'
+    )
+    return portal_ui.shell('HAMD Device API', 'device_api', body, csrf)
 
 
 def render_user_settings_page(
@@ -493,12 +613,19 @@ def render_module_settings_page(csrf, module_json='{"devices":[]}', message='', 
 
 def render_certificate_details(certificates):
     certificates = certificates or {}
+    mqtt_key = 'mqtt_ca' if 'mqtt_ca' in certificates else 'trusted_ca'
     def certificate_card(key, label, missing_message='No certificate file is installed.'):
         details = certificates.get(key, {}) or {}
         installed = bool(details.get('installed'))
+        expiry_level = details.get('expiry_level', 'ok' if installed else 'missing')
         badge = render_badge(
-            'installed' if installed else 'not installed',
-            'good' if installed else 'warn'
+            (
+                'expired' if expiry_level == 'expired' else
+                (str(details.get('days_remaining')) + ' days'
+                 if expiry_level in ('warning', 'critical') else
+                 ('installed' if installed else 'not installed'))
+            ),
+            'good' if installed and expiry_level == 'ok' else 'warn'
         )
         rows = []
         if details.get('error'):
@@ -525,15 +652,28 @@ def render_certificate_details(certificates):
             ''.join(rows) + '</div></article>'
         )
 
+    api_ca_cards = ''
+    for index, details in enumerate(certificates.get('api_client_cas', ()) or ()):
+        key = '_api_client_ca_' + str(index)
+        certificates[key] = details
+        api_ca_cards += certificate_card(
+            key, 'API client CA ' + str(index + 1)
+        )
+    if not api_ca_cards:
+        api_ca_cards = certificate_card('api_client_ca', 'API client CA')
+
     groups = (
         (
             'CA Trust',
             'Certificate authorities trusted by this device for secured services.',
             certificate_card(
-                'trusted_ca', 'Home IoT trusted CA',
+                mqtt_key, 'MQTT trusted CA',
                 'No separate CA trust anchor is installed. The generated self-signed portal '
                 'certificate is listed under Device Certificates.'
-            )
+            ) +
+            certificate_card('release_ca', 'Release-server trusted CA') +
+            certificate_card('syslog_ca', 'Syslog trusted CA') +
+            api_ca_cards
         ),
         (
             'Device Certificates',
@@ -550,6 +690,9 @@ def render_certificate_details(certificates):
 
 
 def render_certificate_page(csrf, message='', certificates=None):
+    certificates = certificates or {}
+    acme = certificates.get('acme_settings', {}) or {}
+    acme_enabled = acme.get('mode') == 'acme'
     body = (
         portal_ui.page_heading(
             'Maintenance', 'Certificates',
@@ -557,32 +700,79 @@ def render_certificate_page(csrf, message='', certificates=None):
         ) + _notice(message) +
         '<section class="card"><div class="section-title"><h2>Installed certificates</h2></div>' +
         render_certificate_details(certificates) + '</section>'
-        '<section class="card"><div class="section-title"><h2>Manual certificate upload</h2></div>'
-        '<p class="muted">The CA, portal certificate and private key are validated together before restart.</p>'
-        '<div class="grid"><label class="field">Trusted CA certificate<input id="trust-ca" type="file"></label>'
-        '<label class="field">Portal certificate<input id="portal-cert" type="file"></label>'
-        '<label class="field">Portal private key<input id="portal-key" type="file"></label></div>'
-        '<div class="actions"><span id="result" class="muted"></span>'
-        '<button id="upload">Upload, validate and restart</button></div>' +
+        '<section class="card"><div class="section-title"><h2>ACME certificate service</h2></div>'
+        '<form action="/acme-settings" method="post"><input type="hidden" name="csrf" value="' +
+        html_escape(csrf) + '"><input type="hidden" name="acme_enabled" value="false">'
+        '<label class="check"><input id="acme-enabled" name="acme_enabled" type="checkbox" value="true"' +
+        (' checked' if acme_enabled else '') + '>Enable automatic ACME certificate management</label>'
+        '<fieldset id="acme-fields" class="conditional-fields"' +
+        ('' if acme_enabled else ' disabled') + '><div class="grid"><label class="field">ACME directory URL'
+        '<input name="directory_url" type="url" maxlength="512" required value="' +
+        html_escape(acme.get('directory_url', '')) + '"></label>'
+        '<label class="field">Certificate hostname<input name="hostname" maxlength="253" '
+        'required value="' + html_escape(acme.get('hostname', '')) + '"></label></div></fieldset>'
+        '<p class="muted">When disabled, the installed portal certificate remains in use but '
+        'automatic enrolment and renewal stop.</p><div class="actions"><span></span>'
+        '<button type="submit">Save ACME settings &amp; restart</button></div></form></section>'
+        '<section class="card"><div class="section-title"><h2>Import certificate</h2></div>'
+        '<p class="muted">Choose the certificate purpose, select the DER file or files, then '
+        'validate and install them as one operation.</p><label class="field">Certificate type'
+        '<select id="certificate-type"><option value="portal">Portal certificate and private key</option>'
+        '<option value="mqtt-ca">MQTT trusted CA</option><option value="release-ca">Release-server trusted CA</option>'
+        '<option value="syslog-ca">Syslog trusted CA</option><option value="api-client-ca">API client CA trust</option>'
+        '<option value="api-client-cert">API client certificate enrolment</option></select></label>'
+        '<div class="grid"><label id="certificate-primary-label" class="field">Portal certificate'
+        '<input id="certificate-primary" type="file" accept=".der,application/pkix-cert" required></label>'
+        '<label id="certificate-secondary-label" class="field">Portal private key'
+        '<input id="certificate-secondary" type="file" accept=".der,application/octet-stream" required></label></div>'
+        '<p id="certificate-help" class="muted"></p><div class="actions">'
+        '<span id="certificate-result" class="muted"></span>'
+        '<button id="certificate-upload" type="button">Upload and validate</button></div>' +
         portal_ui.progress('certificate-progress', 'Waiting…', True) + '</section>'
     )
     script = (
-        'var csrf=' + repr(str(csrf)) + ',kinds=["trust-ca","portal-cert","portal-key"];'
-        'document.getElementById("upload").onclick=async function(){var out=document.getElementById("result"),'
-        'box=document.getElementById("certificate-progress"),label=box.querySelector(".status-text");'
-        'box.classList.remove("complete","failed");box.hidden=false;this.disabled=true;try{for(var i=0;i<kinds.length;i++){'
-        'label.textContent="Uploading "+(i+1)+" of 3";var k=kinds[i],'
-        'f=document.getElementById(k).files[0];if(!f)throw new Error("Select every certificate file");'
-        'var r=await fetch("/certificate-upload",{method:"POST",credentials:"same-origin",headers:{'
-        '"Content-Type":"application/octet-stream","X-CSRF-Token":csrf,"X-Certificate-Kind":k},body:f});'
-        'if(r.status===401){location.replace("/login");return;}if(!r.ok)throw new Error(await r.text());}'
-        'label.textContent="Validating certificates…";var done=await fetch('
+        'var csrf=' + repr(str(csrf)) + ',type=document.getElementById("certificate-type"),'
+        'primary=document.getElementById("certificate-primary"),secondary=document.getElementById('
+        '"certificate-secondary"),secondaryLabel=document.getElementById("certificate-secondary-label"),'
+        'primaryLabel=document.getElementById("certificate-primary-label"),help=document.getElementById('
+        '"certificate-help");var descriptions={portal:["Portal certificate","Portal private key",'
+        '"Both files are validated together; installation restarts the portal."],"mqtt-ca":["MQTT trusted CA","",'
+        '"Authenticates the MQTT broker."],"release-ca":["Release-server trusted CA","",'
+        '"Authenticates the signed release server."],"syslog-ca":["Syslog trusted CA","",'
+        '"Authenticates an encrypted syslog server."],"api-client-ca":["API client CA files","",'
+        '"Install one or more issuing CAs; the device restarts once."],"api-client-cert":['
+        '"API client certificates","","Enrol one or more client identities without a restart."]};'
+        'function configureCertificateImport(){var d=descriptions[type.value];primaryLabel.firstChild.nodeValue=d[0];'
+        'secondaryLabel.firstChild.nodeValue=d[1];secondaryLabel.hidden=!d[1];primary.multiple='
+        'type.value==="api-client-ca"||type.value==="api-client-cert";secondary.required=!!d[1];help.textContent=d[2];}'
+        'type.onchange=configureCertificateImport;configureCertificateImport();'
+        'document.getElementById("acme-enabled").onchange=function(){document.getElementById('
+        '"acme-fields").disabled=!this.checked;};'
+        'function uploadCertificate(file,kind,index,total,label){return new Promise(function(resolve,reject){'
+        'var x=new XMLHttpRequest();x.open("POST","/certificate-upload",true);x.setRequestHeader('
+        '"Content-Type","application/octet-stream");x.setRequestHeader("X-CSRF-Token",csrf);'
+        'x.setRequestHeader("X-Certificate-Kind",kind);x.upload.onprogress=function(p){if(p.lengthComputable){'
+        'label.textContent="Uploading "+index+" of "+total+" · "+Math.round(p.loaded*100/p.total)+"%";}};'
+        'x.onload=function(){if(x.status>=200&&x.status<300)resolve(x.responseText);else reject(new Error('
+        'x.responseText||"Certificate upload failed"));};x.onerror=function(){reject(new Error('
+        '"Connection lost during certificate upload"));};x.send(file);});}'
+        'document.getElementById("certificate-upload").onclick=async function(){var out=document.getElementById('
+        '"certificate-result"),box=document.getElementById("certificate-progress"),label=box.querySelector('
+        '".status-text"),files=[],kind=type.value;if(!portalRequire(primary,'
+        '"Select at least one certificate file")){out.textContent="Select at least one certificate file";return;}'
+        'for(var i=0;i<primary.files.length;i++)files.push('
+        '[kind==="portal"?"portal-cert":kind,primary.files[i]]);if(kind==="portal"){if(!secondary.files[0]){'
+        'out.textContent="Select the portal private key";portalRequire(secondary,'
+        '"Select the portal private key");return;}files.push(["portal-key",secondary.files[0]]);}'
+        'this.disabled=true;box.hidden=false;box.classList.remove("complete","failed");try{for(var j=0;j<files.length;j++){'
+        'await uploadCertificate(files[j][1],files[j][0],j+1,files.length,label);}'
+        'label.textContent="Validating certificate set…";var done=await fetch('
         '"/validate-certificates",{method:"POST",credentials:"same-origin",headers:{'
         '"Content-Type":"application/x-www-form-urlencoded"},body:"csrf="+encodeURIComponent(csrf)});'
-        'if(done.status===401){location.replace("/login");return;}if(!done.ok)throw new Error(await done.text());'
-        'box.classList.add("complete");label.textContent="Validated";document.open();'
-        'document.write(await done.text());document.close();}catch(e){out.textContent=e.message;'
-        'box.classList.add("failed");label.textContent="Failed";this.disabled=false;}};'
+        'if(!done.ok)throw new Error(await done.text());box.classList.add("complete");label.textContent='
+        '"Certificate installation complete";document.open();document.write(await done.text());document.close();}'
+        'catch(e){out.textContent=e.message;box.classList.add("failed");label.textContent="Installation failed";'
+        'this.disabled=false;}};'
     )
     return portal_ui.shell('HAMD certificates', 'certificates', body, csrf, script)
 
@@ -615,6 +805,268 @@ def render_factory_default_page(csrf, error=''):
         '</div></form></section>'
     )
     return portal_ui.shell('HAMD factory default', 'factory_default', body, csrf)
+
+
+def render_configuration_backup_page(csrf, message=''):
+    body = (
+        portal_ui.page_heading(
+            'Maintenance', 'Configuration backup',
+            'Export or restore configuration, optionally including secrets in a password-encrypted file.'
+        ) + _notice(message) +
+        '<section class="card"><div class="section-title"><h2>Export</h2></div>'
+        '<p class="muted">A standard backup contains operational and module settings. Enable '
+        'encryption to also include credentials, login verifiers, private keys, certificates, '
+        'ACME state and API clients. Encrypted backup is available only over HTTPS.</p>'
+        '<form id="backup-export-form" action="/download-secure-configuration" method="post" '
+        'autocomplete="off"><input type="hidden" name="csrf" value="' + html_escape(csrf) + '">'
+        '<label class="check"><input id="encrypt-backup" type="checkbox">Encrypt backup and include secrets</label>'
+        '<fieldset id="export-encryption" class="conditional-fields" disabled><div class="grid">'
+        '<label class="field">Encryption password<input name="backup_password" '
+        'type="password" minlength="16" maxlength="256" required></label>'
+        '<label class="field">Confirm encryption password<input name="confirm_backup_password" '
+        'type="password" minlength="16" maxlength="256" required></label></div></fieldset>'
+        '<div class="actions"><span id="backup-export-result" class="muted"></span>'
+        '<button id="backup-export" type="button">Download backup</button></div></form></section>'
+        '<section class="card"><div class="section-title"><h2>Import</h2></div>'
+        '<p class="muted">Every import is validated and previewed before anything is changed.</p>'
+        '<label class="check"><input id="encrypted-import" type="checkbox">This is an encrypted complete backup</label>'
+        '<label class="field">Backup file<input id="configuration-import-file" '
+        'type="file" accept="application/json,.json" required></label>'
+        '<fieldset id="import-encryption" class="conditional-fields" disabled>'
+        '<label class="field">Encryption password<input id="configuration-import-password" '
+        'type="password" minlength="16" maxlength="256"></label></fieldset>'
+        '<div class="actions"><span id="configuration-import-result" class="muted"></span>'
+        '<button id="configuration-action" type="button">Upload and preview</button></div>'
+        '<div id="configuration-preview-panel" hidden><div class="section-title">'
+        '<h3>Restore preview</h3><span class="badge">Secret values hidden</span></div>'
+        '<div id="configuration-diff" class="restore-grid"></div></div>' +
+        portal_ui.progress('configuration-progress', 'Waiting…', True) + '</section>'
+    )
+    script = (
+        'var importToken="",importEncrypted=false,csrf=' + repr(str(csrf)) + ';'
+        'var encrypt=document.getElementById("encrypt-backup"),exportFields='
+        'document.getElementById("export-encryption"),encryptedImport='
+        'document.getElementById("encrypted-import"),importFields='
+        'document.getElementById("import-encryption"),importFile=document.getElementById('
+        '"configuration-import-file"),importPassword=document.getElementById('
+        '"configuration-import-password"),actionButton=document.getElementById('
+        '"configuration-action");'
+        'function toggleExport(){exportFields.disabled=!encrypt.checked;}'
+        'function toggleImport(){importFields.disabled=!encryptedImport.checked;document.getElementById('
+        '"configuration-import-password").required=encryptedImport.checked;}'
+        'function resetImportPreview(){importToken="";actionButton.disabled=false;'
+        'actionButton.textContent="Upload and preview";document.getElementById('
+        '"configuration-diff").innerHTML="";document.getElementById("configuration-preview-panel").hidden=true;'
+        'document.getElementById("configuration-progress").hidden=true;}'
+        'function readBackup(file,label){return new Promise(function(resolve,reject){var reader=new FileReader();'
+        'reader.onprogress=function(p){if(p.lengthComputable)label.textContent="Reading backup "+Math.round('
+        'p.loaded*100/p.total)+"%";};reader.onload=function(){resolve(reader.result);};reader.onerror=function(){'
+        'reject(new Error("Could not read the backup file"));};reader.readAsText(file);});}'
+        'function uploadBackup(url,type,body,label){return new Promise(function(resolve,reject){var x='
+        'new XMLHttpRequest();x.open("POST",url,true);x.setRequestHeader("Content-Type",type);x.setRequestHeader('
+        '"X-CSRF-Token",csrf);x.upload.onprogress=function(p){if(p.lengthComputable)label.textContent='
+        '"Uploading backup "+Math.round(p.loaded*100/p.total)+"%";};x.upload.onload=function(){label.textContent='
+        '"Validating configuration…";};x.onload=function(){if(x.status>=200&&x.status<300)resolve(x.responseText);'
+        'else reject(new Error(x.responseText||"Configuration validation failed"));};x.onerror=function(){reject('
+        'new Error("Connection lost during configuration upload"));};x.send(body);});}'
+        'encrypt.onchange=toggleExport;encryptedImport.onchange=function(){toggleImport();resetImportPreview();};'
+        'importFile.onchange=resetImportPreview;importPassword.oninput=resetImportPreview;toggleExport();toggleImport();'
+        'document.getElementById("backup-export").onclick=function(){var out=document.getElementById('
+        '"backup-export-result");if(!encrypt.checked){location.assign("/download-configuration");return;}'
+        'var form=document.getElementById("backup-export-form"),passwordField=form.elements.backup_password,'
+        'confirmField=form.elements.confirm_backup_password,a=passwordField.value,b=confirmField.value;'
+        'if(!form.reportValidity())return;if(a.length<16){out.textContent='
+        '"Encryption password must contain at least 16 characters";portalInvalid(passwordField,'
+        '"Encryption password must contain at least 16 characters");return;}if(a!==b){out.textContent='
+        '"Encryption passwords do not match";portalInvalid(confirmField,"Encryption passwords do not match");'
+        'return;}form.submit();};'
+        'async function previewImport(){var f=importFile.files[0],out='
+        'document.getElementById("configuration-import-result"),diff='
+        'document.getElementById("configuration-diff"),box='
+        'document.getElementById("configuration-progress"),label=box.querySelector(".status-text");'
+        'if(!f){out.textContent="Select a configuration backup";portalRequire(importFile,'
+        '"Select a configuration backup");return;}box.hidden=false;'
+        'box.classList.remove("complete","failed");label.textContent="Preparing upload…";'
+        'this.disabled=true;importEncrypted=encryptedImport.checked;try{var r,p,diffRows=[];if(importEncrypted){'
+        'var password=document.getElementById("configuration-import-password").value;if(!password){'
+        'portalRequire(importPassword,"Enter the encryption password");throw new Error("Enter the encryption password");}'
+        'var backup=JSON.parse(await readBackup(f,label));r=await uploadBackup('
+        '"/secure-configuration-import-preview","application/json",JSON.stringify({password:password,'
+        'backup:backup}),label);p=JSON.parse(r);importToken=p.token;diffRows=p.changes||[];'
+        'out.textContent="Encrypted backup verified. Review the restore preview below.";}else{r=await uploadBackup('
+        '"/configuration-import-preview","application/json",f,label);p=JSON.parse(r);importToken=p.token;'
+        'diffRows=p.changes;out.textContent=p.change_count+'
+        '" change(s) validated";}diff.innerHTML="";for(var i=0;i<diffRows.length;i++){var c=diffRows[i],'
+        'before=typeof c.before==="string"?c.before:JSON.stringify(c.before),after=typeof c.after==="string"?'
+        'c.after:JSON.stringify(c.after),missing=after==null||after===""||after==="null"||after==="undefined",'
+        'state=c.state||(missing?"missing":before===after?"same":"changed"),row=document.createElement("div");'
+        'row.className="restore-card "+state;var head=document.createElement("div"),name=document.createElement('
+        '"strong"),badge=document.createElement("span");head.className="restore-card-head";name.textContent=c.path;'
+        'badge.className="restore-state";badge.textContent=state;head.appendChild(name);head.appendChild(badge);'
+        'row.appendChild(head);if(state==="same"){var value=document.createElement("div");value.className='
+        '"restore-value";value.textContent=after;row.appendChild(value);}else{var compare=document.createElement("div");'
+        'compare.className="restore-compare";function pane(labelText,text){var box=document.createElement("div"),'
+        'labelNode=document.createElement("span"),strong=document.createElement("strong");box.className="restore-pane";'
+        'labelNode.textContent=labelText;strong.textContent=text||"Missing";box.appendChild(labelNode);box.appendChild('
+        'strong);return box;}compare.appendChild(pane("Current",before));compare.appendChild(pane("Backup",after));'
+        'row.appendChild(compare);}diff.appendChild(row);}'
+        'document.getElementById("configuration-preview-panel").hidden=false;'
+        'this.disabled=!importEncrypted&&p.change_count===0;this.textContent="Apply configuration & restart";'
+        'box.classList.add("complete");label.textContent="Preview ready";'
+        '}catch(e){out.textContent=e.message;box.classList.add("failed");label.textContent="Validation failed";'
+        'this.disabled=false;this.textContent="Upload and preview";}};'
+        'async function applyImport(){var box='
+        'document.getElementById("configuration-progress"),label=box.querySelector(".status-text");'
+        'this.disabled=true;box.classList.remove("complete","failed");box.hidden=false;label.textContent='
+        '"Applying configuration…";try{var endpoint=importEncrypted?'
+        '"/secure-configuration-import-apply":"/configuration-import-apply",r=await fetch(endpoint,{method:"POST",'
+        'credentials:"same-origin",headers:{"Content-Type":"application/json","X-CSRF-Token":csrf},'
+        'body:JSON.stringify({token:importToken})});if(!r.ok)throw new Error(await r.text());document.open();'
+        'document.write(await r.text());document.close();}catch(e){document.getElementById('
+        '"configuration-import-result").textContent=e.message;box.classList.add("failed");'
+        'label.textContent="Import failed";this.disabled=false;}}'
+        'actionButton.onclick=function(){return importToken?applyImport.call(actionButton):'
+        'previewImport.call(actionButton);};'
+    )
+    return portal_ui.shell(
+        'HAMD configuration backup', 'configuration_backup', body, csrf, script
+    )
+
+
+def _health_time_text(epoch, timezone_name='UTC'):
+    try:
+        value = int(epoch or 0)
+        if value <= 0 or time is None:
+            return 'Time unavailable'
+        current = timezone_rules.localtime(value, timezone_name)
+        return '{:04}-{:02}-{:02} {:02}:{:02}:{:02}'.format(
+            current[0], current[1], current[2], current[3], current[4], current[5]
+        )
+    except Exception:
+        return 'Time unavailable'
+
+
+def _health_value(value, timezone_name='UTC'):
+    if isinstance(value, dict):
+        return ', '.join(
+            render_label(key) + ': ' + (
+                _health_time_text(value[key], timezone_name)
+                if key == 'time' else str(value[key])
+            ) for key in value
+        )
+    return str(value)
+
+
+def render_health_history_page(csrf, status):
+    health = (status or {}).get('health_history', {}) or {}
+    counters = health.get('counters', {}) or {}
+    observations = health.get('observations', {}) or {}
+    timezone_name = (status or {}).get('timezone_name', 'UTC')
+    data_groups = (
+        ('System',
+         ('boots', 'watchdog_resets'),
+         ('last_reset_cause', 'last_startup_exception', 'minimum_free_heap')),
+        ('Network',
+         ('wifi_reconnects',),
+         ('last_wifi_rssi', 'minimum_wifi_rssi')),
+        ('MQTT',
+         ('mqtt_publish_drops', 'mqtt_publish_failures'),
+         ()),
+        ('API',
+         ('api_requests', 'api_commands', 'api_failures'),
+         ()),
+        ('Updates', (), ('last_update_result',)),
+    )
+    grouped = []
+    shown_counters = set()
+    # Scheduler persistence is shown on Upgrades, not duplicated as health data.
+    shown_observations = {'last_release_check'}
+
+    def health_item(key, value, label=None):
+        return (
+            '<div class="health-item"><span>' + html_escape(
+                label if label is not None else render_label(key)
+            ) + '</span><strong>' +
+            html_escape(value) + '</strong></div>'
+        )
+
+    def update_result_items(value):
+        if not isinstance(value, dict) or not value:
+            return health_item('last_update_result', 'No update recorded')
+        rows = []
+        for key, label in (
+            ('kind', 'Type'), ('result', 'Result'), ('version', 'Version'),
+            ('time', 'Completed at'), ('detail', 'Detail')
+        ):
+            item = value.get(key)
+            if item in (None, ''):
+                continue
+            rows.append(health_item(
+                key,
+                _health_time_text(item, timezone_name) if key == 'time' else item,
+                label
+            ))
+        return ''.join(rows) or health_item(
+            'last_update_result', 'No update recorded'
+        )
+
+    for title, counter_keys, observation_keys in data_groups:
+        rows = []
+        for key in counter_keys:
+            if key in counters:
+                shown_counters.add(key)
+                rows.append(health_item(key, counters[key]))
+        for key in observation_keys:
+            if key in observations:
+                shown_observations.add(key)
+                rows.append(
+                    update_result_items(observations[key])
+                    if key == 'last_update_result' else health_item(
+                        key, _health_value(observations[key], timezone_name)
+                    )
+                )
+        if rows:
+            grouped.append(
+                '<section class="health-group"><h3>' + title +
+                '</h3><div class="health-items">' + ''.join(rows) + '</div></section>'
+            )
+
+    remaining = []
+    for key in counters:
+        if key not in shown_counters:
+            remaining.append(health_item(key, counters[key]))
+    for key in observations:
+        if key not in shown_observations:
+            remaining.append(health_item(
+                key, _health_value(observations[key], timezone_name)
+            ))
+    if remaining:
+        grouped.append(
+            '<section class="health-group"><h3>Other</h3><div class="health-items">' +
+            ''.join(remaining) + '</div></section>'
+        )
+    events = []
+    for event in list(health.get('events', []))[-24:][::-1]:
+        events.append(
+            '<li><time>' + html_escape(_health_time_text(event.get('time'), timezone_name)) +
+            '</time> — <strong>' + html_escape(event.get('kind', '')) + '</strong> ' +
+            html_escape(event.get('detail', '')) + '</li>'
+        )
+    body = (
+        portal_ui.page_heading(
+            'Maintenance', 'Health history',
+            'Persistent reset, connectivity, memory, MQTT, API and update health information.'
+        ) + '<section class="card"><div class="section-title"><h2>Health data</h2></div>' +
+        '<div class="health-groups">' + ''.join(grouped) + '</div></section>'
+        '<section class="card"><div class="section-title"><h2>Recent significant events</h2></div>'
+        + ('<ul>' + ''.join(events) + '</ul>' if events else '<p class="muted">No events recorded.</p>') +
+        '</section><section class="card"><div class="section-title"><h2>Reset history</h2></div>'
+        '<p class="muted">Clear all persistent health counters, observations and events.</p>'
+        '<form action="/reset-health-history" method="post"><input type="hidden" name="csrf" value="' +
+        html_escape(csrf) + '"><div class="actions"><span></span><button class="danger" '
+        'type="submit">Reset health history</button></div></form></section>'
+    )
+    return portal_ui.shell('HAMD health history', 'health_history', body, csrf)
 
 
 def render_factory_default_complete_page(csrf):
@@ -669,6 +1121,31 @@ def apply_loglevel_change(level, loglevel_setter, log_output):
     log_output('Local', 'Web portal', {'log': 'Log level changed to ' + level, 'force': True}, 'INFO')
 
 
+def apply_logging_change(
+    level, line_count, allowed_levels, loglevel_setter,
+    log_buffer_lines_setter, log_output
+):
+    level = str(level or '').upper()
+    try:
+        line_count = int(line_count)
+    except (TypeError, ValueError):
+        raise ValueError('retained-line limit must be a number')
+    if level not in allowed_levels:
+        raise ValueError('invalid log level')
+    if not 0 <= line_count <= 500:
+        raise ValueError('retained-line limit must be between 0 and 500')
+    if log_buffer_lines_setter is None:
+        raise RuntimeError('runtime log retention control is unavailable')
+    loglevel_setter(level)
+    log_buffer_lines_setter(line_count)
+    log_output(
+        'Local', 'Web portal',
+        {'log': 'Logging changed to ' + level + ' with ' +
+         str(line_count) + ' retained lines', 'force': True}, 'INFO'
+    )
+    return level, line_count
+
+
 def apply_portal_action(action, path, action_handler, log_output, params=None):
     result = ''
     if action_handler:
@@ -700,6 +1177,29 @@ def is_client_disconnect_error(exc):
     )
 
 
+def request_peer_address(reader, writer=None):
+    """Return a useful audit address across CPython and MicroPython streams."""
+    for stream in (reader, writer):
+        if stream is None:
+            continue
+        getter = getattr(stream, 'get_extra_info', None)
+        if getter:
+            try:
+                value = getter('peername')
+                if value:
+                    return str(value[0] if isinstance(value, tuple) else value)
+            except Exception:
+                pass
+        socket_value = getattr(stream, 's', None)
+        if socket_value is not None and hasattr(socket_value, 'getpeername'):
+            try:
+                value = socket_value.getpeername()
+                return str(value[0] if isinstance(value, tuple) else value)
+            except Exception:
+                pass
+    return 'unknown'
+
+
 def response(status, body, content_type='text/html'):
     return (
         'HTTP/1.1 ' + status + '\r\n'
@@ -722,6 +1222,25 @@ def download_response(body, filename='ha-device-logs.txt'):
         'Content-Length: ' + str(len(body.encode())) + '\r\n'
         '\r\n' +
         body
+    )
+
+
+def configuration_backup_filename(complete=False, epoch=None):
+    """Return a filesystem-safe UTC timestamped configuration filename."""
+    try:
+        value = time.time() if epoch is None else int(epoch)
+        converter = getattr(time, 'gmtime', None) or time.localtime
+        current = converter(value)
+        stamp = '{:04}{:02}{:02}-{:02}{:02}{:02}Z'.format(
+            current[0], current[1], current[2],
+            current[3], current[4], current[5]
+        )
+    except Exception:
+        stamp = 'time-unavailable'
+    return (
+        'ha-device-complete-' + stamp + '.encrypted.json'
+        if complete else
+        'ha-device-configuration-' + stamp + '.json'
     )
 
 
@@ -798,7 +1317,7 @@ FRIENDLY_LABELS = {
     'signed_updates': 'Signed updates',
     'release_channel': 'Release channel',
     'release_available_version': 'Available release',
-    'release_check_status': 'Release check',
+    'release_check_status': 'Last automatic check',
     'module_last_ok': 'Last operation OK',
     'module_last_error': 'Last error',
     'module_last_read_ms': 'Read duration (ms)',
@@ -873,9 +1392,22 @@ def render_refresh_controls_html(button_id='refresh-toggle', refresh_scope='log 
     )
 
 
+def display_release_version(value):
+    """Remove internal core and MicroPython decoration from a release label."""
+    value = str(value or '')
+    for prefix in ('ham-core-', 'core-'):
+        if value.startswith(prefix):
+            value = value[len(prefix):]
+            break
+    marker = value.find('-mpy')
+    if marker > 0:
+        value = value[:marker]
+    return value
+
+
 def staged_version_text(status):
     application = str(status.get('update_version', '') or '')
-    firmware = str(status.get('firmware_update_version', '') or '')
+    firmware = display_release_version(status.get('firmware_update_version', ''))
     application_ready = status.get('update_status') == 'ready' and application
     firmware_ready = status.get('firmware_update_status') == 'ready' and firmware
     if application_ready and firmware_ready:
@@ -1073,10 +1605,13 @@ def render_update_summary_html(status):
         status.get('firmware_update_availability', 'Unknown') or 'Unknown'
     )
     availability_tone = ' good' if availability.lower() == 'ready' else ' warn'
-    release_status = str(
-        status.get('release_check_status', 'Not checked') or 'Not checked'
-    )
-    release_checked = str(status.get('release_last_checked', '') or '')
+    release_status = str(status.get(
+        'release_automatic_check_status',
+        status.get('release_check_status', 'Not checked')
+    ) or 'Not checked')
+    release_checked = str(status.get(
+        'release_automatic_last_checked', status.get('release_last_checked', '')
+    ) or '')
     release_text = release_status + (
         ' — ' + release_checked if release_checked else ''
     )
@@ -1084,15 +1619,28 @@ def render_update_summary_html(status):
         ' warn' if release_status.lower().startswith('check failed') else
         (' good' if release_status not in ('Not checked', 'Checking') else '')
     )
+    paired = status.get('paired_update', {}) or {}
+    paired_html = ''
+    if int(paired.get('total_steps', 0) or 0) > 1:
+        paired_html = (
+            '<p class="muted"><strong>' +
+            html_escape(str(paired.get('active_type', '')).capitalize()) +
+            ' step ' + html_escape(paired.get('step', 0)) + ' of ' +
+            html_escape(paired.get('total_steps', 0)) + '</strong> — ' +
+            html_escape(paired.get('status', '')) + '</p>'
+        )
     history = status.get('update_history', [])
     history_html = ''
     if history:
         rows = []
         for entry in list(history)[-5:][::-1]:
+            entry_version = entry.get('version', '')
+            if entry.get('kind') == 'firmware':
+                entry_version = display_release_version(entry_version)
             rows.append(
                 '<li><strong>' + html_escape(entry.get('event', '')) + '</strong> ' +
                 html_escape(entry.get('kind', '')) + ' ' +
-                html_escape(entry.get('version', '')) +
+                html_escape(entry_version) +
                 (' — ' + html_escape(entry.get('detail', '')) if entry.get('detail') else '') +
                 '</li>'
             )
@@ -1109,15 +1657,22 @@ def render_update_summary_html(status):
         '<div class="metric release-check' + release_tone + '"><span>' +
         render_label('release_check_status') + '</span><strong title="' +
         html_escape(release_text) + '">' + html_escape(release_text) + '</strong></div>' +
-        history_html +
+        paired_html + history_html +
         ('<p class="muted">Available ' + html_escape(status.get('release_available_type', '')) +
-         ' release: ' + html_escape(status.get('release_available_version', '')) + '</p>'
+         ' release: ' + html_escape(
+             display_release_version(status.get('release_available_version', ''))
+             if status.get('release_available_type') == 'firmware' else
+             status.get('release_available_version', '')
+         ) + '</p>'
          if status.get('release_available_version') else '') + '</div>'
     )
 
 
 def render_update_activation_html(status, token):
-    if not status or status.get('update_status') != 'ready':
+    if (
+        not status or status.get('update_status') != 'ready' or
+        status.get('universal_update_status') == 'ready'
+    ):
         return ''
 
     labels = {
@@ -1151,7 +1706,7 @@ def render_firmware_update_html(status, token):
     if not status or not status.get('firmware_update_supported'):
         return ''
     update_status = status.get('firmware_update_status', 'idle')
-    if update_status == 'ready':
+    if update_status == 'ready' and status.get('universal_update_status') != 'ready':
         return (
             '<form action="/activate-firmware" method="post">' +
             '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
@@ -1159,6 +1714,19 @@ def render_firmware_update_html(status, token):
             '</form>'
         )
     return ''
+
+
+def render_universal_update_html(status, token):
+    if not status or status.get('universal_update_status') != 'ready':
+        return ''
+    version = str(status.get('universal_update_version', ''))
+    return (
+        '<form action="/activate-universal" method="post">'
+        '<input type="hidden" name="csrf" value="' + html_escape(token) + '">'
+        '<button class="secondary" type="submit" title="Boot the staged core and application '
+        'together and confirm both after the portal health check.">Activate universal update' +
+        ((' ' + html_escape(version)) if version else '') + ' and reboot</button></form>'
+    )
 
 
 def render_application_rollback_html(status, token):
@@ -1181,6 +1749,8 @@ def render_release_check_html(status, token):
     if available:
         notes = status.get('release_available_notes', '')
         release_type = str(status.get('release_available_type', ''))
+        if release_type == 'firmware':
+            available = display_release_version(available)
         release_type = release_type[:1].upper() + release_type[1:]
         download = (
             '<div class="release-available"><p><strong>' +
@@ -1220,6 +1790,7 @@ def render_overview_status(status):
         ('device_name', 'Device'),
         ('wifi_ip', 'Wi-Fi address'),
         ('mqtt', 'MQTT'),
+        ('api', 'Device API'),
         ('uptime_s', 'Uptime (s)'),
         ('running_version', 'Application version'),
         ('firmware_running_version', 'Core version'),
@@ -1228,11 +1799,13 @@ def render_overview_status(status):
     values = []
     for key, label in keys:
         value = status.get(key, 'unknown')
+        if key == 'firmware_running_version':
+            value = display_release_version(value)
         tone = ''
-        if key == 'mqtt':
+        if key in ('mqtt', 'api'):
             lowered = str(value).lower()
             tone = ' good' if lowered in ('connected', 'up', 'online') else (
-                '' if lowered == 'not configured' else ' warn'
+                '' if lowered in ('not configured', 'disabled') else ' warn'
             )
         values.append(
             '<div class="metric' + tone + '"><span>' + label +
@@ -1299,7 +1872,8 @@ def render_overview_page(token, status=None, modules=None, value_refresh_ms=5000
 
 
 def render_logging_page(token, current_loglevel, levels, logs,
-                        log_refresh_ms=5000):
+                        log_refresh_ms=5000, settings=None):
+    settings = settings or {}
     options = ''.join(
         '<option value="' + level + '"' +
         (' selected' if level == current_loglevel else '') + '>' + level + '</option>'
@@ -1318,6 +1892,8 @@ def render_logging_page(token, current_loglevel, levels, logs,
         '<form action="/set-loglevel" method="post" class="log-toolbar">'
         '<input type="hidden" name="csrf" value="' + html_escape(token) + '">'
         '<label>Log level <select name="level">' + options + '</select></label>'
+        '<label>Stored lines <input name="log_buffer_lines" type="number" min="0" max="500" '
+        'required value="' + html_escape(settings.get('log_buffer_lines', 200)) + '"></label>'
         '<button class="secondary" type="submit">Apply</button></form>'
         '<pre id="logs" class="log-view">' + render_logs_html(logs or []) + '</pre></section>'
     )
@@ -1340,15 +1916,51 @@ def render_logging_page(token, current_loglevel, levels, logs,
     return portal_ui.shell('HAMD logging', 'logging', body, token, script)
 
 
+def render_logging_settings_page(token, settings, message='', error=False):
+    settings = settings or {}
+    body = (
+        portal_ui.page_heading(
+            'System', 'Logging',
+            'Configure local log retention and optional remote syslog forwarding.'
+        ) + _notice(message, error) +
+        '<section class="card"><div class="section-title"><h2>Retention and forwarding</h2></div>'
+        '<form action="/logging-settings" method="post"><input type="hidden" name="csrf" value="' +
+        html_escape(token) + '">' + render_operational_hidden_fields(
+            settings, ('log_buffer_lines', 'syslog_enabled', 'syslog_host',
+                       'syslog_port', 'syslog_transport')
+        ) + '<input type="hidden" name="syslog_enabled" value="false">'
+        '<label class="field">Local log entries (0–500)<input name="log_buffer_lines" '
+        'type="number" min="0" max="500" required value="' +
+        html_escape(settings.get('log_buffer_lines', 200)) + '"></label>'
+        '<label class="check"><input name="syslog_enabled" type="checkbox" value="true"' +
+        (' checked' if settings.get('syslog_enabled') else '') +
+        '>Forward logs to a remote syslog server</label><div class="grid">'
+        '<label class="field">Syslog server<input name="syslog_host" maxlength="253" value="' +
+        html_escape(settings.get('syslog_host', '')) + '"></label>'
+        '<label class="field">Port<input name="syslog_port" type="number" min="1" max="65535" '
+        'required value="' + html_escape(settings.get('syslog_port', 514)) + '"></label>'
+        '<label class="field">Transport<select name="syslog_transport">'
+        '<option value="udp"' + (' selected' if settings.get('syslog_transport', 'udp') == 'udp' else '') +
+        '>UDP (standard)</option><option value="tls"' +
+        (' selected' if settings.get('syslog_transport') == 'tls' else '') +
+        '>TLS (encrypted)</option></select></label></div>'
+        '<p class="muted">TLS uses the dedicated Syslog CA installed under Certificates. '
+        'Changing forwarding settings restarts the device.</p><div class="actions"><span></span>'
+        '<button type="submit">Save logging settings &amp; restart</button></div></form></section>'
+    )
+    return portal_ui.shell('HAMD logging settings', 'logging_settings', body, token)
+
+
 def render_module_diagnostics_page(token, modules, value_refresh_ms=5000):
     body = (
         portal_ui.page_heading(
             'Module', 'Diagnostics',
-            'Review live values, health information and controls for loaded modules.',
-            '<a class="button secondary" href="/download-diagnostics">Download diagnostics</a>'
+            'Review live values, health information and controls for loaded modules.'
         ) +
         '<div id="module-diagnostics">' +
         render_modules_html(modules or [], token) + '</div>'
+        '<div class="actions"><span></span><a class="button secondary" '
+        'href="/download-diagnostics">Download diagnostics</a></div>'
     )
     interval = max(1000, int(value_refresh_ms or 5000))
     script = (
@@ -1369,18 +1981,60 @@ def render_update_preferences(csrf, settings):
     channel = settings.get('release_channel', 'stable')
     download = ' checked' if settings.get('release_auto_download') else ''
     activate = ' checked' if settings.get('release_auto_activate') else ''
+    schedule = str(settings.get('release_check_schedule', 'disabled'))
+    check_time = str(settings.get('release_check_time', '03:00'))
+    weekday = int(settings.get('release_check_weekday', 0))
+    weekdays = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
+    weekday_options = ''.join(
+        '<option value="' + str(index) + '"' +
+        (' selected' if index == weekday else '') + '>' + day + '</option>'
+        for index, day in enumerate(weekdays)
+    )
+    schedule_disabled = schedule == 'disabled'
+    weekly = schedule == 'weekly'
     return (
         '<form action="/update-preferences" method="post"><input type="hidden" name="csrf" value="' +
         html_escape(csrf) + '"><div class="grid"><label class="field">Release channel<select '
         'name="release_channel"><option value="stable"' +
         (' selected' if channel == 'stable' else '') + '>Stable</option><option value="beta"' +
-        (' selected' if channel == 'beta' else '') + '>Beta</option></select></label></div>'
+        (' selected' if channel == 'beta' else '') + '>Beta</option></select></label>'
+        '<label class="field">Automatic check schedule<select id="release-check-schedule" '
+        'name="release_check_schedule"><option value="disabled"' +
+        (' selected' if schedule == 'disabled' else '') + '>Disabled</option>'
+        '<option value="daily"' + (' selected' if schedule == 'daily' else '') +
+        '>Daily</option><option value="weekly"' +
+        (' selected' if schedule == 'weekly' else '') + '>Weekly</option></select></label>'
+        '<fieldset id="release-check-fields" class="conditional-fields"' +
+        (' disabled' if schedule_disabled else '') + '><div class="grid">'
+        '<label class="field">Check time (device local time)<input id="release-check-time" '
+        'name="release_check_time" type="time"' +
+        (' required' if not schedule_disabled else '') + ' value="' + html_escape(check_time) + '"></label>'
+        '<label id="release-weekday-field" class="field' +
+        ('' if weekly else ' disabled-field') + '">Weekly check day<select id="release-check-weekday" '
+        'name="release_check_weekday"' + ('' if weekly else ' disabled') + '>' +
+        weekday_options + '</select></label></div></fieldset></div>'
+        '<p class="muted">Scheduled checks use the device time zone configured under Time / Date. '
+        'Opening this page does not initiate a check.</p>'
         '<label class="check"><input type="checkbox" name="release_auto_download"' + download +
         '>Automatically download applicable signed releases</label>'
         '<label class="check"><input type="checkbox" name="release_auto_activate"' + activate +
         '>Automatically activate verified releases</label>'
         '<div class="actions"><span></span><button class="secondary" type="submit">'
         'Save update preferences</button></div></form>'
+    )
+
+
+def update_preferences_script():
+    return (
+        'var releaseSchedule=document.getElementById("release-check-schedule"),releaseTime='
+        'document.getElementById("release-check-time"),releaseWeekday=document.getElementById('
+        '"release-check-weekday"),releaseFields=document.getElementById("release-check-fields"),'
+        'releaseWeekdayField=document.getElementById("release-weekday-field");'
+        'function syncReleaseSchedule(){if(!releaseSchedule)return;var disabled='
+        'releaseSchedule.value==="disabled";releaseFields.disabled=disabled;releaseTime.required=!disabled;'
+        'releaseWeekday.disabled=disabled||releaseSchedule.value!=="weekly";releaseWeekdayField.classList.toggle('
+        '"disabled-field",releaseWeekday.disabled);}if(releaseSchedule){releaseSchedule.onchange='
+        'syncReleaseSchedule;syncReleaseSchedule();}'
     )
 
 
@@ -1392,55 +2046,77 @@ def update_upload_script():
         'document.getElementById("update-upload-form").onsubmit=function(e){e.preventDefault();var input='
         'document.getElementById("update-bundle"),f=input.files&&input.files[0],out=document.getElementById('
         '"update-result"),box=document.getElementById("update-progress"),'
-        'label=box.querySelector(".status-text");if(!f)return;var firmware=/\\.hamf$/i.test(f.name),application=/\\.hamd$/i.test(f.name);'
-        'if(!firmware&&!application){out.textContent="Choose a .hamd or .hamf update bundle.";return;}'
-        'box.classList.remove("complete","failed");box.hidden=false;label.textContent="Uploading 0%";out.textContent="Uploading…";'
+        'label=box.querySelector(".status-text");if(!f){portalRequire(input,'
+        '"Choose a .hamd, .hamf or .hamu update bundle");return;}var firmware=/\\.hamf$/i.test(f.name),'
+        'application=/\\.hamd$/i.test(f.name),universal=/\\.hamu$/i.test(f.name);'
+        'function previous(text){out.className="status-history complete";out.textContent=text;}'
+        'function failure(text){out.className="status-history failed";out.textContent=text;}'
+        'if(!firmware&&!application&&!universal){failure("Choose a .hamd, .hamf or .hamu update bundle.");return;}'
+        'box.classList.remove("complete","failed");box.hidden=false;label.textContent="Uploading 0%";'
+        'out.className="status-history";out.textContent="";'
         'var id=Date.now().toString(36)+"-"+Math.random().toString(36).slice(2),x=new XMLHttpRequest(),'
-        'polling=false,timer=null;function poll(){fetch("/update-progress?id="+encodeURIComponent(id),'
+        'polling=false,finished=false,timer=null;function schedulePoll(){if(!finished)timer=setTimeout(poll,1000);}'
+        'function startPolling(){if(polling)return;polling=true;poll();}function poll(){fetch("/update-progress?id="+encodeURIComponent(id),'
         '{cache:"no-store",credentials:"same-origin"}).then(function(r){if(r.status===401){location.replace('
-        '"/login");return null;}return r.json();}).then(function(s){if(!s)return;if(s.phase==="verification"){'
-        'label.textContent="Verifying "+(s.percent||0)+"%";out.textContent="Verifying on device…";}'
-        'else if(s.phase==="complete"){box.classList.add("complete");label.textContent="Verified";out.textContent=s.message||'
-        '"Update staged";setTimeout(function(){location.replace("/updates");},700);return;}else if(s.phase==="failed"){'
-        'box.classList.add("failed");label.textContent="Failed";out.textContent=s.message||"Verification failed";return;}'
-        'timer=setTimeout(poll,500);}).catch(function(){timer=setTimeout(poll,1000);});}'
-        'x.open("POST",firmware?"/firmware-upload":"/update-upload",true);x.setRequestHeader("Content-Type",'
+        '"/login");return null;}return r.json();}).then(function(s){if(!s)return;if(s.phase==="writing"){'
+        'label.textContent="Writing firmware "+(s.percent||0)+"%";previous("Completed: upload");}'
+        'else if(s.phase==="verification"){label.textContent="Verifying "+(s.percent||0)+"%";'
+        'previous(firmware?"Completed: upload · firmware write":"Completed: upload · application staging");}'
+        'else if(s.phase==="firmware_writing"){label.textContent="Writing core firmware "+(s.percent||0)+"%";'
+        'previous("Completed: universal upload");}else if(s.phase==="firmware_verification"){'
+        'label.textContent="Verifying core firmware "+(s.percent||0)+"%";previous("Completed: universal upload · core write");}'
+        'else if(s.phase==="application_verification"){label.textContent="Verifying application "+(s.percent||0)+"%";'
+        'previous("Completed: universal upload · core write and verification · application staging");}'
+        'else if(s.phase==="complete"){finished=true;box.classList.add("complete");label.textContent="Verification complete";'
+        'setTimeout(function(){location.replace("/updates");},900);return;}else if(s.phase==="failed"){'
+        'finished=true;box.classList.add("failed");label.textContent="Failed";failure(s.message||"Verification failed");return;}'
+        'schedulePoll();}).catch(function(){schedulePoll();});}'
+        'x.open("POST",universal?"/universal-upload":(firmware?"/firmware-upload":"/update-upload"),true);x.setRequestHeader("Content-Type",'
         '"application/octet-stream");x.setRequestHeader("X-CSRF-Token",csrfToken);x.setRequestHeader("X-Update-ID",id);'
         'x.upload.onprogress=function(p){if(!p.lengthComputable)return;var n=Math.round(p.loaded*100/p.total);'
         'label.textContent="Uploading "+n+"%";};x.upload.onload=function(){'
-        'label.textContent="Verifying…";out.textContent="Upload complete; verifying…";};x.onload=function(){'
-        'if(x.status===401){location.replace("/login");return;}if(x.status===202){polling=true;poll();return;}'
-        'if(x.status>=200&&x.status<300){box.classList.add("complete");label.textContent="Verified";out.textContent=x.responseText;'
-        'setTimeout(function(){location.replace("/updates");},700);}else{box.classList.add("failed");label.textContent="Failed";'
-        'out.textContent=x.responseText||"Upload failed";}};x.onerror=function(){box.classList.add("failed");label.textContent="Failed";'
-        'out.textContent="Connection lost during upload";};x.send(f);};'
+        'label.textContent=universal?"Writing core firmware 0%":(firmware?"Writing firmware 0%":"Verifying application 0%");'
+        'previous("Completed: upload");startPolling();};x.onload=function(){'
+        'if(x.status===401){location.replace("/login");return;}if(x.status===202){startPolling();return;}'
+        'if(x.status>=200&&x.status<300){finished=true;box.classList.add("complete");label.textContent="Verification complete";'
+        'setTimeout(function(){location.replace("/updates");},900);}else{box.classList.add("failed");label.textContent="Failed";'
+        'finished=true;failure(x.responseText||"Upload failed");}};x.onerror=function(){finished=true;box.classList.add("failed");label.textContent="Failed";'
+        'failure("Connection lost during upload");};x.send(f);};'
     )
 
 
 def render_updates_page(token, status=None, settings=None, message='', error=False):
     status = status or {}
     activation = (
+        render_universal_update_html(status, token) +
         render_update_activation_html(status, token) +
         render_firmware_update_html(status, token)
     )
-    automatic_action = render_release_check_html(status, token) + activation
+    automatic_action = render_release_check_html(status, token)
+    script = update_preferences_script()
     if activation:
+        completed = []
+        if status.get('update_status') == 'ready':
+            completed.append('Application uploaded and verified')
+        if status.get('firmware_update_status') == 'ready':
+            completed.append('Firmware written and verified')
         manual_content = (
-            '<p class="muted">The uploaded or downloaded bundle has been verified and is ready.</p>'
-            '<div class="update-actions">' + activation + '</div>'
+            portal_ui.progress(
+                'update-ready', '; '.join(completed) + '. Ready for activation.',
+                False, 'complete'
+            ) + '<div class="update-actions next-stage">' + activation + '</div>'
         )
-        script = ''
     else:
         manual_content = (
             '<form id="update-upload-form" data-csrf="' + html_escape(token) + '">'
-            '<div class="actions"><span><input id="update-bundle" class="file-input-hidden" type="file" '
-            'accept=".hamd,.hamf"><label class="button secondary file-button" for="update-bundle">'
+            '<div class="actions"><span><input id="update-bundle" class="file-input-hidden" type="file" required '
+            'accept=".hamd,.hamf,.hamu"><label class="button secondary file-button" for="update-bundle">'
             'Choose update file</label> <span id="update-file-name" class="file-name">No file selected</span></span>'
             '<button type="submit">Upload and verify</button></div></form>' +
             portal_ui.progress('update-progress', '0%', True) +
-            '<p id="update-result" class="muted">Application bundles use .hamd; core firmware uses .hamf.</p>'
+        '<p id="update-result" class="status-history">Application bundles use .hamd; core firmware uses .hamf; universal bundles use .hamu.</p>'
         )
-        script = update_upload_script()
+        script += update_upload_script()
     body = (
         portal_ui.page_heading(
             'Maintenance', 'Upgrades',
@@ -1500,11 +2176,15 @@ async def start_web_portal(
     settings, log_getter, loglevel_getter, loglevel_setter, log_output,
     status_getter=None, module_getter=None, action_handler=None,
     upload_handler=None, firmware_upload_handler=None, config_backup_getter=None,
+    config_import_preview_handler=None, config_import_apply_handler=None,
     settings_getter=None, settings_setter=None, module_settings_getter=None,
     module_settings_setter=None, certificate_upload_handler=None,
     certificate_validate_handler=None, update_preferences_setter=None,
     task_status_getter=None, certificate_info_getter=None,
-    network_trial_confirmer=None, factory_reset_handler=None
+    network_trial_confirmer=None, factory_reset_handler=None,
+    secure_config_backup_getter=None, secure_config_import_preview_handler=None,
+    secure_config_import_apply_handler=None, log_buffer_lines_setter=None,
+    wifi_scan_getter=None, universal_upload_handler=None
 ):
     if asyncio is None:
         return None
@@ -1527,7 +2207,7 @@ async def start_web_portal(
     upload_progress_by_id = {}
     session_id = new_session_id()
     session_started = monotonic_ms()
-    session_timeout_ms = int(settings.get('session_timeout_s', 28800)) * 1000
+    session_timeout_ms = int(settings.get('session_timeout_s', 3600)) * 1000
     login_failures = 0
     cached_page = {'level': None, 'body': None}
     secure_cookie = settings.get('https', False)
@@ -1556,23 +2236,33 @@ async def start_web_portal(
         upload_state = ''
         progress_response_started = False
         progress_percent = -1
+        progress_phase = ''
         progress_id = ''
         progress_record = upload_progress
+        peer_address = request_peer_address(reader, writer)
 
         async def report_upload_progress(phase, completed=0, total=0):
-            nonlocal progress_response_started, progress_percent
-            if phase != 'verification':
+            nonlocal progress_response_started, progress_percent, progress_phase
+            if phase not in (
+                'writing', 'verification', 'firmware_writing',
+                'firmware_verification', 'application_verification'
+            ):
                 return
             total = int(total or 0)
             completed = int(completed or 0)
             percent = int(completed * 100 / total) if total > 0 else 0
             percent = max(0, min(100, percent))
-            progress_record['phase'] = 'verification'
+            progress_record['phase'] = phase
             progress_record['percent'] = percent
-            if percent == progress_percent:
+            if phase == progress_phase and percent == progress_percent:
                 return
+            progress_phase = phase
             progress_percent = percent
-            if not progress_response_started:
+            # The request body still contains firmware while the inactive
+            # partition is being written.  Do not close the upload connection
+            # until the body has been fully consumed and read-back verification
+            # begins.  The browser polls the shared progress record meanwhile.
+            if phase in ('verification', 'application_verification') and not progress_response_started:
                 progress_response_started = True
                 try:
                     await send_response(
@@ -1645,10 +2335,13 @@ async def start_web_portal(
             is_ntp_settings = route == '/ntp-settings'
             is_mqtt = route == '/mqtt'
             is_home_assistant = route == '/home-assistant'
+            is_device_api = route == '/device-api'
+            is_logging_settings = route == '/logging-settings'
             is_user_settings = route == '/user'
             is_operational_settings = (
                 is_settings or is_portal_settings or is_wifi_settings or
-                is_ntp_settings or is_mqtt or is_home_assistant or is_user_settings
+                is_ntp_settings or is_mqtt or is_home_assistant or is_device_api or
+                is_logging_settings or is_user_settings
             )
             is_module_settings = route == '/module-settings'
             is_certificates = route == '/certificates'
@@ -1656,6 +2349,13 @@ async def start_web_portal(
             is_diagnostics = route == '/diagnostics'
             is_logging = route == '/logging'
             is_factory_default = route == '/factory-default'
+            is_configuration_backup = route == '/configuration-backup'
+            is_health_history = route == '/health-history'
+            is_configuration_import = route in (
+                '/configuration-import-preview', '/configuration-import-apply',
+                '/secure-configuration-import-preview',
+                '/secure-configuration-import-apply'
+            )
             is_asset = route in ('/assets/portal.css', '/assets/portal.js')
             csrf_error = False
             form_params = {}
@@ -1663,6 +2363,7 @@ async def start_web_portal(
                 path and (
                     path.startswith('/update-upload') or
                     path.startswith('/firmware-upload') or
+                    path.startswith('/universal-upload') or
                     path.startswith('/certificate-upload')
                 )
             )
@@ -1672,9 +2373,9 @@ async def start_web_portal(
                     route == '/validate-configuration' and
                     headers.get('content-type', '').split(';', 1)[0].strip() == 'application/json'
                 )
-                max_form_size = 65536 if is_module_settings else (8192 if is_operational_settings else (
+                max_form_size = 393216 if is_configuration_import else (65536 if is_module_settings else (8192 if is_operational_settings else (
                     2048 if (is_login or is_password_change or is_factory_default) else 65536
-                ))
+                )))
                 if length > max_form_size:
                     raise ValueError('portal form is too large')
                 body = (
@@ -1698,6 +2399,27 @@ async def start_web_portal(
                 )
             elif method == 'POST' and is_upload:
                 csrf_error = headers.get('x-csrf-token', '') != session_id
+
+            quiet_audit_routes = (
+                '/assets/portal.css', '/assets/portal.js', '/logs', '/partials',
+                '/api/status', '/api/overview', '/api/module-diagnostics',
+                '/update-progress', '/task-status'
+            )
+            session_valid = (
+                has_portal_session(headers, session_id) and
+                elapsed_ms(session_started) <= session_timeout_ms
+            )
+            if (
+                route not in quiet_audit_routes and not is_login and
+                session_valid
+            ):
+                log_output(
+                    'Local', 'Web portal audit',
+                    {'log': peer_address + ' ' + str(method) + ' ' + str(route), 'force': True}, 'INFO'
+                )
+            if session_valid and not is_login and route not in quiet_audit_routes:
+                # The configured portal timeout is an inactivity timeout.
+                session_started = monotonic_ms()
 
             if is_asset and method == 'GET':
                 asset = (
@@ -1735,6 +2457,12 @@ async def start_web_portal(
                     cookie = session_cookie(session_id, secure_cookie)
                     cached_page['body'] = None
                     login_failures = 0
+                    log_output(
+                        'Local', 'Web portal audit',
+                        {'log': 'Successful login for ' + str(username) + ' from ' + peer_address,
+                         'force': True},
+                        'INFO'
+                    )
                     if network_trial_confirmer:
                         try:
                             network_trial_confirmer()
@@ -1753,6 +2481,12 @@ async def start_web_portal(
                     )
                 else:
                     login_failures += 1
+                    log_output(
+                        'Local', 'Web portal audit',
+                        {'log': 'Rejected login for ' + str(params.get('username', '')) +
+                         ' from ' + peer_address, 'force': True},
+                        'ERROR'
+                    )
                     await asyncio.sleep(min(2, login_failures * 0.25))
                     await send_response(
                         writer, '401 Unauthorized',
@@ -1770,6 +2504,10 @@ async def start_web_portal(
             elif method == 'GET' and route in ('/change-password', '/user/password'):
                 await send_response(writer, '404 Not Found', 'Not found', 'text/plain')
             elif method == 'POST' and route == '/logout':
+                log_output(
+                    'Local', 'Web portal audit',
+                    {'log': 'Authenticated session logged out', 'force': True}, 'INFO'
+                )
                 session_id = new_session_id()
                 session_started = monotonic_ms()
                 cookie = session_cookie(session_id, secure_cookie)
@@ -1908,6 +2646,10 @@ async def start_web_portal(
                         renderer = render_mqtt_page
                     elif is_home_assistant:
                         renderer = render_home_assistant_page
+                    elif is_device_api:
+                        renderer = render_device_api_page
+                    elif is_logging_settings:
+                        renderer = render_logging_settings_page
                     elif is_user_settings:
                         renderer = render_user_settings_page
                     await send_response(
@@ -1933,6 +2675,10 @@ async def start_web_portal(
                         renderer = render_mqtt_page
                     elif is_home_assistant:
                         renderer = render_home_assistant_page
+                    elif is_device_api:
+                        renderer = render_device_api_page
+                    elif is_logging_settings:
+                        renderer = render_logging_settings_page
                     elif is_user_settings:
                         renderer = render_user_settings_page
                     await send_response(
@@ -2004,32 +2750,14 @@ async def start_web_portal(
                     )
                 )
             elif method == 'GET' and is_updates:
-                automatic_check = str(
-                    parse_query(action_path).get('check', '')
-                ).lower() in ('1', 'true', 'yes')
-                check_result = None
-                if automatic_check and action_handler:
-                    check_result = apply_portal_action(
-                        'check-release', action_path, action_handler, log_output, {}
+                await send_response(
+                    writer, '200 OK',
+                    render_updates_page(
+                        session_id,
+                        status_getter() if status_getter else {},
+                        settings_getter() if settings_getter else {}
                     )
-                if isinstance(check_result, dict) and check_result.get('task_id'):
-                    await send_response(
-                        writer, '202 Accepted',
-                        portal_ui.task_page(
-                            check_result['task_id'],
-                            check_result.get('message', 'Checking for updates'),
-                            '/updates'
-                        )
-                    )
-                else:
-                    await send_response(
-                        writer, '200 OK',
-                        render_updates_page(
-                            session_id,
-                            status_getter() if status_getter else {},
-                            settings_getter() if settings_getter else {}
-                        )
-                    )
+                )
             elif method == 'GET' and is_diagnostics:
                 await send_response(
                     writer, '200 OK',
@@ -2044,9 +2772,103 @@ async def start_web_portal(
                     writer, '200 OK',
                     render_logging_page(
                         session_id, loglevel_getter(), levels, log_getter(),
-                        log_refresh_ms
+                        log_refresh_ms, settings_getter() if settings_getter else {}
                     )
                 )
+            elif method == 'POST' and is_logging:
+                try:
+                    if settings_setter is None:
+                        raise RuntimeError('settings storage is unavailable')
+                    message = settings_setter(form_params)
+                except Exception as exc:
+                    await send_response(
+                        writer, '400 Bad Request', render_logging_page(
+                            session_id, loglevel_getter(), levels, log_getter(),
+                            log_refresh_ms, settings_getter() if settings_getter else {}
+                        ) + '<p>' + html_escape(exc) + '</p>'
+                    )
+                else:
+                    session_id = new_session_id()
+                    session_started = monotonic_ms()
+                    await send_response(
+                        writer, '200 OK', portal_ui.restart_page(
+                            login_url,
+                            message.get('message', '') if isinstance(message, dict) else message
+                        ), extra_headers=((
+                            'Set-Cookie', session_cookie('', secure_cookie, True)
+                        ),)
+                    )
+            elif method == 'GET' and is_configuration_backup:
+                await send_response(
+                    writer, '200 OK', render_configuration_backup_page(session_id)
+                )
+            elif method == 'GET' and is_health_history:
+                await send_response(
+                    writer, '200 OK', render_health_history_page(
+                        session_id, status_getter() if status_getter else {}
+                    )
+                )
+            elif method == 'POST' and route == '/reset-health-history':
+                apply_portal_action(
+                    'reset-health-history', action_path, action_handler, log_output,
+                    form_params
+                )
+                await send_redirect(writer, '/health-history')
+            elif method == 'POST' and route == '/configuration-import-preview':
+                if config_import_preview_handler is None:
+                    await send_response(writer, '503 Service Unavailable', 'Configuration import unavailable', 'text/plain')
+                else:
+                    result = config_import_preview_handler(body)
+                    await send_response(writer, '200 OK', json.dumps(result), 'application/json')
+            elif method == 'POST' and route == '/download-secure-configuration':
+                if not secure_cookie:
+                    await send_response(writer, '403 Forbidden', 'Encrypted backup requires HTTPS', 'text/plain')
+                elif secure_config_backup_getter is None:
+                    await send_response(writer, '503 Service Unavailable', 'Encrypted backup unavailable', 'text/plain')
+                elif form_params.get('backup_password', '') != form_params.get('confirm_backup_password', ''):
+                    await send_response(writer, '400 Bad Request', 'Backup passwords do not match', 'text/plain')
+                else:
+                    payload = secure_config_backup_getter(form_params.get('backup_password', ''))
+                    await send_response(
+                        writer, '200 OK', json.dumps(payload),
+                        'application/json; charset=utf-8',
+                        (('Content-Disposition', 'attachment; filename="' +
+                          configuration_backup_filename(True) + '"'),)
+                    )
+            elif method == 'POST' and route == '/secure-configuration-import-preview':
+                if not secure_cookie:
+                    await send_response(writer, '403 Forbidden', 'Encrypted restore requires HTTPS', 'text/plain')
+                elif secure_config_import_preview_handler is None:
+                    await send_response(writer, '503 Service Unavailable', 'Encrypted restore unavailable', 'text/plain')
+                else:
+                    result = secure_config_import_preview_handler(json.loads(body.decode()))
+                    await send_response(writer, '200 OK', json.dumps(result), 'application/json')
+            elif method == 'POST' and route == '/secure-configuration-import-apply':
+                if not secure_cookie:
+                    await send_response(writer, '403 Forbidden', 'Encrypted restore requires HTTPS', 'text/plain')
+                elif secure_config_import_apply_handler is None:
+                    await send_response(writer, '503 Service Unavailable', 'Encrypted restore unavailable', 'text/plain')
+                else:
+                    request = json.loads(body.decode())
+                    message = secure_config_import_apply_handler(request.get('token', ''))
+                    session_id = new_session_id()
+                    session_started = monotonic_ms()
+                    await send_response(
+                        writer, '200 OK', portal_ui.restart_page(login_url, message),
+                        extra_headers=(('Set-Cookie', session_cookie('', secure_cookie, True)),)
+                    )
+            elif method == 'POST' and route == '/configuration-import-apply':
+                if config_import_apply_handler is None:
+                    await send_response(writer, '503 Service Unavailable', 'Configuration import unavailable', 'text/plain')
+                else:
+                    request = json.loads(body.decode())
+                    message = config_import_apply_handler(request.get('token', ''))
+                    session_id = new_session_id()
+                    session_started = monotonic_ms()
+                    await send_response(
+                        writer, '200 OK', portal_ui.restart_page(login_url, message),
+                        extra_headers=(('Set-Cookie', session_cookie('', secure_cookie, True)),)
+                    )
             elif method == 'POST' and route == '/update-preferences':
                 try:
                     if update_preferences_setter is None:
@@ -2064,6 +2886,27 @@ async def start_web_portal(
                     )
                 else:
                     await send_redirect(writer, '/updates')
+            elif method == 'POST' and route == '/revoke-api-client':
+                result = apply_portal_action(
+                    'revoke-api-client', action_path, action_handler, log_output,
+                    form_params
+                )
+                await send_redirect(writer, '/device-api')
+            elif method == 'POST' and route == '/acme-settings':
+                result = apply_portal_action(
+                    'update-acme-settings', action_path, action_handler, log_output,
+                    form_params
+                )
+                session_id = new_session_id()
+                session_started = monotonic_ms()
+                await send_response(
+                    writer, '200 OK', portal_ui.restart_page(
+                        login_url,
+                        result.get('message', '') if isinstance(result, dict) else result
+                    ), extra_headers=((
+                        'Set-Cookie', session_cookie('', secure_cookie, True)
+                    ),)
+                )
             elif method == 'POST' and path.startswith('/certificate-upload'):
                 if certificate_upload_handler is None:
                     await send_response(writer, '503 Service Unavailable', 'Certificate upload is unavailable', 'text/plain')
@@ -2079,19 +2922,68 @@ async def start_web_portal(
                 try:
                     if certificate_validate_handler is None:
                         raise RuntimeError('certificate validation is unavailable')
-                    message = certificate_validate_handler()
+                    result = certificate_validate_handler()
                 except Exception as exc:
                     await send_response(writer, '400 Bad Request', str(exc), 'text/plain')
                 else:
-                    session_id = new_session_id()
-                    session_started = monotonic_ms()
-                    await send_response(
-                        writer, '200 OK',
-                        portal_ui.restart_page(login_url, str(message)),
-                        extra_headers=(
-                            ('Set-Cookie', session_cookie('', secure_cookie, True)),
-                        )
+                    message = (
+                        result.get('message', '') if isinstance(result, dict) else str(result)
                     )
+                    if isinstance(result, dict) and not result.get('restart', True):
+                        await send_response(
+                            writer, '200 OK', render_certificate_page(
+                                session_id, message,
+                                certificate_info_getter() if certificate_info_getter else {}
+                            )
+                        )
+                    else:
+                        session_id = new_session_id()
+                        session_started = monotonic_ms()
+                        await send_response(
+                            writer, '200 OK',
+                            portal_ui.restart_page(login_url, message),
+                            extra_headers=(
+                                ('Set-Cookie', session_cookie('', secure_cookie, True)),
+                            )
+                        )
+            elif method == 'POST' and path.startswith('/universal-upload'):
+                if universal_upload_handler is None:
+                    await send_response(writer, '503 Service Unavailable', 'Universal updates are unavailable', 'text/plain')
+                else:
+                    try:
+                        length = int(headers.get('content-length', '0'))
+                        if not progress_id:
+                            raise ValueError('missing update progress identifier')
+                        progress_record.clear()
+                        progress_record.update({'phase': 'receiving', 'percent': 0})
+                        log_output(
+                            'Local', 'Universal update',
+                            {'log': 'Upload started - ' + str(length) + ' bytes', 'force': True},
+                            'INFO'
+                        )
+                        params = parse_query(action_path)
+                        params['_progress'] = report_upload_progress
+                        result = await universal_upload_handler(reader, length, params)
+                    except Exception as exc:
+                        try:
+                            log_output(
+                                'Local', 'Universal update',
+                                {'log': 'Upload rejected - ' + str(exc), 'force': True},
+                                'ERROR'
+                            )
+                        except Exception:
+                            pass
+                        message = 'Universal update rejected: ' + str(exc)
+                        if not await finish_progress_response('failed', message):
+                            await send_response(writer, '400 Bad Request', message, 'text/plain')
+                    else:
+                        log_output(
+                            'Local', 'Universal update',
+                            {'log': 'Core and application uploaded and verified', 'force': True},
+                            'INFO'
+                        )
+                        if not await finish_progress_response('complete', result):
+                            await send_response(writer, '200 OK', str(result), 'text/plain')
             elif method == 'POST' and path.startswith('/update-upload'):
                 login_failures = 0
                 if upload_handler is None:
@@ -2162,15 +3054,18 @@ async def start_web_portal(
                         if not await finish_progress_response('complete', result):
                             await send_response(writer, '200 OK', str(result), 'text/plain')
             elif method == 'POST' and path.startswith('/set-loglevel'):
-                level = str(form_params.get('level', '')).upper()
-                if level not in levels:
-                    level = None
-                if level:
-                    apply_loglevel_change(level, loglevel_setter, log_output)
-                    await send_redirect(writer, '/logging')
+                try:
+                    apply_logging_change(
+                        form_params.get('level', ''),
+                        form_params.get('log_buffer_lines', 200), levels,
+                        loglevel_setter, log_buffer_lines_setter, log_output
+                    )
+                except (ValueError, RuntimeError) as exc:
+                    await send_response(
+                        writer, '400 Bad Request', str(exc), 'text/plain'
+                    )
                 else:
-                    body = 'Invalid log level'
-                    await send_response(writer, '400 Bad Request', body, 'text/plain')
+                    await send_redirect(writer, '/logging')
             elif path.startswith('/update-progress'):
                 requested_id = parse_query(path).get('id', '')
                 current_progress = upload_progress_by_id.get(
@@ -2189,6 +3084,18 @@ async def start_web_portal(
                 await send_response(
                     writer, '200 OK', json.dumps(current_task), 'application/json'
                 )
+            elif path.startswith('/api/wifi-networks'):
+                if wifi_scan_getter is None:
+                    await send_response(
+                        writer, '503 Service Unavailable',
+                        json.dumps({'error': 'Wi-Fi scanning is unavailable'}),
+                        'application/json'
+                    )
+                else:
+                    await send_response(
+                        writer, '200 OK', json.dumps(wifi_scan_getter()),
+                        'application/json'
+                    )
             elif path.startswith('/logs'):
                 body = render_log_text(log_getter())
                 await send_response(writer, '200 OK', body, 'text/plain')
@@ -2221,12 +3128,17 @@ async def start_web_portal(
                 if config_backup_getter is None:
                     await send_response(writer, '404 Not Found', 'Configuration backup unavailable', 'text/plain')
                 else:
+                    payload = config_backup_getter()
                     await send_response(
                         writer,
                         '200 OK',
-                        json.dumps(config_backup_getter()),
+                        json.dumps(payload),
                         'application/json; charset=utf-8',
-                        (('Content-Disposition', 'attachment; filename="ha-device-configuration.json"'),)
+                        (('Content-Disposition', 'attachment; filename="' +
+                          configuration_backup_filename(
+                              False, payload.get('created_at')
+                              if isinstance(payload, dict) else None
+                          ) + '"'),)
                     )
             elif path.startswith('/api/status'):
                 payload = {
@@ -2272,13 +3184,29 @@ async def start_web_portal(
                 await send_redirect(writer, '/')
             elif method == 'POST' and path.startswith('/calibrate'):
                 apply_portal_action('calibrate', action_path, action_handler, log_output, form_params)
-                await send_redirect(writer, '/')
+                await send_redirect(writer, '/diagnostics')
             elif method == 'POST' and path.startswith('/ems-debug'):
                 apply_portal_action('ems-debug', action_path, action_handler, log_output, form_params)
                 await send_redirect(writer, '/diagnostics')
             elif method == 'POST' and path.startswith('/activate-update'):
                 result = apply_portal_action(
                     'activate-update', action_path, action_handler, log_output, form_params
+                )
+                session_id = new_session_id()
+                session_started = monotonic_ms()
+                await send_response(
+                    writer, '200 OK',
+                    portal_ui.restart_page(
+                        login_url,
+                        result.get('message', '') if isinstance(result, dict) else result
+                    ),
+                    extra_headers=(
+                        ('Set-Cookie', session_cookie('', secure_cookie, True)),
+                    )
+                )
+            elif method == 'POST' and path.startswith('/activate-universal'):
+                result = apply_portal_action(
+                    'activate-universal', action_path, action_handler, log_output, form_params
                 )
                 session_id = new_session_id()
                 session_started = monotonic_ms()
@@ -2380,9 +3308,16 @@ async def start_web_portal(
 
         except Exception as exc:
             if is_client_disconnect_error(exc):
-                if path.startswith('/update-upload') or path.startswith('/firmware-upload'):
+                if (
+                    path.startswith('/update-upload') or
+                    path.startswith('/firmware-upload') or
+                    path.startswith('/universal-upload')
+                ):
                     try:
-                        source = 'Base firmware' if path.startswith('/firmware-upload') else 'Application update'
+                        source = (
+                            'Universal update' if path.startswith('/universal-upload') else
+                            ('Base firmware' if path.startswith('/firmware-upload') else 'Application update')
+                        )
                         detail = ' after staging' if upload_state == 'staged' else ''
                         log_output(
                             'Local', source,

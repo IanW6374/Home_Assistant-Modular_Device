@@ -15,6 +15,25 @@ import web_portal
 
 
 class CertificateManagerTests(unittest.TestCase):
+    def test_certificate_lifecycle_uses_30_and_7_day_thresholds(self):
+        original = certificate_manager.certificate_details
+        certificate_manager.certificate_details = lambda _path: {
+            'installed': True,
+            'not_after': '2026-02-01 00:00:00 UTC',
+        }
+        try:
+            now = certificate_manager._iso_epoch('2026-01-10 00:00:00 UTC')
+            details = certificate_manager.certificate_lifecycle('cert.der', now=now)
+            self.assertEqual(details['expiry_level'], 'warning')
+            self.assertEqual(details['days_remaining'], 22)
+            now = certificate_manager._iso_epoch('2026-01-27 00:00:00 UTC')
+            self.assertEqual(
+                certificate_manager.certificate_lifecycle('cert.der', now=now)['expiry_level'],
+                'critical'
+            )
+        finally:
+            certificate_manager.certificate_details = original
+
     def test_certificate_set_rolls_back_as_a_unit_when_activation_fails(self):
         previous = os.getcwd()
         with tempfile.TemporaryDirectory() as directory:
@@ -234,7 +253,8 @@ class CertificateManagerTests(unittest.TestCase):
         })
         self.assertIn('/certificate-upload', certificates)
         self.assertIn('/validate-certificates', certificates)
-        self.assertIn('Manual certificate upload', certificates)
+        self.assertIn('Import certificate', certificates)
+        self.assertIn('id="certificate-type"', certificates)
         self.assertIn('Installed certificates', certificates)
         self.assertIn('CA Trust', certificates)
         self.assertIn('Device Certificates', certificates)

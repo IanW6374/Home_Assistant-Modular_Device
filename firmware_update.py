@@ -217,7 +217,11 @@ async def _receive_bundle_locked(
     block_number = 0
     block_used = 0
     remaining = image_size
+    written = 0
     first_byte = None
+    await _report_progress(
+        progress_callback, 'writing', written, image_size
+    )
     while remaining:
         chunk = await reader.read(min(1024, remaining))
         if not chunk:
@@ -235,6 +239,12 @@ async def _receive_bundle_locked(
                 target.writeblocks(block_number, block)
                 block_number += 1
                 block_used = 0
+                written = min(image_size, written + BLOCK_SIZE)
+                await _report_progress(
+                    progress_callback, 'writing', written, image_size
+                )
+                if asyncio:
+                    await asyncio.sleep(0)
         remaining -= len(chunk)
 
     if first_byte != 0xe9:
@@ -243,6 +253,12 @@ async def _receive_bundle_locked(
         for index in range(block_used, BLOCK_SIZE):
             block[index] = 0xff
         target.writeblocks(block_number, block)
+        written = image_size
+        await _report_progress(
+            progress_callback, 'writing', written, image_size
+        )
+        if asyncio:
+            await asyncio.sleep(0)
     if _hex_digest(hasher) != expected:
         raise ValueError('firmware image SHA-256 mismatch')
 

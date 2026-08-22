@@ -50,11 +50,13 @@ secrets.py
 *.mpy
 *.hamd
 *.hamf
+*.hamu
 *.app-bin
 *.bin
 *.elf
 *.map
 /ports/
+/.ci-micropython/
 /.update-signing-key
 *.signing-key
 *.private-key

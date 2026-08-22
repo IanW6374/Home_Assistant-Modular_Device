@@ -14,8 +14,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import update_security
 try:
     from .build_update import load_signing_key
+    from .release_provenance import (
+        clean_source_revision, embedded_source_revision,
+        git_source_revision as _git_source_revision,
+    )
 except ImportError:  # Direct execution: python tools/publish_release.py ...
     from build_update import load_signing_key
+    from release_provenance import (
+        clean_source_revision, embedded_source_revision,
+        git_source_revision as _git_source_revision,
+    )
 
 
 BUNDLE_TYPES = {
@@ -25,21 +33,7 @@ BUNDLE_TYPES = {
 
 
 def git_source_revision(root, allow_dirty=False):
-    root = Path(root).resolve()
-    try:
-        revision = subprocess.check_output(
-            ('git', '-C', str(root), 'rev-parse', 'HEAD'), text=True
-        ).strip().lower()
-        status = subprocess.check_output(
-            ('git', '-C', str(root), 'status', '--porcelain'), text=True
-        ).strip()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise ValueError('could not determine source revision: ' + str(exc))
-    if len(revision) != 40 or any(character not in '0123456789abcdef' for character in revision):
-        raise ValueError('source revision is not a full Git commit')
-    if status and not allow_dirty:
-        raise ValueError('production releases require a clean Git worktree')
-    return revision + ('-dirty' if status else '')
+    return _git_source_revision(root, allow_dirty)
 
 
 def notes_with_source(notes, source_revision=''):
@@ -85,6 +79,45 @@ def verify_bundle_manifest(release_type, manifest, private_key):
         raise ValueError('bundle is not signed by the supplied release key')
 
 
+def verify_bundle_payload(path, release_type, manifest):
+    """Verify signed payload lengths/digests and return embedded provenance."""
+    path = Path(path)
+    with path.open('rb') as stream:
+        stream.read(6)
+        manifest_size = int.from_bytes(stream.read(4), 'big')
+        stream.read(manifest_size)
+        signed_content = bytearray()
+        if release_type == 'application':
+            for entry in manifest.get('files', []):
+                size = int(entry.get('size', 0))
+                if size < 0:
+                    raise ValueError('bundle file size is invalid')
+                payload = stream.read(size)
+                if len(payload) != size:
+                    raise ValueError('application bundle payload is truncated')
+                if hashlib.sha256(payload).hexdigest() != str(
+                    entry.get('sha256', '')
+                ).lower():
+                    raise ValueError(
+                        'application bundle payload hash failed for ' +
+                        str(entry.get('path', ''))
+                    )
+                signed_content.extend(payload)
+        else:
+            size = int(manifest.get('size', 0))
+            payload = stream.read(size)
+            if len(payload) != size:
+                raise ValueError('firmware bundle payload is truncated')
+            if hashlib.sha256(payload).hexdigest() != str(
+                manifest.get('sha256', '')
+            ).lower():
+                raise ValueError('firmware bundle payload hash failed')
+            signed_content.extend(payload)
+        if stream.read(1):
+            raise ValueError('bundle contains unsigned trailing content')
+    return embedded_source_revision(signed_content)
+
+
 def publish_release(
     bundle, output_root, base_url, channel, signing_key,
     notes='', published_at='', source_revision=''
@@ -93,6 +126,16 @@ def publish_release(
     output_root = Path(output_root).resolve()
     release_type, manifest = read_bundle_manifest(bundle)
     verify_bundle_manifest(release_type, manifest, signing_key)
+    embedded_revision = verify_bundle_payload(bundle, release_type, manifest)
+    if source_revision:
+        expected_revision, _dirty = clean_source_revision(source_revision)
+        if not embedded_revision:
+            raise ValueError('bundle has no signed embedded source revision')
+        if embedded_revision != expected_revision:
+            raise ValueError(
+                'bundle source revision ' + embedded_revision +
+                ' does not match publisher revision ' + expected_revision
+            )
     sequence = int(manifest.get('release_sequence', 0))
     if sequence <= 0:
         raise ValueError('bundle has no signed release sequence')
@@ -119,7 +162,7 @@ def publish_release(
         'url': base_url + '/bundles/' + bundle.name,
         'size': published_bundle.stat().st_size,
         'sha256': digest,
-        'minimum_core_api': int(manifest.get('minimum_core_api', 6)),
+        'minimum_core_api': int(manifest.get('minimum_core_api', 7)),
         'minimum_config_api': int(
             manifest.get('minimum_config_api', update_security.CONFIG_API_VERSION)
         ),

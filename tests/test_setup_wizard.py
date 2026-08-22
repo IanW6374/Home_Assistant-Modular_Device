@@ -1,10 +1,14 @@
+import json
+import asyncio
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import credential_security
 import credential_store
 import setup_wizard
 import web_portal_ui
+import wifi_recovery
 
 
 class SetupWizardTests(unittest.TestCase):
@@ -52,9 +56,58 @@ class SetupWizardTests(unittest.TestCase):
             '.published-tile{border:1px solid var(--line);border-radius:9px;'
             'padding:9px 10px;background:var(--soft);min-width:0;text-align:center}',
             '.setup-main button,.setup-main .button{width:100%}',
+            'input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]',
         ):
             self.assertIn(rule, setup_wizard.portal_ui.PORTAL_CSS)
             self.assertIn(rule, web_portal_ui.PORTAL_CSS)
+        self.assertIn('document.addEventListener("invalid"', setup_wizard.portal_ui.PORTAL_JS)
+        self.assertIn('document.addEventListener("invalid"', web_portal_ui.PORTAL_JS)
+
+    def test_wifi_scan_deduplicates_and_orders_visible_networks(self):
+        class Station:
+            def active(self, value):
+                self.enabled = value
+
+            def scan(self):
+                return (
+                    (b'Weak', b'', 1, -80, 3, False),
+                    (b'Strong', b'', 6, -40, 3, False),
+                    (b'Weak', b'', 11, -60, 3, False),
+                    (b'', b'', 1, -20, 3, True),
+                )
+
+        class WLAN:
+            IF_STA = 0
+
+            def __new__(cls, interface):
+                return Station()
+
+        fake_network = type('Network', (), {'WLAN': WLAN, 'STA_IF': 0})
+        with mock.patch.object(wifi_recovery, 'network', fake_network):
+            networks = wifi_recovery.scan_wifi_networks()
+        self.assertEqual(networks, [
+            {'ssid': 'Strong', 'rssi': -40},
+            {'ssid': 'Weak', 'rssi': -60},
+        ])
+
+    def test_wifi_scan_route_returns_cache_while_refresh_runs_in_background(self):
+        async def scenario():
+            wifi_recovery._wifi_scan_cache = []
+            wifi_recovery._wifi_scan_updated_ms = None
+            wifi_recovery._wifi_scan_task = None
+            with mock.patch.object(
+                wifi_recovery, 'scan_wifi_networks',
+                return_value=[{'ssid': 'Cached', 'rssi': -45}]
+            ):
+                self.assertEqual(wifi_recovery.cached_wifi_networks(), [])
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                self.assertEqual(
+                    wifi_recovery.cached_wifi_networks(refresh=False),
+                    [{'ssid': 'Cached', 'rssi': -45}],
+                )
+
+        asyncio.run(scenario())
 
     def test_configuration_keeps_login_passwords_as_verifiers(self):
         config = credential_store.build_configuration(
@@ -110,6 +163,10 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('.setup-main{width:auto;max-width:none;', setup_wizard.portal_ui.PORTAL_CSS)
         self.assertIn('id="device-name"', html)
         self.assertIn('id="mdns-hostname"', html)
+        self.assertIn('id="wifi-network-select"', html)
+        self.assertIn('id="wifi-manual-field"', html)
+        self.assertIn('Enter network name manually', html)
+        self.assertIn('fetch("/wifi-networks"', html)
         self.assertIn('hostnameFromDevice()', html)
         self.assertIn('mdnsEdited=true', html)
         self.assertIn('<div class="credential-pair">', html)
@@ -342,6 +399,42 @@ class SetupWizardTests(unittest.TestCase):
         self.assertTrue(settings['wifi_dhcp'])
         self.assertEqual(settings['wifi_gateway'], '')
 
+    def test_device_api_defaults_disabled_and_requires_a_separate_port(self):
+        config = credential_store.build_configuration(
+            self.fields(), 'Portal-Cedar-47!River', 'Console-Ash-82!Stone'
+        )
+        self.assertEqual(config['api'], {
+            'enabled': False, 'port': 8444, 'auth': 'mtls'
+        })
+        credential_store.mark_provisioned(config)
+        credential_store.update_operational_settings({
+            'api_enabled': True, 'api_port': 9444
+        })
+        self.assertTrue(credential_store.public_settings()['api_enabled'])
+        self.assertEqual(credential_store.public_settings()['api_port'], 9444)
+
+        with self.assertRaisesRegex(ValueError, 'differ from the portal port'):
+            credential_store.update_operational_settings({
+                'portal_port': 9444
+            })
+
+    def test_schema_four_credentials_migrate_with_api_disabled(self):
+        config = credential_store.build_configuration(
+            self.fields(), 'Portal-Cedar-47!River', 'Console-Ash-82!Stone'
+        )
+        config['schema'] = 4
+        config.pop('api')
+        store = credential_store._nvs()
+        store.set_blob('cfg0', json.dumps(config).encode())
+        store.set_i32('active', 0)
+        store.commit()
+
+        migrated = credential_store.load()
+
+        self.assertEqual(migrated['schema'], credential_store.SCHEMA_VERSION)
+        self.assertFalse(migrated['api']['enabled'])
+        self.assertEqual(migrated['api']['auth'], 'mtls')
+
     def test_static_network_configuration_includes_default_gateway(self):
         values = self.fields()
         values.update({
@@ -526,7 +619,13 @@ class SetupWizardTests(unittest.TestCase):
             self.fields(), 'Portal-Cedar-47!River', 'Console-Ash-82!Stone'
         )
         credential_store.mark_provisioned(config)
-        self.assertIsNone(credential_store.public_settings()['portal_port'])
+        self.assertEqual(credential_store.public_settings()['portal_port'], 8443)
+        self.assertEqual(
+            credential_store.public_settings()['portal_session_timeout_s'], 3600
+        )
+        self.assertIsNone(
+            credential_store.load(require_provisioned=True)['portal']['port']
+        )
 
         credential_store.update_operational_settings({'portal_port': '9443'})
         self.assertEqual(
@@ -537,6 +636,66 @@ class SetupWizardTests(unittest.TestCase):
         self.assertEqual(
             credential_store.public_settings()['portal_port'], 9443
         )
+
+    def test_user_time_logging_timeout_and_syslog_settings_are_bounded(self):
+        config = credential_store.build_configuration(
+            self.fields(), 'Portal-Cedar-47!River', 'Console-Ash-82!Stone'
+        )
+        credential_store.mark_provisioned(config)
+
+        credential_store.update_operational_settings({
+            'timezone_offset_minutes': 60,
+            'timezone_name': 'Europe/London',
+            'log_buffer_lines': 300,
+            'portal_session_timeout_s': 1800,
+            'syslog_enabled': True,
+            'syslog_host': 'logs.local',
+            'syslog_port': 6514,
+            'syslog_transport': 'tls',
+            'release_check_schedule': 'weekly',
+            'release_check_time': '04:30',
+            'release_check_weekday': 6,
+            'certificate_mode': 'acme',
+            'acme_directory_url': 'https://acme.example/directory',
+            'certificate_hostname': 'controller.local',
+        })
+        public = credential_store.public_settings()
+        self.assertEqual(public['timezone_offset_minutes'], 60)
+        self.assertEqual(public['timezone_name'], 'Europe/London')
+        self.assertEqual(public['log_buffer_lines'], 300)
+        self.assertEqual(public['portal_session_timeout_s'], 1800)
+        self.assertEqual(public['syslog_transport'], 'tls')
+        self.assertEqual(public['release_check_schedule'], 'weekly')
+        self.assertEqual(public['release_check_time'], '04:30')
+        self.assertEqual(public['release_check_weekday'], 6)
+        self.assertEqual(public['certificate_mode'], 'acme')
+        self.assertEqual(
+            public['acme_directory_url'], 'https://acme.example/directory'
+        )
+        self.assertEqual(public['certificate_hostname'], 'controller.local')
+
+        with self.assertRaisesRegex(ValueError, 'log entry limit'):
+            credential_store.update_operational_settings({'log_buffer_lines': 501})
+        with self.assertRaisesRegex(ValueError, 'portal timeout'):
+            credential_store.update_operational_settings({'portal_session_timeout_s': 299})
+        with self.assertRaisesRegex(ValueError, 'time-zone offset'):
+            credential_store.update_operational_settings({'timezone_offset_minutes': 900})
+        with self.assertRaisesRegex(ValueError, 'update check schedule'):
+            credential_store.update_operational_settings({'release_check_schedule': 'monthly'})
+        with self.assertRaisesRegex(ValueError, 'update check time'):
+            credential_store.update_operational_settings({'release_check_time': '25:00'})
+
+    def test_schema_five_implicit_timeout_migrates_to_sixty_minutes(self):
+        config = credential_store.build_configuration(
+            self.fields(), 'Portal-Cedar-47!River', 'Console-Ash-82!Stone'
+        )
+        config['schema'] = 5
+        config['portal']['session_timeout_s'] = 28800
+        credential_store.save(credential_store._migrate_v5(config))
+
+        loaded = credential_store.load(require_provisioned=False)
+        self.assertEqual(loaded['schema'], credential_store.SCHEMA_VERSION)
+        self.assertEqual(loaded['portal']['session_timeout_s'], 3600)
 
     def test_network_trial_confirms_candidate_after_authenticated_reconnect(self):
         config = credential_store.build_configuration(

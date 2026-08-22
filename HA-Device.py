@@ -14,14 +14,23 @@ import credential_security
 import credential_store
 import app_update
 import firmware_update
+import universal_update
 import hardware_platform
 import recovery_boot
 import update_security
 import update_support
 import wifi_recovery
 import release_update
+import update_orchestrator
+import timezone_rules
 import component_versions
 import certificate_manager
+import configuration_manager
+import api_security
+from remote_logging import RemoteSyslog
+from device_api import DeviceAPI, start_device_api
+from runtime_health import HealthHistory
+from message_broker import BoundedPublishQueue, ModuleBroker
 import settings_loader as device_settings
 try:
     import network
@@ -111,6 +120,8 @@ hardware_deviceid = hexlify(hardware_platform.unique_id()).decode()
 deviceid = hardware_deviceid + '_' + ha_safe_id(ha_devicename)
 
 ntp_servers = device_settings.ntp_servers
+timezone_offset_minutes = device_settings.timezone_offset_minutes
+timezone_name = device_settings.timezone_name
 ha_system_diagnostics = device_settings.ha_system_diagnostics
 ha_discovery_cleanup_legacy_identity = device_settings.ha_discovery_cleanup_legacy_identity
 
@@ -120,6 +131,7 @@ watchdog_timeout_ms = device_settings.watchdog_timeout_ms
 watchdog = None
 ntp_synced = False
 web_portal_server = None
+device_api_server = None
 scheduled_reset_timer = None
 web_portal_enabled = device_settings.web_portal_enabled
 web_portal_host = device_settings.web_portal_host
@@ -134,6 +146,18 @@ web_portal_firmware_updates_enabled = device_settings.web_portal_firmware_update
 web_portal_firmware_update_max_bytes = device_settings.web_portal_firmware_update_max_bytes
 web_portal_key_path = device_settings.web_portal_key_path
 web_portal_transport = runtime_credentials['portal'].get('transport', 'auto')
+device_api_config = runtime_credentials.get('api', {
+    'enabled': False, 'port': device_settings.device_api_port, 'auth': 'mtls'
+})
+device_api_enabled = device_api_config.get('enabled') is True
+device_api_port = int(device_api_config.get('port', device_settings.device_api_port))
+api_client_ca_path = device_settings.service_ca_path('api_client')
+api_client_registry = api_security.ClientRegistry(
+    device_settings.api_client_registry_path
+)
+api_client_ca_store = api_security.CATrustStore(
+    device_settings.api_client_ca_directory, legacy_path=api_client_ca_path
+)
 
 
 def portal_certificates_installed():
@@ -173,21 +197,31 @@ if network is not None and hasattr(credential_store, 'configure_station'):
     credential_store.configure_station(
         wlan_class(station_interface), runtime_credentials['wifi']
     )
-release_check_interval_s = device_settings.release_check_interval_s
+release_check_schedule = device_settings.release_check_schedule
+release_check_time = device_settings.release_check_time
+release_check_weekday = device_settings.release_check_weekday
 release_auto_download = device_settings.release_auto_download
 release_auto_activate = device_settings.release_auto_activate
 web_portal_session_timeout_s = device_settings.web_portal_session_timeout_s
 release_available = {}
 release_check_status = 'Not checked'
 release_last_checked = ''
+release_automatic_check_status = 'Not checked'
+release_automatic_last_checked = ''
 web_log_buffer_lines = device_settings.web_log_buffer_lines
 web_log_line_max_chars = device_settings.web_log_line_max_chars
 log_buffer = []
+remote_syslog = RemoteSyslog(
+    runtime_credentials.get('syslog', {}), ha_devicename,
+    device_settings.syslog_ca_path
+)
 local_display_config = device_settings.local_display
 local_display_service = None
 last_discovery_count = 0
 main_device_error = False
 failedModules = []
+pending_configuration_import = None
+pending_secure_configuration_import = None
 
 
 def ticks_ms():
@@ -202,8 +236,8 @@ def ticks_diff(end, start):
     return end - start
 
 
-def wall_time_text():
-    current = time.localtime()
+def wall_time_text(epoch=None):
+    current = timezone_rules.localtime(epoch, name=timezone_name)
     return "{:04}-{:02}-{:02} {:02}:{:02}:{:02}".format(
         current[0], current[1], current[2],
         current[3], current[4], current[5]
@@ -281,6 +315,16 @@ outputDevices = [
 ]
 
 inputDevices = []
+runtime_health = HealthHistory()
+runtime_health.record_boot(hardware_platform.reset_cause())
+saved_release_check = runtime_health.snapshot().get('observations', {}).get(
+    'last_release_check', {}
+)
+if isinstance(saved_release_check, dict) and saved_release_check.get('status'):
+    release_automatic_check_status = str(saved_release_check.get('status'))
+    release_automatic_last_checked = wall_time_text(saved_release_check.get('time'))
+mqtt_publish_queue = BoundedPublishQueue(state_limit=64, critical_limit=96)
+module_broker = ModuleBroker(lambda: outputDevices + inputDevices)
 
 
 
@@ -348,7 +392,8 @@ class Style():
 
 # Function:  Log Output       
 def logOutput(mode, action, data, logtype):
-    current_time = time.localtime()
+    utc_time = time.localtime()
+    current_time = timezone_rules.localtime(name=timezone_name)
     
     timestamp = "{:04}{:02}{:02} {:02}{:02}{:02}".format(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5])
     
@@ -375,6 +420,13 @@ def logOutput(mode, action, data, logtype):
             print (log)
 
         remember_log(log)
+        remote_syslog.enqueue(
+            '{:04}-{:02}-{:02}T{:02}:{:02}:{:02}'.format(
+                utc_time[0], utc_time[1], utc_time[2],
+                utc_time[3], utc_time[4], utc_time[5]
+            ),
+            log, logtype
+        )
 
 
 def publish_logtype(msg):
@@ -420,6 +472,25 @@ def set_loglevel(level):
             pass
 
 
+def set_log_buffer_lines(line_count):
+    global web_log_buffer_lines
+    line_count = int(line_count)
+    if not 0 <= line_count <= 500:
+        raise ValueError('log entry limit must be between 0 and 500')
+    web_log_buffer_lines = line_count
+    while len(log_buffer) > web_log_buffer_lines:
+        log_buffer.pop(0)
+    try:
+        current = credential_store.public_settings()
+        if current.get('log_buffer_lines') != line_count:
+            credential_store.update_operational_settings({
+                'log_buffer_lines': line_count
+            })
+    except Exception:
+        pass
+    return web_log_buffer_lines
+
+
 portal_tasks = {}
 
 
@@ -431,6 +502,12 @@ def start_task(name, coroutine, main_device_task=False):
         except Exception as exc:
             logOutput('Local', 'Task', {'log': name + ' stopped - ' + str(exc)}, 'ERROR')
             if main_device_task:
+                runtime_health.observe(
+                    'last_startup_exception', name + ': ' + str(exc), force=True
+                )
+                runtime_health.record_event(
+                    'startup_exception', name + ': ' + str(exc), force=True
+                )
                 set_main_device_error()
 
     return asyncio.create_task(runner())
@@ -508,6 +585,25 @@ def portal_task_status(name):
     )
 
 
+def portal_task_progress(name):
+    labels = {
+        'receiving': 'Downloading release',
+        'writing': 'Writing core firmware',
+        'verification': 'Verifying release',
+    }
+
+    async def report(phase, completed=0, total=0):
+        total = int(total or 0)
+        completed = int(completed or 0)
+        portal_tasks[name] = {
+            'phase': 'running',
+            'message': labels.get(str(phase), str(phase).replace('_', ' ').title()),
+            'percent': max(0, min(100, int(completed * 100 / total))) if total else 0,
+        }
+
+    return report
+
+
 set_log_output(logOutput)
 
 logOutput(
@@ -575,6 +671,9 @@ def local_display_status():
         'device_name': ha_devicename,
         'wifi_ip': wifi_ip_address(),
         'mqtt': mqtt_connection_status(),
+        'api': 'online' if device_api_server is not None else (
+            'enabled' if device_api_enabled else 'disabled'
+        ),
         'config': moduleSettingsFile,
         'loglevel': get_loglevel(),
         'web_portal': web_portal_enabled,
@@ -584,6 +683,7 @@ def local_display_status():
     }
     if gc and hasattr(gc, 'mem_free'):
         status['heap_free_bytes'] = gc.mem_free()
+        runtime_health.observe_heap(status['heap_free_bytes'])
     if gc and hasattr(gc, 'mem_alloc'):
         status['heap_allocated_bytes'] = gc.mem_alloc()
     return status
@@ -681,6 +781,9 @@ def portal_status():
     )
     status['firmware_update_status'] = firmware.get('status', 'idle')
     status['firmware_update_version'] = firmware.get('version', '')
+    universal = universal_update.update_status()
+    status['universal_update_status'] = universal.get('status', 'idle')
+    status['universal_update_version'] = universal.get('version', '')
     status['firmware_running_version'] = firmware_update.running_version(
         hardware_platform.runtime_version()
     )
@@ -704,6 +807,16 @@ def portal_status():
     status['release_checks_enabled'] = bool(release_manifest_url)
     status['release_check_status'] = release_check_status
     status['release_last_checked'] = release_last_checked
+    status['release_automatic_check_status'] = release_automatic_check_status
+    status['release_automatic_last_checked'] = release_automatic_last_checked
+    status['health_history'] = runtime_health.snapshot()
+    status['timezone_name'] = timezone_name
+    status['timezone_offset_minutes'] = timezone_rules.offset_minutes(timezone_name)
+    status['api_enabled'] = device_api_enabled
+    status['api_port'] = device_api_port
+    status['mqtt_publish_queue'] = mqtt_publish_queue.stats()
+    status['module_command_broker'] = module_broker.stats()
+    status['paired_update'] = update_orchestrator.status()
     return status
 
 
@@ -793,38 +906,346 @@ def module_summaries():
 
 
 def configuration_backup():
-    result = {
-        'format_version': 2,
-        'user_settings': credential_store.public_settings(),
-        'device_configuration': {
-            'module_settings_file': moduleSettingsFile,
-            'status_led_pin': device_settings.status_led_pin,
-            'status_led_type': device_settings.status_led_type,
-            'watchdog_timeout_ms': watchdog_timeout_ms,
-            'device_info': device_settings.ha_device_info,
-        },
+    try:
+        with open(moduleSettingsFile, 'r') as stream:
+            modules = json.load(stream)
+    except Exception:
+        modules = {'devices': []}
+    return configuration_manager.export_configuration(
+        credential_store.public_settings(), modules, {
+            'device_id': hardware_deviceid,
+            'application_version': app_update.running_version(
+                device_settings.ha_device_info.get('sw', '')
+            ),
+            'firmware_version': firmware_update.running_version(
+                hardware_platform.runtime_version()
+            ),
+        }
+    )
+
+
+def _complete_backup_files():
+    paths = {
+        'portal_certificate': web_portal_cert_path,
+        'portal_private_key': web_portal_key_path,
+        'mqtt_ca': mqtt_ca_cert_path,
+        'release_ca': release_ca_cert_path,
+        'syslog_ca': device_settings.syslog_ca_path,
+        'acme_account_key': certificate_manager.ACCOUNT_KEY_PATH,
+        'acme_state': certificate_manager.STATE_PATH,
+        'api_client_registry': device_settings.api_client_registry_path,
     }
-    for key, path in (
-        ('app_settings', device_settings.APP_SETTINGS_FILE),
-        ('module_settings', moduleSettingsFile)
-    ):
+    for index, path in enumerate(api_client_ca_store.paths()):
+        paths['api_client_ca_' + str(index)] = path
+    result = {}
+    for name, path in paths.items():
         try:
-            with open(path, 'r') as stream:
-                result[key] = json.load(stream)
-        except Exception as exc:
-            result[key + '_error'] = str(exc)
+            with open(path, 'rb') as stream:
+                payload = stream.read()
+            if payload:
+                result[name] = payload
+        except OSError:
+            pass
     return result
 
 
+def secure_configuration_backup(password):
+    try:
+        with open(moduleSettingsFile, 'r') as stream:
+            modules = json.load(stream)
+    except Exception:
+        modules = {'devices': []}
+    return configuration_manager.export_secure_configuration(
+        credential_store.load(require_provisioned=True), modules,
+        _complete_backup_files(), password, {
+            'device_id': hardware_deviceid,
+            'application_version': app_update.running_version(
+                device_settings.ha_device_info.get('sw', '')
+            ),
+            'firmware_version': firmware_update.running_version(
+                hardware_platform.runtime_version()
+            ),
+        }
+    )
+
+
+def _secure_restore_targets(files):
+    fixed = {
+        'portal_certificate': web_portal_cert_path,
+        'portal_private_key': web_portal_key_path,
+        'mqtt_ca': mqtt_ca_cert_path,
+        'release_ca': release_ca_cert_path,
+        'syslog_ca': device_settings.syslog_ca_path,
+        'acme_account_key': certificate_manager.ACCOUNT_KEY_PATH,
+        'acme_state': certificate_manager.STATE_PATH,
+        'api_client_registry': device_settings.api_client_registry_path,
+    }
+    targets = {}
+    for name, payload in files.items():
+        if (
+            name in ('portal_certificate', 'mqtt_ca', 'release_ca', 'syslog_ca') or
+            name.startswith('api_client_ca_')
+        ):
+            certificate_manager.decode_certificate(payload)
+        if name in ('acme_state', 'api_client_registry'):
+            try:
+                structured = json.loads(payload.decode())
+            except Exception:
+                raise ValueError('encrypted backup contains invalid ' + name)
+            if not isinstance(structured, dict):
+                raise ValueError('encrypted backup contains invalid ' + name)
+        if name in fixed:
+            targets[fixed[name]] = payload
+        elif name.startswith('api_client_ca_'):
+            fingerprint = api_security.certificate_fingerprint(payload)
+            targets[
+                device_settings.api_client_ca_directory + '/' +
+                fingerprint[:24] + '.der'
+            ] = payload
+        else:
+            raise ValueError('encrypted backup contains an unknown protected file')
+    return targets
+
+
+def preview_secure_configuration_import(request):
+    global pending_secure_configuration_import
+    if not isinstance(request, dict):
+        raise ValueError('encrypted backup request is invalid')
+    content = configuration_manager.parse_secure_import(
+        request.get('backup'), request.get('password', '')
+    )
+    credentials = credential_store.validate(
+        content['credentials'], require_provisioned=True
+    )
+    modules = content['module_settings']
+    errors = validate_device_config(
+        modules, device_types_for_devices(modules.get('devices', ()))
+    )
+    if errors:
+        raise ValueError('module configuration rejected: ' + '; '.join(errors[:20]))
+    targets = _secure_restore_targets(content['files'])
+    portal_payloads = (
+        targets.get(web_portal_cert_path), targets.get(web_portal_key_path)
+    )
+    if any(portal_payloads) and not all(portal_payloads):
+        raise ValueError('encrypted backup must contain both portal identity files')
+    try:
+        with open(moduleSettingsFile, 'r') as stream:
+            current_modules = json.load(stream)
+    except Exception:
+        current_modules = {'devices': []}
+    preview = configuration_manager.secure_restore_preview(
+        credential_store.load(require_provisioned=True), current_modules,
+        _complete_backup_files(), content, hardware_deviceid
+    )
+    token = hexlify(os.urandom(16)).decode()
+    pending_secure_configuration_import = {
+        'token': token,
+        'created_ms': ticks_ms(),
+        'credentials': credentials,
+        'modules': modules,
+        'files': targets,
+    }
+    return {
+        'token': token,
+        'groups': ['credentials', 'module_settings', 'certificates_and_trust'],
+        'file_count': len(targets),
+        'device_id': content.get('metadata', {}).get('device_id', ''),
+        'changes': preview['changes'],
+        'change_count': preview['change_count'],
+    }
+
+
+def apply_secure_configuration_import(token):
+    global pending_secure_configuration_import
+    pending = pending_secure_configuration_import
+    if (
+        not pending or str(token) != pending.get('token') or
+        ticks_diff(ticks_ms(), pending.get('created_ms', 0)) > 600000
+    ):
+        raise ValueError('encrypted backup preview has expired')
+    module_temporary = moduleSettingsFile + '.secure-restore'
+    with open(module_temporary, 'w') as stream:
+        json.dump(pending['modules'], stream)
+    staged_pairs = []
+    api_client_ca_store._mkdir()
+    for target, payload in pending['files'].items():
+        staged = target + '.secure-restore'
+        with open(staged, 'wb') as stream:
+            stream.write(payload)
+        staged_pairs.append((staged, target))
+    staged_portal_certificate = next(
+        (source for source, target in staged_pairs if target == web_portal_cert_path), None
+    )
+    staged_portal_key = next(
+        (source for source, target in staged_pairs if target == web_portal_key_path), None
+    )
+    if staged_portal_certificate and staged_portal_key:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(staged_portal_certificate, staged_portal_key)
+    update_support.commit_file_with_backup(module_temporary, moduleSettingsFile)
+    if staged_pairs:
+        certificate_manager.commit_certificate_files(tuple(staged_pairs))
+    credential_store.save(pending['credentials'])
+    pending_secure_configuration_import = None
+    runtime_health.record_event(
+        'secure_configuration_restore', 'Complete encrypted backup restored', force=True
+    )
+    schedule_hardware_reset('secure_configuration_restore_reboot', 5000)
+    return 'Complete encrypted backup restored. The device is restarting.'
+
+
+def preview_configuration_import(payload):
+    global pending_configuration_import
+    try:
+        with open(moduleSettingsFile, 'r') as stream:
+            current_modules = json.load(stream)
+    except Exception:
+        current_modules = {'devices': []}
+    plan = configuration_manager.prepare_import(
+        payload,
+        credential_store.public_settings(),
+        current_modules,
+        credential_store.preview_operational_settings,
+        lambda candidate: validate_device_config(
+            candidate, device_types_for_devices(candidate.get('devices', ()))
+        )
+    )
+    token = hexlify(os.urandom(16)).decode()
+    pending_configuration_import = {
+        'token': token,
+        'plan': plan,
+        'created_ms': ticks_ms(),
+    }
+    return {
+        'token': token,
+        'change_count': plan['change_count'],
+        'changes': plan['changes'],
+    }
+
+
+def apply_configuration_import(token):
+    global pending_configuration_import
+    pending = pending_configuration_import
+    if (
+        not pending or str(token) != pending.get('token') or
+        ticks_diff(ticks_ms(), pending.get('created_ms', 0)) > 600000
+    ):
+        raise ValueError('configuration import preview has expired')
+    plan = pending['plan']
+    if not plan.get('changes'):
+        raise ValueError('configuration import contains no changes')
+    previous = credential_store.load(require_provisioned=True)
+    candidate = credential_store.preview_operational_settings(plan['settings'])
+    temporary = moduleSettingsFile + '.import'
+    modules = plan.get('module_settings')
+    if modules is not None:
+        with open(temporary, 'w') as stream:
+            json.dump(modules, stream)
+    try:
+        credential_store.begin_network_trial(previous, candidate)
+        if modules is not None:
+            update_support.commit_file_with_backup(temporary, moduleSettingsFile)
+    except Exception:
+        credential_store.save(previous)
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
+        raise
+    pending_configuration_import = None
+    runtime_health.record_event(
+        'configuration_import', str(plan['change_count']) + ' changes', force=True
+    )
+    schedule_hardware_reset('configuration_import_reboot', 5000)
+    return 'Configuration imported and validated. The device is restarting.'
+
+
 def portal_settings():
-    return credential_store.public_settings()
+    settings = credential_store.public_settings()
+    settings['api_clients'] = api_client_registry.list_clients()
+    settings['api_client_ca_installed'] = bool(
+        certificate_manager.certificate_details(api_client_ca_path).get('installed')
+    )
+    return settings
 
 
 def installed_certificate_details():
     return {
-        'portal': certificate_manager.certificate_details(web_portal_cert_path),
-        'trusted_ca': certificate_manager.certificate_details(mqtt_ca_cert_path),
+        'portal': certificate_manager.certificate_lifecycle(web_portal_cert_path),
+        'trusted_ca': certificate_manager.certificate_lifecycle(mqtt_ca_cert_path),
+        'mqtt_ca': certificate_manager.certificate_lifecycle(mqtt_ca_cert_path),
+        'release_ca': certificate_manager.certificate_lifecycle(release_ca_cert_path),
+        'api_client_ca': certificate_manager.certificate_lifecycle(api_client_ca_path),
+        'api_client_cas': api_client_ca_store.list(),
+        'api_clients': api_client_registry.list_clients(),
+        'syslog_ca': certificate_manager.certificate_lifecycle(
+            device_settings.syslog_ca_path
+        ),
+        'acme_settings': dict(certificate_config),
     }
+
+
+async def certificate_alert_monitor():
+    previous = {}
+    while True:
+        for name, path in (
+            ('portal', web_portal_cert_path),
+            ('mqtt_ca', mqtt_ca_cert_path),
+            ('release_ca', release_ca_cert_path),
+            ('syslog_ca', device_settings.syslog_ca_path),
+        ):
+            details = certificate_manager.certificate_lifecycle(path)
+            level = details.get('expiry_level')
+            if level in ('warning', 'critical', 'expired') and previous.get(name) != level:
+                days = details.get('days_remaining')
+                message = name + ' certificate '
+                message += (
+                    'expired' if level == 'expired' else
+                    'expires in ' + str(days) + ' days'
+                )
+                logOutput('Local', 'Certificate lifecycle', {'log': message}, 'ERROR')
+                runtime_health.record_event(
+                    'certificate_' + level, message,
+                    {'certificate': name, 'days_remaining': days}, force=True
+                )
+            previous[name] = level
+        for ca in api_client_ca_store.list():
+            fingerprint = str(ca.get('fingerprint', ''))
+            key = 'api_ca_' + fingerprint
+            level = ca.get('expiry_level')
+            if level in ('warning', 'critical', 'expired') and previous.get(key) != level:
+                days = ca.get('days_remaining')
+                message = 'API client CA ' + fingerprint[:12] + ' '
+                message += (
+                    'expired' if level == 'expired' else
+                    'expires in ' + str(days) + ' days'
+                )
+                logOutput('Local', 'Certificate lifecycle', {'log': message}, 'ERROR')
+                runtime_health.record_event(
+                    'certificate_' + level, message,
+                    {'certificate': key, 'days_remaining': days}, force=True
+                )
+            previous[key] = level
+        for client in api_client_registry.list_clients():
+            fingerprint = str(client.get('fingerprint', ''))
+            key = 'api_client_' + fingerprint
+            level = client.get('expiry_level')
+            if level in ('warning', 'critical', 'expired') and previous.get(key) != level:
+                days = client.get('days_remaining')
+                label = str(client.get('label', fingerprint[:12]))
+                message = 'API client ' + label + ' certificate '
+                message += (
+                    'expired' if level == 'expired' else
+                    'expires in ' + str(days) + ' days'
+                )
+                logOutput('Local', 'Certificate lifecycle', {'log': message}, 'ERROR')
+                runtime_health.record_event(
+                    'certificate_' + level, message,
+                    {'certificate': key, 'days_remaining': days}, force=True
+                )
+            previous[key] = level
+        await asyncio.sleep(21600)
 
 
 def update_portal_settings(params):
@@ -832,6 +1253,10 @@ def update_portal_settings(params):
         server.strip() for server in str(params.get('ntp_servers', '')).split(',')
         if server.strip()
     ]
+    if 'portal_session_timeout_minutes' in params:
+        portal_timeout_s = int(params.get('portal_session_timeout_minutes', 60)) * 60
+    else:
+        portal_timeout_s = int(params.get('portal_session_timeout_s', 3600))
     values = {
         'device_name': str(params.get('device_name', '')).strip(),
         'wifi_ssid': str(params.get('wifi_ssid', '')),
@@ -848,11 +1273,28 @@ def update_portal_settings(params):
         'portal_username': str(params.get('portal_username', '')).strip(),
         'portal_transport': str(params.get('portal_transport', 'auto')).strip(),
         'portal_port': str(params.get('portal_port', '')).strip(),
+        'portal_session_timeout_s': portal_timeout_s,
         'ntp_servers': ntp_servers,
+        'timezone_name': str(params.get('timezone_name', 'UTC')),
+        'timezone_offset_minutes': timezone_rules.offset_minutes(
+            str(params.get('timezone_name', 'UTC'))
+        ),
         'ha_discovery': str(params.get('ha_discovery', '')).lower() in (
             '1', 'true', 'on'
         ),
+        'log_buffer_lines': int(params.get('log_buffer_lines', 200)),
+        'syslog_enabled': str(params.get('syslog_enabled', '')).lower() in (
+            '1', 'true', 'on'
+        ),
+        'syslog_host': str(params.get('syslog_host', '')).strip(),
+        'syslog_port': int(params.get('syslog_port', 514)),
+        'syslog_transport': str(params.get('syslog_transport', 'udp')).strip(),
     }
+    if 'api_enabled' in params or 'api_port' in params:
+        values['api_enabled'] = str(params.get('api_enabled', '')).lower() in (
+            '1', 'true', 'on'
+        )
+        values['api_port'] = int(params.get('api_port', device_settings.device_api_port))
     wifi_password = str(params.get('wifi_password', ''))
     clear_wifi = str(params.get('clear_wifi_password', '')).lower() in ('1', 'true', 'on')
     if wifi_password and clear_wifi:
@@ -896,6 +1338,26 @@ def update_portal_settings(params):
 
 def update_release_preferences(params):
     global release_channel, release_auto_download, release_auto_activate
+    global release_check_schedule, release_check_time, release_check_weekday
+    current = credential_store.public_settings()
+    schedule = str(params.get('release_check_schedule', 'disabled'))
+    check_time = str(params.get(
+        'release_check_time', current.get('release_check_time', '03:00')
+    ))
+    try:
+        weekday = int(params.get(
+            'release_check_weekday', current.get('release_check_weekday', 0)
+        ))
+        hour, minute = [int(part) for part in check_time.split(':')]
+    except (TypeError, ValueError):
+        raise ValueError('automatic update check time must use HH:MM')
+    if schedule not in ('disabled', 'daily', 'weekly'):
+        raise ValueError('automatic update check schedule is invalid')
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError('automatic update check time is invalid')
+    if not 0 <= weekday <= 6:
+        raise ValueError('automatic update check weekday is invalid')
+    check_time = '{:02}:{:02}'.format(hour, minute)
     values = {
         'release_channel': str(params.get('release_channel', 'stable')),
         'release_auto_download': str(
@@ -904,11 +1366,17 @@ def update_release_preferences(params):
         'release_auto_activate': str(
             params.get('release_auto_activate', '')
         ).lower() in ('1', 'true', 'on'),
+        'release_check_schedule': schedule,
+        'release_check_time': check_time,
+        'release_check_weekday': weekday,
     }
     credential_store.update_operational_settings(values)
     release_channel = values['release_channel']
     release_auto_download = values['release_auto_download']
     release_auto_activate = values['release_auto_activate']
+    release_check_schedule = values['release_check_schedule']
+    release_check_time = values['release_check_time']
+    release_check_weekday = values['release_check_weekday']
     return 'Update preferences saved'
 
 
@@ -945,6 +1413,11 @@ def update_module_settings(payload):
 async def upload_certificate_file(kind, reader, length):
     paths = {
         'trust-ca': mqtt_ca_cert_path,
+        'mqtt-ca': getattr(__import__('device_config'), 'MQTT_CA_PATH', mqtt_ca_cert_path),
+        'release-ca': getattr(__import__('device_config'), 'RELEASE_CA_PATH', release_ca_cert_path),
+        'api-client-ca': 'certs/api-client-ca-stage.der',
+        'api-client-cert': 'certs/api-client-enrol.der',
+        'syslog-ca': device_settings.syslog_ca_path,
         'portal-cert': web_portal_cert_path,
         'portal-key': web_portal_key_path,
     }
@@ -959,6 +1432,13 @@ async def upload_certificate_file(kind, reader, length):
         payload.extend(chunk)
     if b'-----BEGIN' in payload:
         raise ValueError('certificate files must use DER, not PEM')
+    if kind in ('api-client-ca', 'api-client-cert'):
+        certificate_manager.decode_certificate(bytes(payload))
+        fingerprint = api_security.certificate_fingerprint(payload)[:24]
+        path = (
+            'certs/.api-ca-stage-' if kind == 'api-client-ca' else
+            'certs/.api-client-stage-'
+        ) + fingerprint + '.der'
     temporary = path + '.manual'
     with open(temporary, 'wb') as stream:
         stream.write(payload)
@@ -968,23 +1448,153 @@ def validate_uploaded_certificates():
     staged_ca = mqtt_ca_cert_path + '.manual'
     staged_cert = web_portal_cert_path + '.manual'
     staged_key = web_portal_key_path + '.manual'
-    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    server.load_cert_chain(staged_cert, staged_key)
-    client_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    try:
-        client_context.load_verify_locations(cafile=staged_ca)
-    except TypeError:
-        with open(staged_ca, 'rb') as stream:
-            client_context.load_verify_locations(cadata=stream.read())
-    certificate_manager.commit_certificate_files((
-        (staged_ca, mqtt_ca_cert_path),
-        (staged_cert, web_portal_cert_path),
-        (staged_key, web_portal_key_path),
-    ))
-    credential_store.update_certificate_settings('manual')
+    pairs = []
 
-    schedule_hardware_reset('certificate_upload_reboot')
-    return 'Certificates validated. The device is restarting.'
+    def exists(path):
+        try:
+            return os.stat(path)[6] > 0
+        except OSError:
+            return False
+
+    portal_staged = [exists(path) for path in (staged_cert, staged_key)]
+    if any(portal_staged):
+        if not all(portal_staged):
+            raise ValueError('portal certificate and portal key must be uploaded together')
+        server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        server.load_cert_chain(staged_cert, staged_key)
+        pairs.extend((
+            (staged_cert, web_portal_cert_path),
+            (staged_key, web_portal_key_path),
+        ))
+
+    mqtt_target = getattr(__import__('device_config'), 'MQTT_CA_PATH', mqtt_ca_cert_path)
+    ca_stages = (
+        (mqtt_target + '.manual' if exists(mqtt_target + '.manual') else staged_ca, mqtt_target),
+        (getattr(__import__('device_config'), 'RELEASE_CA_PATH', release_ca_cert_path) + '.manual',
+         getattr(__import__('device_config'), 'RELEASE_CA_PATH', release_ca_cert_path)),
+        (device_settings.syslog_ca_path + '.manual', device_settings.syslog_ca_path),
+    )
+    for staged, target in ca_stages:
+        if not exists(staged):
+            continue
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        try:
+            context.load_verify_locations(cafile=staged)
+        except TypeError:
+            with open(staged, 'rb') as stream:
+                context.load_verify_locations(cadata=stream.read())
+        pairs.append((staged, target))
+
+    try:
+        staged_names = os.listdir('certs')
+    except OSError:
+        staged_names = []
+    api_ca_stages = [
+        'certs/' + name for name in staged_names
+        if name.startswith('.api-ca-stage-') and name.endswith('.der.manual')
+    ]
+    client_stages = [
+        'certs/' + name for name in staged_names
+        if name.startswith('.api-client-stage-') and name.endswith('.der.manual')
+    ]
+    api_ca_payloads = []
+    client_payloads = []
+    for staged in api_ca_stages:
+        with open(staged, 'rb') as stream:
+            payload = stream.read()
+        certificate_manager.decode_certificate(payload)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        try:
+            context.load_verify_locations(cafile=staged)
+        except TypeError:
+            context.load_verify_locations(cadata=payload)
+        api_ca_payloads.append((staged, payload))
+    for staged in client_stages:
+        with open(staged, 'rb') as stream:
+            payload = stream.read()
+        certificate_manager.decode_certificate(payload)
+        client_payloads.append((staged, payload))
+
+    if not pairs and not api_ca_payloads and not client_payloads:
+        raise ValueError('no staged certificate files were found')
+    if pairs:
+        certificate_manager.commit_certificate_files(tuple(pairs))
+    for staged, payload in api_ca_payloads:
+        api_client_ca_store.add(payload)
+        try:
+            os.remove(staged)
+        except OSError:
+            pass
+    for staged, payload in client_payloads:
+        api_client_registry.enrol(payload, scopes=('read', 'write'))
+        try:
+            os.remove(staged)
+        except OSError:
+            pass
+    if all(portal_staged):
+        credential_store.update_certificate_settings('manual')
+
+    restart_required = bool(pairs or api_ca_payloads)
+    if restart_required:
+        schedule_hardware_reset('certificate_upload_reboot')
+        return {
+            'message': 'Certificates validated. The device is restarting once to load the new trust set.',
+            'restart': True,
+        }
+    return {
+        'message': 'API client certificates enrolled and active without a device restart.',
+        'restart': False,
+    }
+
+
+def device_api_info():
+    return {
+        'device_name': ha_devicename,
+        'device_id': hardware_deviceid,
+        'application_version': app_update.running_version(
+            device_settings.ha_device_info.get('sw', '')
+        ),
+        'firmware_version': firmware_update.running_version(
+            hardware_platform.runtime_version()
+        ),
+        'micropython_version': hardware_platform.runtime_version(),
+        'uptime_s': uptime_seconds(),
+    }
+
+
+async def start_module_api():
+    global device_api_server
+    if not device_api_enabled:
+        return None
+    if not ntp_synced and time.localtime()[0] < 2024:
+        logOutput(
+            'API', 'Start',
+            {'log': 'Waiting for a valid clock before enabling mTLS'}, 'ERROR'
+        )
+        return None
+    api = DeviceAPI(
+        module_broker, runtime_health, api_client_registry,
+        device_api_info, logOutput
+    )
+    settings = {
+        'enabled': True,
+        'host': device_settings.device_api_host,
+        'port': device_api_port,
+        'cert_path': web_portal_cert_path,
+        'key_path': web_portal_key_path,
+        'client_ca_paths': api_client_ca_store.paths(),
+        'max_body_bytes': device_settings.device_api_max_body_bytes,
+    }
+    try:
+        device_api_server = await start_device_api(settings, api)
+    except Exception as exc:
+        logOutput('API', 'Start', {'log': 'Failed - ' + str(exc)}, 'ERROR')
+        return None
+    logOutput(
+        'API', 'Start',
+        {'log': 'mTLS API listening on port ' + str(device_api_port)}, 'INFO'
+    )
+    return device_api_server
 
 
 def system_info_payload():
@@ -1125,12 +1735,65 @@ def portal_action(action, params):
         driver = device_char['driver']
         if not hasattr(driver, 'set_calibration'):
             return 'Calibration failed: module does not support calibration'
+        previous_calibration = getattr(driver, 'calibration', None)
         result = driver.set_calibration({'known_voltage': known_voltage})
         if isinstance(result, dict) and result.get('ok'):
+            try:
+                candidate = update_support.load_json_with_backup(moduleSettingsFile)
+                configured = next(
+                    (item for item in candidate.get('devices', ())
+                     if str(item.get('uuid')) == str(uuid)), None
+                )
+                if configured is None:
+                    raise ValueError('module is missing from persistent configuration')
+                configured.setdefault('ac_voltage', {})['calibration'] = result['calibration']
+                errors = validate_device_config(
+                    candidate,
+                    device_types_for_devices(candidate.get('devices', ()))
+                )
+                if errors:
+                    raise ValueError('; '.join(errors))
+                temporary = moduleSettingsFile + '.calibration'
+                with open(temporary, 'w') as stream:
+                    json.dump(candidate, stream)
+                update_support.commit_file_with_backup(temporary, moduleSettingsFile)
+            except Exception as exc:
+                if previous_calibration is not None:
+                    driver.calibration = previous_calibration
+                    driver.device.setdefault('ac_voltage', {})['calibration'] = previous_calibration
+                return 'Calibration failed to persist: ' + str(exc)
+            runtime_health.record_event(
+                'module_calibration', 'Calibration updated for ' + str(uuid),
+                {'module': str(uuid), 'calibration': result['calibration']}, force=True
+            )
             return 'Calibration set to ' + str(result.get('calibration')) + ' for module ' + str(uuid)
         if isinstance(result, dict):
             return 'Calibration failed: ' + str(result.get('error', result))
         return 'Calibration failed'
+
+    if action == 'reset-health-history':
+        runtime_health.clear()
+        return 'Health history reset'
+
+    if action == 'update-acme-settings':
+        enabled = str(params.get('acme_enabled', '')).lower() in (
+            '1', 'true', 'on'
+        )
+        directory_url = str(
+            params.get('directory_url', certificate_config.get('directory_url', ''))
+        ).strip()
+        hostname = str(
+            params.get('hostname', certificate_config.get('hostname', ''))
+        ).strip().lower().rstrip('.')
+        credential_store.update_certificate_settings(
+            'acme' if enabled else 'manual', directory_url, hostname
+        )
+        schedule_hardware_reset('acme_settings_reboot')
+        return (
+            'ACME certificate management enabled. The device is restarting.'
+            if enabled else
+            'ACME certificate management disabled. The installed certificate is retained.'
+        )
 
     if action == 'ems-debug':
         uuid = params.get('uuid')
@@ -1145,6 +1808,12 @@ def portal_action(action, params):
         state = 'enabled' if current else 'disabled'
         return 'EMS debug frames ' + state + ' for module ' + str(uuid)
 
+    if action == 'revoke-api-client':
+        fingerprint = str(params.get('fingerprint', '')).strip().lower()
+        if not api_client_registry.revoke(fingerprint):
+            return 'API client was not found'
+        return 'API client certificate revoked'
+
     if action == 'activate-update':
         state = app_update.update_status()
         if state.get('status') != 'ready':
@@ -1155,10 +1824,11 @@ def portal_action(action, params):
         }
         try:
             app_update.configure_pending_update(selections)
+            update_orchestrator.mark_activating('application')
         except Exception as exc:
             return 'Application update activation failed: ' + str(exc)
 
-        schedule_hardware_reset('application_update_reboot', 1000)
+        schedule_hardware_reset('application_update_reboot', 5000)
         return 'Application update staged; rebooting'
 
     if action == 'activate-firmware':
@@ -1166,11 +1836,22 @@ def portal_action(action, params):
             return 'Base firmware activation failed: firmware OTA is unavailable'
         try:
             firmware_update.activate_pending()
+            update_orchestrator.mark_activating('firmware')
         except Exception as exc:
             return 'Base firmware activation failed: ' + str(exc)
 
-        schedule_hardware_reset('firmware_update_reboot', 1000)
+        schedule_hardware_reset('firmware_update_reboot', 5000)
         return 'Base firmware staged; rebooting into trial partition'
+
+    if action == 'activate-universal':
+        if not web_portal_firmware_updates_enabled or not firmware_update.supported():
+            return 'Universal update activation failed: firmware OTA is unavailable'
+        try:
+            universal_update.activate_pending()
+        except Exception as exc:
+            return 'Universal update activation failed: ' + str(exc)
+        schedule_hardware_reset('universal_update_reboot', 5000)
+        return 'Universal core and application update staged; rebooting into trial versions'
 
     if action == 'rollback-application':
         try:
@@ -1178,7 +1859,7 @@ def portal_action(action, params):
         except Exception as exc:
             return 'Application rollback failed: ' + str(exc)
 
-        schedule_hardware_reset('application_manual_rollback', 1000)
+        schedule_hardware_reset('application_manual_rollback', 5000)
         return (
             'Application switched to slot ' + str(result.get('active', '')) +
             '; rebooting'
@@ -1198,7 +1879,9 @@ def portal_action(action, params):
         if not release_available:
             return 'Release download failed: check for updates first'
         return start_portal_task(
-            'release_download_manual', download_release_once(),
+            'release_download_manual', download_release_once(
+                portal_task_progress('release_download_manual')
+            ),
             'Downloading and verifying the signed release'
         )
 
@@ -1256,11 +1939,49 @@ async def portal_firmware_upload(reader, content_length, params):
     )
 
 
+async def portal_universal_upload(reader, content_length, params):
+    if not web_portal_updates_enabled or not web_portal_firmware_updates_enabled:
+        raise ValueError('universal updates are disabled by application policy')
+    capability = hardware_platform.firmware_ota_capability()
+    if not capability.get('supported'):
+        raise ValueError(
+            'universal updates are unavailable: ' +
+            str(capability.get('reason', 'unknown OTA capability failure'))
+        )
+    state = await universal_update.receive_bundle(
+        reader, content_length,
+        max(web_portal_update_max_bytes, web_portal_firmware_update_max_bytes),
+        progress_callback=params.get('_progress')
+    )
+    return (
+        'Universal update ' + str(state.get('version', '')) +
+        ' verified; activate both components when ready'
+    )
+
+
 async def _check_release_once():
     global release_available
-    release = await release_update.check_release(
+    releases = list(await release_update.fetch_releases(
         release_manifest_url, release_channel, release_ca_cert_path
+    ))
+    applicable = []
+    for candidate in releases:
+        if candidate.get('type') == 'application' and not release_update.application_release_applicable(
+            candidate.get('components'),
+            configured_driver_names(moduleSettings.get('devices', ())),
+            component_versions.RUNTIME_VERSION,
+            DRIVER_VERSIONS
+        ):
+            continue
+        applicable.append(candidate)
+    update_orchestrator.begin(
+        applicable,
+        app_update.running_release_sequence(),
+        firmware_update.running_release_sequence(),
+        app_update.running_version(device_settings.ha_device_info.get('sw', '')),
+        firmware_update.running_version(hardware_platform.runtime_version())
     )
+    release = update_orchestrator.next_release()
     if not release:
         release_available = {}
         return 'No newer compatible release'
@@ -1281,14 +2002,6 @@ async def _check_release_once():
     ):
         release_available = {}
         return 'No newer release'
-    if release.get('type') == 'application' and not release_update.application_release_applicable(
-        release.get('components'),
-        configured_driver_names(moduleSettings.get('devices', ())),
-        component_versions.RUNTIME_VERSION,
-        DRIVER_VERSIONS
-    ):
-        release_available = {}
-        return 'No applicable changes'
     release_available = release
     logOutput(
         'Local', 'Release update',
@@ -1300,8 +2013,9 @@ async def _check_release_once():
     return await download_release_once()
 
 
-async def check_release_once():
+async def check_release_once(automatic=False):
     global release_check_status, release_last_checked
+    global release_automatic_check_status, release_automatic_last_checked
     release_check_status = 'Checking'
     request_url = release_update.release_manifest_request_url(
         release_manifest_url, release_channel
@@ -1316,13 +2030,26 @@ async def check_release_once():
         release_last_checked = wall_time_text()
         detail = str(exc).strip() or exc.__class__.__name__
         release_check_status = 'Check failed: ' + detail
+        if automatic:
+            release_automatic_check_status = release_check_status
+            release_automatic_last_checked = release_last_checked
+            runtime_health.observe('last_release_check', {
+                'time': int(time.time()), 'status': release_check_status
+            }, force=True)
         logOutput(
             'Local', 'Release update',
             {'log': release_check_status + ' — ' + request_url, 'force': True}, 'ERROR'
         )
+        runtime_health.record_update_result('release', 'failed', detail=detail)
         raise
     release_last_checked = wall_time_text()
     release_check_status = str(result)
+    if automatic:
+        release_automatic_check_status = release_check_status
+        release_automatic_last_checked = release_last_checked
+        runtime_health.observe('last_release_check', {
+            'time': int(time.time()), 'status': release_check_status
+        }, force=True)
     logOutput(
         'Local', 'Release update',
         {'log': 'Check complete - ' + release_check_status + ' — ' + request_url}, 'INFO'
@@ -1330,7 +2057,7 @@ async def check_release_once():
     return result
 
 
-async def download_release_once():
+async def download_release_once(progress_callback=None):
     global release_available
     release = release_available
     if not release:
@@ -1342,8 +2069,10 @@ async def download_release_once():
         firmware_update.receive_bundle,
         web_portal_allow_protected_updates,
         web_portal_update_max_bytes,
-        web_portal_firmware_update_max_bytes
+        web_portal_firmware_update_max_bytes,
+        progress_callback
     )
+    update_orchestrator.mark_staged(release)
     logOutput(
         'Local', 'Release update',
         {'log': 'Downloaded and staged ' + str(state.get('version', ''))},
@@ -1353,19 +2082,27 @@ async def download_release_once():
     if release_auto_activate:
         if release.get('type') == 'firmware':
             firmware_update.activate_pending()
+        update_orchestrator.mark_activating(release.get('type'))
         await asyncio.sleep(1)
         hardware_platform.reset()
     return 'Release staged'
 
 
 async def release_monitor():
-    await asyncio.sleep(60)
+    last_slot = ''
     while release_manifest_url:
-        try:
-            await check_release_once()
-        except Exception:
-            pass
-        await asyncio.sleep(max(300, int(release_check_interval_s)))
+        current = timezone_rules.localtime(name=timezone_name)
+        slot = release_update.automatic_check_slot(
+            release_check_schedule, release_check_time,
+            release_check_weekday, current
+        )
+        if slot and slot != last_slot:
+            last_slot = slot
+            try:
+                await check_release_once(True)
+            except Exception:
+                pass
+        await asyncio.sleep(30)
 
 
 async def start_admin_portal():
@@ -1412,6 +2149,7 @@ async def start_admin_portal():
     )
 
     try:
+        wifi_recovery.schedule_wifi_scan()
         web_portal_server = await start_web_portal(
             settings,
             get_log_buffer,
@@ -1424,6 +2162,8 @@ async def start_admin_portal():
             portal_update_upload if web_portal_updates_enabled else None,
             portal_firmware_upload if web_portal_firmware_updates_enabled else None,
             configuration_backup,
+            preview_configuration_import,
+            apply_configuration_import,
             portal_settings,
             update_portal_settings,
             module_settings_json,
@@ -1434,7 +2174,13 @@ async def start_admin_portal():
             portal_task_status,
             installed_certificate_details,
             confirm_network_settings,
-            request_factory_default
+            request_factory_default,
+            secure_configuration_backup,
+            preview_secure_configuration_import,
+            apply_secure_configuration_import,
+            set_log_buffer_lines,
+            wifi_recovery.cached_wifi_networks,
+            portal_universal_upload
         )
     except Exception as exc:
         logOutput('Local', 'Web portal', {'log': 'Failed to start - ' + str(exc)}, 'ERROR')
@@ -1485,7 +2231,7 @@ async def network_trial_guard():
     hardware_platform.reset()
             
             
-async def publish_message(msg, qosValue, logOnly, retain=False):
+async def _publish_message_now(msg, qosValue, logOnly, retain=False):
     
     
     if not logOnly:
@@ -1501,7 +2247,9 @@ async def publish_message(msg, qosValue, logOnly, retain=False):
                 payload = json.dumps(msg['payload']).encode()
             await client.publish(msg['topic'], payload, retain=retain, qos=qosValue)
             logOutput ('MQTT', 'Publish', msg, publish_logtype(msg))
+            return True
         except Exception as exc:
+            runtime_health.increment('mqtt_publish_failures')
             logOutput(
                 'MQTT',
                 'Publish',
@@ -1512,8 +2260,37 @@ async def publish_message(msg, qosValue, logOnly, retain=False):
                 },
                 'ERROR'
             )
+            return False
         finally:
             outputDevices[0]['output']['0'].toggle()
+
+    return True
+
+
+async def publish_message(msg, qosValue, logOnly, retain=False):
+    """Enqueue MQTT output without creating an unbounded task per message."""
+    before = mqtt_publish_queue.stats()['dropped']
+    mqtt_publish_queue.put(msg, qosValue, logOnly, retain)
+    dropped = mqtt_publish_queue.stats()['dropped'] - before
+    if dropped:
+        runtime_health.increment('mqtt_publish_drops', dropped)
+    await asyncio.sleep(0)
+    return True
+
+
+async def mqtt_publish_worker():
+    while True:
+        item = mqtt_publish_queue.get_nowait()
+        if item is None:
+            if hasattr(asyncio, 'sleep_ms'):
+                await asyncio.sleep_ms(20)
+            else:
+                await asyncio.sleep(0.02)
+            continue
+        await _publish_message_now(
+            item['data'], item['qos'], item['log_only'], item['retain']
+        )
+        await asyncio.sleep(0)
 
 
 async def sync_ntp_time():
@@ -1775,6 +2552,28 @@ def device_config(devicetype, uuid, command, payload):
     return data
 
 
+def module_command_completed(operation):
+    """Publish the resulting state regardless of whether MQTT or API initiated it."""
+    if not operation or operation.get('status') != 'complete':
+        return
+    result = operation.get('result') or {}
+    state = result.get('state') if isinstance(result, dict) else None
+    if state is None:
+        return
+    uuid = operation.get('module')
+    device = next((item for item in deviceObjects if item.get('uuid') == uuid), None)
+    if not device:
+        return
+    publish_wrapper({
+        'payload': state,
+        'topic': ha_state_topic(device['type']['class'], deviceid, uuid),
+        'log': 'HA Update: ' + device.get('name', uuid),
+    }, 0, False)
+
+
+module_broker.add_listener(module_command_completed)
+
+
 
 def decode_mqtt_value(value):
     if hasattr(value, 'decode'):
@@ -1837,9 +2636,15 @@ async def handle_mqtt_message(topic, payload, retained):
     msg_topic_1, msg_topic_2, msg_topic_3, msg_topic_4 = msg_parts
 
     if msg_topic_1 == 'homeassistant':
-        data = device_config(msg_topic_2, msg_topic_3[len(deviceid):len(msg_topic_3)], msg_topic_4, msg_payload)
-        if data:
-            start_task('mqtt_set_publish', publish_message(data, 0, False))
+        uuid = msg_topic_3[len(deviceid):len(msg_topic_3)]
+        if msg_topic_4 == 'set':
+            try:
+                module_broker.submit(uuid, msg_payload, 'mqtt', msg_topic)
+            except Exception as exc:
+                logOutput(
+                    'MQTT', 'Command',
+                    {'log': 'Rejected module command - ' + str(exc)}, 'ERROR'
+                )
 
 
 async def messages(client):  # Respond to incoming messages
@@ -1895,6 +2700,7 @@ async def up(client):  # Respond to connectivity being (re)established
     while True:
         await client.up.wait()
         client.up.clear()
+        runtime_health.observe_wifi(reconnected=True)
         await configure_mqtt_connection(client)
         await asyncio.sleep(0)
 
@@ -1921,9 +2727,10 @@ def ssl_error_message(exc):
 
 
 async def main(client):
-    global watchdog
+    global watchdog, release_available, release_check_status
 
     start_local_display()
+    start_task('module_command_broker', module_broker.run(), main_device_task=True)
 
     status_led = outputDevices[0]['output']['0']
     hardware_platform.set_status_led_state(status_led, 'wifi')
@@ -1931,6 +2738,10 @@ async def main(client):
     try:
         logOutput('MQTT', 'Connect', {'log': 'Connect WiFi before NTP sync'}, 'INFO')
         await client.wifi_connect(quick=True)
+        try:
+            runtime_health.observe_wifi(network.WLAN(network.STA_IF).status('rssi'))
+        except Exception:
+            pass
     except (OSError, ValueError) as exc:
         logOutput('WiFi', 'Connect', {'log': 'Connection error: ' + str(exc)}, 'ERROR')
         set_main_device_error()
@@ -1986,8 +2797,11 @@ async def main(client):
     )
     if mark_application_healthy:
         mark_application_healthy()
+    firmware_confirmed = False
+    application_confirmed = False
     try:
         if firmware_update.confirm_update():
+            firmware_confirmed = True
             logOutput(
                 'Local', 'Base firmware',
                 {'log': 'OTA partition confirmed after portal health check'}, 'INFO'
@@ -1995,10 +2809,54 @@ async def main(client):
     except Exception as exc:
         logOutput('Local', 'Base firmware', {'log': 'Could not confirm OTA partition - ' + str(exc)}, 'ERROR')
     if app_update.confirm_update():
+        application_confirmed = True
         logOutput('Local', 'Application update', {'log': 'Update confirmed healthy'}, 'INFO')
+    if universal_update.confirm_update():
+        logOutput(
+            'Local', 'Universal update',
+            {'log': 'Core and application update confirmed healthy'}, 'INFO'
+        )
     cancel_recovery_trial_deadline_if_healthy()
 
     await sync_ntp_time()
+    await start_module_api()
+    if remote_syslog.enabled:
+        start_task('remote_syslog', remote_syslog.run())
+    start_task('certificate_alerts', certificate_alert_monitor())
+
+    paired = update_orchestrator.refresh(
+        app_update.running_release_sequence(),
+        firmware_update.running_release_sequence(),
+        app_update.running_version(device_settings.ha_device_info.get('sw', '')),
+        firmware_update.running_version(hardware_platform.runtime_version())
+    )
+    if firmware_confirmed:
+        runtime_health.record_update_result(
+            'firmware', 'confirmed',
+            firmware_update.running_version(hardware_platform.runtime_version())
+        )
+    if application_confirmed:
+        runtime_health.record_update_result(
+            'application', 'confirmed',
+            app_update.running_version(device_settings.ha_device_info.get('sw', ''))
+        )
+    if paired and paired.get('status') != 'complete':
+        release_available = update_orchestrator.next_release() or {}
+        if release_available:
+            progress = update_orchestrator.status()
+            release_check_status = (
+                'Paired update step ' + str(progress.get('step', 0)) +
+                ' of ' + str(progress.get('total_steps', 0))
+            )
+            if release_auto_download:
+                try:
+                    await download_release_once()
+                except Exception as exc:
+                    update_orchestrator.mark_failed(exc)
+                    runtime_health.record_update_result(
+                        release_available.get('type', 'release'), 'failed',
+                        release_available.get('version', ''), str(exc)
+                    )
 
     if certificate_config.get('mode') == 'acme':
         start_task(
@@ -2014,6 +2872,7 @@ async def main(client):
         try:
             await client.connect()
             client.up.clear()
+            start_task('mqtt_publish_worker', mqtt_publish_worker(), main_device_task=True)
             await configure_mqtt_connection(client)
             mqtt_started = True
         except ValueError as exc:
@@ -2059,6 +2918,12 @@ async def main(client):
     while True:
         if watchdog:
             watchdog.feed()
+        if gc and hasattr(gc, 'mem_free'):
+            runtime_health.observe_heap(gc.mem_free())
+        try:
+            runtime_health.observe_wifi(network.WLAN(network.STA_IF).status('rssi'))
+        except Exception:
+            pass
         status_led = outputDevices[0]['output']['0']
         colour, solid = hardware_platform.status_led_mode(
             main_device_error, modules_have_issues()
@@ -2155,10 +3020,11 @@ client.queue.put = trace_mqtt_queue_put
 
 # Helper for drivers to publish via main publish_message
 def publish_wrapper(data, qosValue, logOnly, retain=False):
-    try:
-        start_task('driver_publish', publish_message(data, qosValue, logOnly, retain))
-    except Exception:
-        pass
+    before = mqtt_publish_queue.stats()['dropped']
+    mqtt_publish_queue.put(data, qosValue, logOnly, retain)
+    dropped = mqtt_publish_queue.stats()['dropped'] - before
+    if dropped:
+        runtime_health.increment('mqtt_publish_drops', dropped)
 
 # Import module settings, validate, associate GPIO inputs/outputs, and initialise
 
@@ -2247,5 +3113,13 @@ for device in moduleSettings['devices']:
 
 try:
     asyncio.run(main(client))
+except Exception as exc:
+    runtime_health.observe(
+        'last_startup_exception', 'main: ' + str(exc), force=True
+    )
+    runtime_health.record_event(
+        'startup_exception', 'main: ' + str(exc), force=True
+    )
+    raise
 finally:
     client.close()  # Prevent LmacRxBlk:1 errors

@@ -134,6 +134,15 @@ class DeviceDriver:
             'last_publish_ms': None,
             'consecutive_errors': 0
         }
+        self._command_response_callback = None
+
+    def set_response_callback(self, callback):
+        """Observe asynchronous command results without binding a driver to MQTT."""
+        self._command_response_callback = callback
+
+    def notify_command_response(self, payload):
+        if self._command_response_callback:
+            self._command_response_callback(payload)
 
     def discovery_device_info(self, deviceid, ha_devicename):
         return homeassistant_device_info(deviceid, ha_devicename, self.device.get('_portal_url'))

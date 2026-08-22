@@ -709,7 +709,7 @@ def recover_certificate_transaction():
     if not isinstance(transaction, dict) or transaction.get('version') != 1:
         raise RuntimeError('certificate transaction marker is invalid')
     entries = transaction.get('entries')
-    if not isinstance(entries, list) or not 1 <= len(entries) <= 8:
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 32:
         raise RuntimeError('certificate transaction entries are invalid')
     for entry in entries:
         if not isinstance(entry, dict):
@@ -827,6 +827,38 @@ def _iso_epoch(value):
             return int(time.mktime(parts[:8]))
     except Exception:
         return 0
+
+
+def certificate_expiry_status(not_after, now=None, warning_days=30,
+                              critical_days=7):
+    """Return the lifecycle classification for an ISO certificate expiry."""
+    current = int(time.time() if now is None else now)
+    expiry = _iso_epoch(not_after)
+    if current < 1577836800 or not expiry:
+        return {'expiry_level': 'unknown', 'days_remaining': None}
+    remaining = int((expiry - current) // 86400)
+    if remaining < 0:
+        level = 'expired'
+    elif remaining <= int(critical_days):
+        level = 'critical'
+    elif remaining <= int(warning_days):
+        level = 'warning'
+    else:
+        level = 'ok'
+    return {'expiry_level': level, 'days_remaining': remaining}
+
+
+def certificate_lifecycle(path, now=None, warning_days=30, critical_days=7):
+    """Return decoded identity plus 30/7-day certificate expiry state."""
+    details = certificate_details(path)
+    if not details.get('installed') or details.get('error'):
+        details['expiry_level'] = 'missing'
+        details['days_remaining'] = None
+        return details
+    details.update(certificate_expiry_status(
+        details.get('not_after', ''), now, warning_days, critical_days
+    ))
+    return details
 
 
 def renewal_due(now=None):

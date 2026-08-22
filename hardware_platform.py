@@ -132,6 +132,23 @@ def reset():
         machine.reset()
 
 
+def reset_cause():
+    if not machine or not hasattr(machine, 'reset_cause'):
+        return 'unknown'
+    try:
+        value = machine.reset_cause()
+    except Exception:
+        return 'unknown'
+    names = {}
+    for name in (
+        'PWRON_RESET', 'HARD_RESET', 'WDT_RESET', 'DEEPSLEEP_RESET',
+        'SOFT_RESET', 'BROWN_OUT_RESET'
+    ):
+        if hasattr(machine, name):
+            names[getattr(machine, name)] = name.lower()
+    return names.get(value, str(value))
+
+
 def watchdog_timeout(requested_ms):
     requested_ms = int(requested_ms or 0)
     return requested_ms if requested_ms > 0 else 0

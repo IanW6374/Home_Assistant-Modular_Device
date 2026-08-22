@@ -783,6 +783,7 @@ class ModbusRTUDriver(DeviceDriver):
             uart.read()
 
     def _publish_response(self, payload):
+        self.notify_command_response(payload)
         if not self._publish_callable or not self._deviceid:
             return
 

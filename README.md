@@ -12,7 +12,9 @@ points for EMS monitoring, RS485 devices, voltage sensing, and PT1000 sensing.
 
 ## Features
 
-- MQTT state publishing and Home Assistant MQTT discovery.
+- Bounded, coalescing MQTT state publishing and Home Assistant MQTT discovery.
+- Versioned HTTPS module API with simultaneous MQTT operation, read/write
+  commands, mandatory mTLS, client-certificate enrolment, scopes, and revocation.
 - Modular device drivers loaded from `device_modules/`.
 - GPIO light and switch modules.
 - Generic ESP32-S3 RS485 Modbus sensor module, with legacy configuration compatibility.
@@ -27,6 +29,10 @@ points for EMS monitoring, RS485 devices, voltage sensing, and PT1000 sensing.
   application/core updates.
 - Live logs, module health, discovery trigger, and Grove AC voltage calibration.
 - MQTT availability and diagnostic health entities for easier field debugging.
+- Persistent reset, watchdog, Wi-Fi/RSSI, heap, MQTT-drop, startup-exception,
+  certificate-expiry, and update-result health history.
+- Versioned non-secret configuration export/import with validation and diff preview.
+- Reboot-safe paired core/application release orchestration.
 
 ## Repository Layout
 
@@ -53,6 +59,13 @@ credential_security.py          Native-backed password hashing and validation
 setup_wizard.py                 Frozen first-boot AP setup and signed app installer
 factory_config.py               Frozen non-secret app-profile/release catalogue
 certificate_manager.py          Self-signed, manual, and ACME certificate lifecycle
+api_security.py                 API client certificate enrolment and scopes
+device_api.py                   Versioned, mandatory-mTLS module API
+message_broker.py               Shared command broker and bounded MQTT output queue
+runtime_health.py               Flash-conscious persistent health history
+configuration_manager.py        Public and AES-GCM encrypted full backup/restore
+remote_logging.py               Bounded RFC 5424 UDP/TLS syslog forwarding
+update_orchestrator.py          Persistent paired core/application update state
 portal_ui.py                    Shared portal/wizard visual components
 web_portal.py                   Authenticated portal routes and rendering
 web_portal_ui.py                Portal navigation, styling, and browser behavior
@@ -67,6 +80,7 @@ module_settings.schema.json     Host-side JSON schema for module settings
 tools/deploy.py                 Host-side helper for copying MicroPython files
 tools/build_update.py           Selective Python application bundle builder
 tools/build_firmware_update.py  ESP32 application image to .hamf bundle builder
+tools/build_universal_update.py Signed .hamf + .hamd to combined .hamu builder
 tools/build_micropython_firmware.py Reproducible MicroPython build/package helper
 tools/stage_application_usb.py  State-preserving signed application USB installer
 tools/stage_firmware_usb.py     State-preserving signed core-firmware USB installer
@@ -113,6 +127,10 @@ the permanent portal. Network changes start a three-minute trial. The first
 authenticated login confirms the new settings; otherwise the next boot restores
 the complete previous configuration automatically. The core recovery AP remains
 available for faults outside that transaction.
+Both the wizard and permanent portal show a background-refreshed list of visible
+Wi-Fi networks, ordered by signal strength. A manual SSID option remains
+available for hidden networks. HTTP requests return the cached list immediately
+so a radio scan cannot hold a portal response open.
 
 The shipping/reseed process preloads a correctly signed application bundle on
 the flash-encrypted filesystem. The wizard verifies and activates it after
@@ -121,8 +139,11 @@ page. `factory_config.py` defines an optional HTTPS release endpoint and signed
 `.hamd` upload remains a recovery fallback when the preloaded application
 cannot be verified. There is no shared fleet-wide default password.
 
-The trusted CA is stored once and referenced independently by the MQTT and
-release services. With ACME enabled, the device answers HTTP-01 on port 80 and
+MQTT, release-server, and API-client authentication use independent CA trust
+anchors. An RC1 shared trust anchor remains a migration fallback until a
+service-specific MQTT or release CA is installed. Each CA can then be rotated
+without changing the portal identity or another outbound service. With ACME
+enabled, the device answers HTTP-01 on port 80 and
 renews at about two-thirds of the certificate lifetime; successful renewal
 restarts the portal so it loads the new keypair. **Maintenance > Certificates**
 retains manual replacement when the CA or ACME service is unavailable.
@@ -143,10 +164,15 @@ Configuration has three explicit owners; the former monolithic
 - `app_settings.json` is signed application policy included in every `.hamd`
   application bundle. It owns Home Assistant behavior, portal features and
   refresh timing, release endpoints/timing, and local-display policy.
-- User settings live in encrypted NVS. **System** owns Network, Portal, NTP,
-  MQTT, and Home Assistant settings; **Maintenance > Upgrades** owns the
-  release channel and automatic-update policy; **Maintenance > Logging** owns
-  the runtime log level.
+- User settings live in encrypted NVS. **System** owns Network, Portal,
+  Time / Date, MQTT, Home Assistant, Device API, and Logging settings;
+  **Maintenance > Upgrades** owns the release channel and automatic-update
+  policy. Maintenance viewers link back to the applicable System configuration.
+
+NTP always sets the RTC in UTC. **System > Time / Date** stores a named time
+zone and applies its daylight-saving rules to portal timestamps, device logs,
+scheduled release checks, and local-midnight energy resets without altering TLS
+certificate validation. UTC remains the default.
 
 `module_settings.json` remains the device's user-owned module configuration. A
 missing file means zero configured modules. Use **Module > Configuration** to
@@ -161,12 +187,14 @@ separates work by task:
 
 - **Status > Overview** shows connectivity, versions, and MQTT-published module
   values.
-- **System** separates Network, Portal, NTP, MQTT, and Home Assistant settings.
+- **System** separates Network, Portal, Time / Date, MQTT, Home Assistant,
+  Logging, and the mTLS Device API settings.
 - **Module** contains structured configuration and module diagnostics/support
   downloads.
 - **User > Account** combines administrator identity and authenticated password
   replacement; legacy direct password-change URLs are disabled.
-- **Maintenance** contains upgrades, logging, the guarded factory-default
+- **Maintenance** contains upgrades, configuration backup/restore, persistent
+  health history, logging, the guarded factory-default
   action, and decoded certificate information split into **CA Trust** and
   **Device Certificates** sections for independent service identities.
 
@@ -197,24 +225,51 @@ rejected. Only a salted PBKDF2 verifier is stored on the device. HTTPS is the
 default; an administrator may explicitly select HTTP for a network where
 transport encryption is not required.
 
-When the user portal-port setting is blank, HTTPS uses port `8443` and explicit
-HTTP uses `8080`. Port `80` remains reserved for ACME HTTP-01 and recovery.
+The portal always shows and exports the effective port: HTTPS uses `8443` and
+explicit HTTP uses `8080` by default. Port `80` remains reserved for ACME
+HTTP-01 and recovery. The inactivity timeout is user-configurable from 5
+minutes to 24 hours.
 
-**Maintenance > Logging** accepts `ERROR`, `INFO`, and `DEBUG` log levels. Changes
+**System > Logging** accepts `ERROR`, `INFO`, and `DEBUG` log levels. Changes
 are saved to encrypted NVS and survive restart. `DEBUG` also enables MQTT
 topic/payload logging and `mqtt_as` client debug output. The log pane refreshes
 using `web_portal.log_refresh_s`; Overview refreshes its compact status using
 `web_portal.value_refresh_s` (with a five-second fallback). The recent log
-buffer is controlled by `web_portal.log_buffer_lines`, and long entries are
-trimmed to `web_portal.log_line_max_chars`. **Pause** and **Resume** control
+buffer is user-configurable from 0 to 500 entries, while the signed application
+policy supplies its initial default. Long entries are trimmed to
+`web_portal.log_line_max_chars`. Logs can also be forwarded as RFC 5424 to UDP
+syslog or over authenticated TLS using the dedicated Syslog CA. **Pause** and **Resume** control
 automatic log refresh without stopping device logging, while **Download logs**
 saves the current buffer. **Module > Diagnostics > Download diagnostics**
 exports status, module detail, and the last 100 log entries as JSON.
+Successful and rejected portal logins, authenticated portal actions, and API
+requests are written as audit entries; high-frequency browser refresh requests
+are excluded to keep the bounded log useful.
 
-**Maintenance > Upgrades** checks the signed release channel when the page
-opens and retains a manual check action. Automatic and manual upgrade cards are
+**Maintenance > Health history** retains grouped system, network, MQTT, and API
+counters plus timestamped significant events across restarts. Writes are
+batched to reduce flash wear; startup/update failures are checkpointed
+immediately, and an authenticated control can reset the complete history.
+**Configuration backup** offers both a public operational backup with diff
+preview and a complete password-encrypted backup. Complete backups use
+PBKDF2-SHA256 and AES-256-GCM and include encrypted-NVS credentials, secrets,
+module settings, certificates/private keys, ACME state, API trust anchors, and
+enrolled API clients. Restore authenticates and validates the file before
+activation and restart. Complete export and restore are refused when the portal
+is running over explicit HTTP so the backup password never crosses the network
+in plaintext.
+
+**Maintenance > Upgrades** shows the persisted result of the last release check
+without contacting the server merely because the page was opened. A manual
+check action remains available. Disabled, daily, or weekly automatic checks run
+at the configured local time; the weekday control applies only to weekly
+schedules and irrelevant controls are disabled. Automatic and manual upgrade cards are
 stacked in workflow order; after upload/download verification, the relevant
 action changes to activation rather than presenting a second competing flow.
+When a signed channel contains matching core and application releases, the
+device records a two-step transaction, installs core firmware first, confirms
+the trial after the portal health boundary, and resumes the application step
+after reboot. The portal displays **step 1 of 2** or **step 2 of 2**.
 
 Portal cards use friendly display labels for shared health and diagnostic
 fields, such as **Last operation OK**, **HA publish age**, and **EMS CRC
@@ -222,9 +277,9 @@ errors**. This is presentation-only; MQTT payload keys and Home Assistant entity
 identifiers retain their original stable names.
 
 For Grove AC voltage calibration, enter a known meter voltage in the portal.
-The firmware updates the in-memory calibration multiplier and reports the new
-value. Copy that value back to `module_settings.json` when you want it to
-survive a reboot.
+The firmware validates and transactionally writes the new multiplier back to
+`module_settings.json`, so it survives power loss and restart, then returns to
+**Module > Diagnostics**.
 
 #### ESP32-S3 HTTPS
 
@@ -233,6 +288,50 @@ It uses `/certs/web.crt.der` and `/certs/web.key.der`, with those immutable
 paths defined by frozen `device_config.py`. First boot creates a self-signed
 pair, which can later be replaced through ACME or **Maintenance > Certificates**.
 The `auto` user transport setting therefore selects HTTPS by default.
+
+### Device API
+
+Enable the API under **System > Device API**, using a port different from the
+portal (default `8444`). Install one or more independent API client CAs and
+enrol DER client certificates under **Maintenance > Certificates**. Multiple
+CAs or clients can be staged as one batch. CA changes restart the TLS listener
+once; client enrolment is active immediately without restart. The calling system
+retains the corresponding private key; the device stores only the CAs and the
+enrolled certificate fingerprint/scopes. The listener waits for a valid clock
+and always requires a CA-validated, enrolled client certificate.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/device` | Safe device/application/core identity |
+| `GET /api/v1/modules` | Module identities and capabilities |
+| `GET /api/v1/modules/{uuid}/state` | Latest cached state |
+| `GET /api/v1/modules/{uuid}/diagnostics` | Driver and transport health |
+| `POST /api/v1/modules/{uuid}/commands` | Submit the same JSON command used by MQTT `/set` |
+| `GET /api/v1/operations/{id}` | Retrieve queued/deferred command status |
+| `GET /api/v1/health/history` | Persistent health counters and events |
+
+API and MQTT commands enter the same bounded broker and driver path. Deferred
+Modbus responses retain their request ID, and writes from either transport
+update the shared state used by both. Cached `GET` requests do not initiate
+physical bus traffic; use an explicit read command when a fresh transaction is
+required. API requests are logged, counted in persistent health history, and
+HTTP/1.1 connections can be reused to avoid a new TLS handshake for every
+request. Unknown module UUIDs return a JSON `404` response.
+
+For each API caller, issue a client certificate from the dedicated API client
+CA, convert only the public certificate to DER, and enrol that `.der` file in
+the portal. Keep the PEM private key on the caller. A request then supplies the
+client identity and separately verifies the device's portal certificate, for
+example:
+
+```sh
+curl --cert automation-client.crt --key automation-client.key \
+  --cacert portal-ca.crt \
+  https://device-name.local:8444/api/v1/modules
+```
+
+Revocation is immediate for new connections and is available under **System >
+Device API**. The API has no password, bearer-token, or unauthenticated mode.
 
 For development-only manual certificate creation:
 
@@ -253,8 +352,9 @@ build described in the ESP32-S3 firmware section.
 
 Portal-based remote application updates, including explicitly authorized
 protected certificate maintenance, are supported on ESP32-S3 with PSRAM.
-Encrypted-NVS credentials are never carried in an update bundle or
-configuration backup. Update size ceilings and protected-update permission are
+Encrypted-NVS credentials are never carried in an update bundle or public
+configuration backup; they appear only inside the explicitly requested,
+password-encrypted complete backup. Update size ceilings and protected-update permission are
 immutable limits in `device_config.py`; they are not signed application
 settings.
 
@@ -304,8 +404,8 @@ the build rather than creating an incomplete package.
 
 Application bundles contain the application core and every production driver.
 They do not contain the permanent `main.py` launcher or the
-firmware-frozen recovery, update-security, storage-support, hardware-platform,
-and Wi-Fi recovery modules. User settings, module settings, credentials and
+firmware-frozen recovery, update-security, universal-update, storage-support,
+hardware-platform, and Wi-Fi recovery modules. User settings, module settings, credentials and
 certificates are excluded by default. Include module settings explicitly when
 required:
 
@@ -513,8 +613,8 @@ Format 6 intentionally has no legacy bridge. Reflash a matching format-6
 factory/core image before installing format-6 application releases.
 
 Upload the `.hamf` file under **Maintenance > Upgrades**. The same manual
-chooser accepts
-application `.hamd` bundles and routes each bundle type to the appropriate
+chooser accepts application `.hamd` bundles and combined `.hamu` bundles, and
+routes each bundle type to the appropriate
 verified update handler. The device streams the firmware bundle
 directly to the inactive partition, validates the package SHA-256, reads the
 partition back, and verifies it again. **Activate firmware and reboot** changes
@@ -525,6 +625,9 @@ update-health boundary so a broker outage remains locally repairable. Firmware
 built with rollback enabled
 returns to the previous partition if the trial cannot confirm itself.
 The tile shows both the running firmware label and any staged firmware label.
+During manual upload the portal reports browser upload, inactive-partition
+writing, and read-back verification as separate stages. Only the active stage
+appears beside the spinner; the supporting message lists completed stages.
 
 The A/B Python application slots, settings, and certificates live in
 the separate VFS partition and are not overwritten by base-firmware OTA. Keep
@@ -532,6 +635,25 @@ using `.hamd` for routine application changes; use `.hamf` when the frozen
 recovery implementation must change. Credentials are independent of both and
 remain in encrypted NVS. New production devices use the first-boot wizard;
 there is no legacy root application or secrets bootstrap.
+
+A `.hamu` combines one independently signed `.hamf` and one independently
+signed `.hamd` with a third signed manifest that binds both component hashes,
+versions, sizes, and release sequences. Build it after creating the matching
+component bundles:
+
+```sh
+python3 tools/build_universal_update.py universal-1.5.0.hamu \
+  --firmware ham-core-1.5.0.hamf \
+  --application application-1.5.0.hamd \
+  --version 1.5.0 --release-sequence 1500 \
+  --signing-key ~/.ham-device/update.private-key
+```
+
+The portal streams and verifies both components and offers one activation and
+reboot action. Already-installed components at the same or a newer sequence are
+verified but skipped. A core older than recovery API 8 and its existing portal
+do not understand HAMU, so install the first HAMU-capable `.hamf` and matching
+`.hamd` separately; later releases can be delivered as one file.
 
 ### ESP32-S3 Migration Configuration
 
@@ -1034,7 +1156,8 @@ The core recovery console deliberately exposes only:
 
 - Wi-Fi credential replacement;
 - pending/staged application discard, activation, or rollback to the previous slot;
-- signed `.hamd` application and `.hamf` core firmware upload/activation; and
+- signed `.hamd` application, `.hamf` core firmware, and `.hamu` combined
+  upload/activation; and
 - a normal application retry.
 
 Remote recovery uploads are disabled unless `/.update-verification-key` is
@@ -1051,20 +1174,26 @@ actions, maintains upload-specific progress,
 and exposes storage, slot, signing, recovery API, update history, manual app-slot
 rollback, configuration validation, and sanitised diagnostic/config downloads.
 
-The signed release endpoint and interval are configured under `web_portal`.
-The selected channel and automatic download/activation preferences are stored
-in encrypted user settings and managed under **Maintenance > Upgrades**:
+The signed release endpoint is configured under `web_portal`. The selected
+channel, disabled/daily/weekly check schedule, local check time, weekly day,
+and automatic download/activation preferences are stored in encrypted user
+settings and managed under **Maintenance > Upgrades**. Scheduled checking is
+disabled by default; its time and day controls remain disabled until a relevant
+schedule is selected:
 
 ```json
 {
-  "release_manifest_url": "https://updates.example/hamd/{channel}/latest.json",
-  "release_check_interval_s": 21600
+  "release_manifest_url": "https://updates.example/hamd/{channel}/latest.json"
 }
 ```
 
-The trusted CA path is immutable core policy in `device_config.TRUST_CA_PATH`.
-MQTT and release downloads currently share that CA Trust installation while
-retaining separate service-use checks.
+MQTT broker trust, release-server trust, Syslog trust, and Device API client
+trust use independent immutable paths in `device_config.py`. API client trust
+is a bounded multi-CA directory. A device upgraded from RC1
+continues to use the legacy shared CA for MQTT and release HTTPS until a
+service-specific CA is installed. Each trust anchor can then be rotated by
+itself under **Maintenance > Certificates**; the Device API never falls back to
+the legacy anchor.
 
 The endpoint returns a signed release descriptor containing the bundle type,
 version, release sequence, HTTPS URL, exact byte size, SHA-256, compatibility
@@ -1087,8 +1216,10 @@ python3 tools/publish_release.py \
 ```
 
 Upload `release-site/` to an HTTPS static host. The command refuses production
-publication from a dirty worktree and records the full Git source revision in
-the signed release notes. The `--allow-dirty` switch is intended only for
+publication from a dirty worktree, verifies every signed bundle payload again,
+requires its embedded build revision to match the publishing checkout, and
+records that full Git revision in the signed release notes. The `--allow-dirty`
+switch is intended only for
 explicit development builds, which are marked `-dirty`. The command stores immutable
 artifacts under `bundles/` and replaceable metadata under
 `stable/latest.json` or `beta/latest.json`. Publish the application and core
@@ -1118,11 +1249,13 @@ without microcontroller hardware:
 python3 -m unittest discover -s tests
 ```
 
-The tests cover WHES presentation calculations, rounded daily energy values,
-EMS telegram decoding, MAX31865 PT1000 conversion, Grove AC voltage RMS and
-threshold behavior/calibration, local display rendering/actions, Home Assistant
-topic/discovery helpers, web portal rendering, shared SPI handling, and config
-validation.
+The tests cover application/core/universal updates, signatures and release
+descriptors, encrypted backup/restore, credentials, certificates and API mTLS,
+portal/setup workflows, timezone/DST scheduling and local-midnight WHES energy,
+health/syslog/MQTT behavior, device drivers, Home Assistant discovery, shared
+hardware helpers, and JSON configuration validation. CI also builds the complete
+secure ESP32-S3 firmware and compiles every runtime module with pinned
+MicroPython `mpy-cross`.
 
 Device runtime files must also be compiled with the `mpy-cross` executable from
 the pinned MicroPython v1.28.0 checkout. CPython `py_compile` is appropriate
@@ -1161,3 +1294,28 @@ common sensor discovery payloads.
 - Keep credentials and certificates out of public repositories.
 - `.gitignore` excludes local secrets, certificates, bytecode, and macOS cache
   files.
+
+## Safety and intended use
+
+Home Assistant Modular Device is general-purpose monitoring and automation
+software. It is not designed, tested, or certified for life-safety systems,
+protective relaying, emergency shutdown, billing-grade energy measurement, or
+other safety-critical applications.
+
+Do not rely on this software as the sole means of preventing injury, equipment
+damage, or property loss. Use appropriate independent safeguards. Installation
+or modification of equipment connected to mains electricity must be performed
+by a suitably qualified person in accordance with applicable regulations.
+Measurements, alerts, and control actions may be delayed, inaccurate, or
+unavailable because of hardware, software, configuration, network, or power
+failures. Users are responsible for assessing suitability for their use.
+
+## Licence
+
+Copyright 2026 Ian Walton.
+
+This project is licensed under the Apache License, Version 2.0. See
+[`LICENSE`](LICENSE) for the complete terms. Third-party dependencies and
+bundled components remain subject to their respective licences. See
+[`SECURITY.md`](SECURITY.md) for private vulnerability reporting and
+[`CHANGELOG.md`](CHANGELOG.md) for release history.

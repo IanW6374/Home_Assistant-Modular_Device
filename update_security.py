@@ -16,7 +16,7 @@ except ImportError:
 
 
 RECOVERY_API_VERSION = 6
-CORE_API_VERSION = 6
+CORE_API_VERSION = 8
 CONFIG_API_VERSION = 3
 VERIFICATION_KEY_PATH = '.update-verification-key'
 SIGNATURE_SCHEME = 'ecdsa-p256-sha256'
@@ -258,6 +258,20 @@ def manifest_message(bundle_type, manifest):
             str(manifest.get('size', '')),
             str(manifest.get('sha256', '')).lower(),
         ))
+    elif bundle_type == 'hamu':
+        fields.extend((
+            str(manifest.get('version', '')),
+            str(manifest.get('release_sequence', '')),
+        ))
+        for name in ('firmware', 'application'):
+            component = manifest.get(name, {})
+            fields.extend((
+                name,
+                str(component.get('version', '')),
+                str(component.get('release_sequence', '')),
+                str(component.get('size', '')),
+                str(component.get('sha256', '')).lower(),
+            ))
     elif bundle_type == 'release':
         fields.extend((
             str(manifest.get('channel', '')),
@@ -411,6 +425,48 @@ def validate_manifest(bundle_type, manifest, key_path=VERIFICATION_KEY_PATH):
         raise ValueError('ECDSA-signed updates are required by this device')
     if not verify_manifest_signature(bundle_type, manifest, signature, public_key):
         raise ValueError('update signature verification failed')
+    return {'signed': True, 'required': True}
+
+
+def validate_universal_manifest(manifest, key_path=VERIFICATION_KEY_PATH):
+    """Validate a signed manifest binding one HAMF and one HAMD bundle."""
+    if not isinstance(manifest, dict) or int(manifest.get('format_version', 0)) != 1:
+        raise ValueError('unsupported universal update format')
+    if str(manifest.get('target_board', '')) != TARGET_BOARD:
+        raise ValueError('universal update target board is not supported')
+    if not str(manifest.get('version', '')).strip():
+        raise ValueError('universal update has no version')
+    universal_version = str(manifest.get('version', '')).strip()
+    sequence = int(manifest.get('release_sequence', 0))
+    if sequence <= 0:
+        raise ValueError('universal update has no valid release sequence')
+    for name in ('firmware', 'application'):
+        component = manifest.get(name)
+        if not isinstance(component, dict):
+            raise ValueError('universal update has no ' + name + ' component')
+        if not str(component.get('version', '')).strip():
+            raise ValueError('universal ' + name + ' has no version')
+        if str(component.get('version', '')).strip() != universal_version:
+            raise ValueError('universal component version labels do not match')
+        if int(component.get('release_sequence', 0)) != sequence:
+            raise ValueError('universal component release sequences do not match')
+        if int(component.get('size', 0)) <= 0:
+            raise ValueError('universal ' + name + ' size is invalid')
+        digest = str(component.get('sha256', '')).lower()
+        if len(digest) != 64 or any(
+            character not in '0123456789abcdef' for character in digest
+        ):
+            raise ValueError('universal ' + name + ' SHA-256 is invalid')
+    public_key = _public_key(key_path)
+    if public_key is None:
+        raise ValueError('update verification key is not provisioned')
+    signature = str(manifest.get('signature', '')).lower()
+    if (
+        manifest.get('signature_scheme') != SIGNATURE_SCHEME or
+        len(signature) != 128 or
+        not verify_manifest_signature('hamu', manifest, signature, public_key)
+    ):
+        raise ValueError('universal update signature verification failed')
     return {'signed': True, 'required': True}
 
 

@@ -49,7 +49,7 @@ def load_signing_key(path):
 def build_firmware_bundle(
     image, output, version, platform='esp32-s3', signing_key=b'',
     max_image_bytes=2 * 1024 * 1024, release_sequence=1,
-    minimum_core_api=6, format_version=6
+    minimum_core_api=8, format_version=6
 ):
     image = Path(image)
     if not image.is_file():

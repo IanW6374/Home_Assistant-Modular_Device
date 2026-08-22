@@ -10,7 +10,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from build_firmware_update import build_firmware_bundle, load_signing_key
+try:
+    from .build_firmware_update import build_firmware_bundle, load_signing_key
+    from .release_provenance import git_source_revision, source_marker
+except ImportError:  # Direct execution: python tools/build_micropython_firmware.py ...
+    from build_firmware_update import build_firmware_bundle, load_signing_key
+    from release_provenance import git_source_revision, source_marker
 from update_security import public_key_bytes
 
 
@@ -20,15 +25,34 @@ NVS_KEYS_OFFSET = 0x1A000
 NVS_KEYS_SIZE = 0x1000
 
 
-def write_core_metadata(directory, version, release_sequence):
+def validate_ota_headroom(image_bytes, lock):
+    partition_bytes = int(lock['ota_partition_bytes'])
+    used_percent = (100 * int(image_bytes)) / partition_bytes
+    failure_percent = float(lock.get('ota_failure_percent', 95))
+    if used_percent >= failure_percent:
+        raise ValueError(
+            'firmware image uses %.1f%% of the OTA partition; limit is %s%%' % (
+                used_percent, lock.get('ota_failure_percent', 95)
+            )
+        )
+    return used_percent, used_percent >= float(lock.get('ota_warning_percent', 85))
+
+
+def write_core_metadata(directory, version, release_sequence, source_revision=''):
     """Create build-specific frozen metadata without modifying the source tree."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     output = directory / 'core_metadata.py'
+    provenance = (
+        'SOURCE_REVISION = ' + repr(str(source_revision)) + '\n'
+        'SOURCE_REVISION_MARKER = ' + repr(source_marker(source_revision)) + '\n'
+        if source_revision else ''
+    )
     output.write_text(
         '"""Generated immutable HAMD core package identity."""\n\n'
         'CORE_FIRMWARE_VERSION = ' + repr(str(version)) + '\n'
         'RELEASE_SEQUENCE = ' + str(int(release_sequence)) + '\n'
+        + provenance
     )
     return output
 
@@ -131,6 +155,10 @@ def main():
         help='Mode-0600 output file for the unique first-boot AP password/label'
     )
     parser.add_argument('--allow-version-mismatch', action='store_true')
+    parser.add_argument(
+        '--allow-dirty', action='store_true',
+        help='permit a non-production build stamped with the current dirty revision'
+    )
     args = parser.parse_args()
 
     project = Path(__file__).resolve().parents[1]
@@ -145,6 +173,10 @@ def main():
     if not secure_boot_key.is_file():
         raise SystemExit('secure boot signing key not found: ' + str(secure_boot_key))
     lock = json.loads((project / 'firmware' / 'build-lock.json').read_text())
+    try:
+        source_revision = git_source_revision(project, args.allow_dirty)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
     if not args.allow_version_mismatch:
         description = run(
             ['git', 'describe', '--tags', '--always'], micropython, True
@@ -154,6 +186,18 @@ def main():
                 'MicroPython version mismatch: expected ' + lock['micropython'] +
                 ', found ' + description + '; use --allow-version-mismatch intentionally'
             )
+        micropython_commit = run(
+            ['git', 'rev-parse', 'HEAD'], micropython, True
+        ).stdout.strip().lower()
+        if micropython_commit != lock['micropython_commit']:
+            raise SystemExit(
+                'MicroPython commit mismatch: expected ' + lock['micropython_commit'] +
+                ', found ' + micropython_commit
+            )
+        if run([
+            'git', 'status', '--porcelain', '--untracked-files=no'
+        ], micropython, True).stdout.strip():
+            raise SystemExit('MicroPython checkout has tracked local changes')
         idf_description = run(['idf.py', '--version'], capture=True).stdout.strip()
         if lock['esp_idf'].lstrip('v') not in idf_description:
             raise SystemExit(
@@ -162,6 +206,18 @@ def main():
                 '; activate the pinned ESP-IDF environment or use '
                 '--allow-version-mismatch intentionally'
             )
+        idf_commit = run(
+            ['git', 'rev-parse', 'HEAD'], esp_idf, True
+        ).stdout.strip().lower()
+        if idf_commit != lock['esp_idf_commit']:
+            raise SystemExit(
+                'ESP-IDF commit mismatch: expected ' + lock['esp_idf_commit'] +
+                ', found ' + idf_commit
+            )
+        if run([
+            'git', 'status', '--porcelain', '--untracked-files=no'
+        ], esp_idf, True).stdout.strip():
+            raise SystemExit('ESP-IDF checkout has tracked local changes')
 
     board_dir = project / 'firmware' / 'boards' / lock['board']
     user_c_modules = project / 'firmware' / 'native'
@@ -169,7 +225,9 @@ def main():
         raise SystemExit('HAMD native module definition not found: ' + str(user_c_modules))
     build_dir = 'build-' + lock['board'] + '-' + lock['variant'] + '-secure'
     core_metadata_dir = port / build_dir / 'hamd-generated'
-    write_core_metadata(core_metadata_dir, args.version, args.release_sequence)
+    write_core_metadata(
+        core_metadata_dir, args.version, args.release_sequence, source_revision
+    )
     mpy_cross_dir = micropython / 'mpy-cross'
     mpy_cross = mpy_cross_dir / 'build' / 'mpy-cross'
 
@@ -271,6 +329,17 @@ def main():
             lock['ota_partition_bytes'],
             args.release_sequence,
         )
+        try:
+            used_percent, headroom_warning = validate_ota_headroom(
+                result['size'], lock
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc))
+        if headroom_warning:
+            print(
+                'WARNING: firmware image uses %.1f%% of the OTA partition' %
+                used_percent
+            )
         combined = port / build_dir / 'firmware.bin'
         if not combined.is_file():
             raise SystemExit('combined factory image was not created: ' + str(combined))
@@ -290,6 +359,7 @@ def main():
         print('created irreversible first-flash image', factory_output)
         print('created unique setup password file', setup_password_output)
         print('image bytes', result['size'], 'of', lock['ota_partition_bytes'])
+        print('source revision', source_revision)
     finally:
         try:
             partition_target.unlink()

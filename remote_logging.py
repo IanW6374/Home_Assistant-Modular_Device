@@ -1,0 +1,122 @@
+"""Bounded RFC 5424 remote syslog delivery over UDP or authenticated TLS."""
+
+try:
+    import uasyncio as asyncio
+except ImportError:
+    import asyncio
+
+try:
+    import usocket as socket
+except ImportError:
+    import socket
+
+try:
+    import ussl as ssl
+except ImportError:
+    import ssl
+
+
+SEVERITY = {'ERROR': 3, 'INFO': 6, 'DEBUG': 7}
+FACILITY_LOCAL0 = 16
+
+
+def rfc5424_message(timestamp, hostname, application, message, severity='INFO'):
+    priority = (FACILITY_LOCAL0 * 8) + SEVERITY.get(str(severity).upper(), 6)
+    timestamp = str(timestamp or '-').replace(' ', 'T')
+    if timestamp != '-' and not timestamp.endswith('Z'):
+        timestamp += 'Z'
+    safe_host = str(hostname or '-')[:64].replace(' ', '_')
+    safe_app = str(application or 'HAMD')[:48].replace(' ', '_')
+    safe_message = str(message).replace('\r', ' ').replace('\n', '\\n')
+    return (
+        '<' + str(priority) + '>1 ' + timestamp + ' ' + safe_host + ' ' +
+        safe_app + ' - - - ' + safe_message
+    ).encode()
+
+
+class RemoteSyslog:
+    def __init__(self, settings=None, hostname='hamd', ca_path='', queue_limit=32):
+        self.settings = settings or {}
+        self.hostname = str(hostname or 'hamd')
+        self.ca_path = str(ca_path or '')
+        self.queue_limit = max(1, min(128, int(queue_limit)))
+        self.queue = []
+        self.dropped = 0
+
+    @property
+    def enabled(self):
+        return self.settings.get('enabled') is True
+
+    def enqueue(self, timestamp, message, severity='INFO'):
+        if not self.enabled:
+            return False
+        if len(self.queue) >= self.queue_limit:
+            self.queue.pop(0)
+            self.dropped += 1
+        self.queue.append(rfc5424_message(
+            timestamp, self.hostname, 'HAMD', message, severity
+        ))
+        return True
+
+    def _tls_context(self):
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        if hasattr(context, 'verify_mode') and hasattr(ssl, 'CERT_REQUIRED'):
+            context.verify_mode = ssl.CERT_REQUIRED
+        try:
+            context.load_verify_locations(cafile=self.ca_path)
+        except TypeError:
+            with open(self.ca_path, 'rb') as stream:
+                context.load_verify_locations(cadata=stream.read())
+        if hasattr(context, 'check_hostname'):
+            context.check_hostname = True
+        return context
+
+    async def _send_udp(self, payload):
+        host = self.settings.get('host', '')
+        port = int(self.settings.get('port', 514))
+        address = socket.getaddrinfo(host, port, 0, socket.SOCK_DGRAM)[0][-1]
+        connection = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            connection.sendto(payload, address)
+        finally:
+            connection.close()
+
+    async def _open_tls(self):
+        host = self.settings.get('host', '')
+        port = int(self.settings.get('port', 6514))
+        context = self._tls_context()
+        try:
+            return await asyncio.open_connection(
+                host, port, ssl=context, server_hostname=host
+            )
+        except TypeError:
+            return await asyncio.open_connection(host, port, ssl=context)
+
+    async def run(self):
+        tls_reader = None
+        tls_writer = None
+        while self.enabled:
+            if not self.queue:
+                await asyncio.sleep_ms(100) if hasattr(asyncio, 'sleep_ms') else await asyncio.sleep(0.1)
+                continue
+            payload = self.queue[0]
+            try:
+                if self.settings.get('transport', 'udp') == 'tls':
+                    if tls_writer is None:
+                        tls_reader, tls_writer = await self._open_tls()
+                    # RFC 6587 octet counting avoids ambiguous newline framing.
+                    frame = str(len(payload)).encode() + b' ' + payload
+                    tls_writer.write(frame)
+                    await tls_writer.drain()
+                else:
+                    await self._send_udp(payload)
+                self.queue.pop(0)
+            except Exception:
+                if tls_writer is not None:
+                    try:
+                        tls_writer.close()
+                    except Exception:
+                        pass
+                tls_reader = None
+                tls_writer = None
+                await asyncio.sleep(5)

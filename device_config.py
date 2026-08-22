@@ -18,6 +18,15 @@ WEB_PORTAL_FIRMWARE_UPDATE_MAX_BYTES = 4 * 1024 * 1024
 WEB_PORTAL_ALLOW_PROTECTED_UPDATES = True
 
 TRUST_CA_PATH = '/certs/trust/home-rca-root.der'
+MQTT_CA_PATH = '/certs/trust/mqtt-ca.der'
+RELEASE_CA_PATH = '/certs/trust/release-ca.der'
+API_CLIENT_CA_PATH = '/certs/trust/api-client-ca.der'
+API_CLIENT_CA_DIRECTORY = '/certs/trust/api-clients'
+API_CLIENT_REGISTRY_PATH = '/certs/api-clients.json'
+SYSLOG_CA_PATH = '/certs/trust/syslog-ca.der'
+DEVICE_API_HOST = '0.0.0.0'
+DEVICE_API_PORT = 8444
+DEVICE_API_MAX_BODY_BYTES = 8192
 
 DEVICE_INFO = {
     'mf': 'HAMD',

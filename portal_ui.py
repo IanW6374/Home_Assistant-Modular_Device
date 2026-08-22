@@ -1,7 +1,7 @@
 """Shared, dependency-free UI shell for setup and the authenticated portal."""
 
 
-ASSET_VERSION = '7'
+ASSET_VERSION = '8'
 
 
 PORTAL_CSS = (
@@ -50,7 +50,11 @@ PORTAL_CSS = (
     'font:inherit;border-radius:9px}input,select,textarea{width:100%;padding:10px 12px;'
     'color:var(--ink);background:var(--bg);border:1px solid var(--line);outline:none}'
     'input:focus,select:focus,textarea:focus{border-color:var(--accent);'
-    'box-shadow:0 0 0 3px rgba(8,126,139,.18)}button,.button{display:inline-flex;'
+    'box-shadow:0 0 0 3px rgba(8,126,139,.18)}'
+    'input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]{'
+    'border-color:var(--bad);background:#fff7f7;box-shadow:0 0 0 3px rgba(181,51,51,.14)}'
+    'label.field-invalid,label.field-invalid .file-button{color:var(--bad)}'
+    'button,.button{display:inline-flex;'
     'align-items:center;justify-content:center;gap:6px;padding:10px 14px;'
     'border:1px solid var(--accent);border-radius:9px;background:transparent;'
     'color:var(--accent);font-weight:750;cursor:pointer}button,.button.primary{'
@@ -172,7 +176,24 @@ PORTAL_CSS = (
 
 
 PORTAL_JS = (
-    '(function(){var b=document.getElementById("nav-toggle"),n=document.getElementById("portal-nav");'
+    '(function(){function invalidField(field,message,report){if(!field)return false;if(message){'
+    'field.setCustomValidity(message);field.setAttribute("data-portal-custom-error","1");}'
+    'field.setAttribute("aria-invalid","true");var label=field.closest?field.closest("label"):null;'
+    'if(!label&&field.id)label=document.querySelector("label[for=\\\""+field.id+"\\\"]");'
+    'if(label)label.classList.add("field-invalid");if(report!==false&&field.focus)field.focus();'
+    'if(report!==false&&field.reportValidity)field.reportValidity();return false;}'
+    'function clearInvalid(field){if(!field)return;if(field.getAttribute("data-portal-custom-error")){'
+    'field.setCustomValidity("");field.removeAttribute("data-portal-custom-error");}'
+    'if(!field.validity||field.validity.valid){field.removeAttribute("aria-invalid");var label=field.closest?'
+    'field.closest("label"):null;if(!label&&field.id)label=document.querySelector("label[for=\\\""+'
+    'field.id+"\\\"]");if(label)label.classList.remove("field-invalid");}}window.portalInvalid=invalidField;'
+    'window.portalRequire=function(field,message){var missing=!field||(field.type==="file"?!field.files||'
+    '!field.files.length:field.type==="checkbox"?!field.checked:!String(field.value||"").trim());'
+    'if(missing)return invalidField(field,message);clearInvalid(field);if(field.validity&&!field.validity.valid)'
+    'return invalidField(field);return true;};document.addEventListener("invalid",function(e){'
+    'invalidField(e.target,null,false);},true);document.addEventListener("input",function(e){'
+    'clearInvalid(e.target);},true);document.addEventListener("change",function(e){clearInvalid(e.target);},true);'
+    'var b=document.getElementById("nav-toggle"),n=document.getElementById("portal-nav");'
     'if(b&&n){b.onclick=function(){var o=n.classList.toggle("open");b.setAttribute("aria-expanded",o?"true":"false");};}'
     '})();'
 )

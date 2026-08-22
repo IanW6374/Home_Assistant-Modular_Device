@@ -22,12 +22,11 @@
         "enabled": {"type": "boolean"},
         "log_refresh_s": {"type": "integer", "minimum": 1},
         "value_refresh_s": {"type": "integer", "minimum": 0},
-        "log_buffer_lines": {"type": "integer", "minimum": 0},
+        "log_buffer_lines": {"type": "integer", "minimum": 0, "maximum": 500},
         "log_line_max_chars": {"type": "integer", "minimum": 1},
         "updates_enabled": {"type": "boolean"},
         "firmware_updates_enabled": {"type": "boolean"},
         "release_manifest_url": {"type": "string"},
-        "release_check_interval_s": {"type": "integer", "minimum": 300},
         "session_timeout_s": {
           "type": "integer",
           "minimum": 300,

@@ -63,7 +63,11 @@ PORTAL_CSS = (
     'font:inherit;border-radius:9px}input,select,textarea{width:100%;padding:10px 12px;'
     'color:var(--ink);background:var(--bg);border:1px solid var(--line);outline:none}'
     'input:focus,select:focus,textarea:focus{border-color:var(--accent);'
-    'box-shadow:0 0 0 3px rgba(8,126,139,.18)}button,.button{display:inline-flex;'
+    'box-shadow:0 0 0 3px rgba(8,126,139,.18)}'
+    'input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]{'
+    'border-color:var(--bad);background:#fff7f7;box-shadow:0 0 0 3px rgba(181,51,51,.16)}'
+    'label.field-invalid,label.field-invalid .file-button{color:var(--bad)}'
+    'button,.button{display:inline-flex;'
     'align-items:center;justify-content:center;gap:6px;padding:10px 14px;'
     'border:1px solid var(--accent);border-radius:9px;background:transparent;'
     'color:var(--accent);font-weight:750;cursor:pointer}button,.button.primary{'
@@ -113,7 +117,7 @@ PORTAL_CSS = (
     'color:var(--bad);overflow-wrap:anywhere}.calibration-form{border-top:1px solid var(--line);'
     'margin-top:11px;padding-top:11px}.log-toolbar{display:flex;align-items:center;gap:9px;'
     'flex-wrap:wrap;margin-bottom:11px}.log-toolbar label{display:flex;align-items:center;gap:7px}'
-    '.log-toolbar select{width:auto}.log-view{white-space:pre-wrap;overflow-wrap:anywhere;'
+    '.log-toolbar select{width:auto}.log-toolbar input{width:7rem}.log-view{white-space:pre-wrap;overflow-wrap:anywhere;'
     'background:#10181c;color:#dce7ef;padding:16px;border-radius:10px;height:42vh;'
     'overflow-y:auto;border:1px solid #304149}.refresh-controls{display:flex;align-items:center;'
     'gap:7px}.refresh-status{justify-content:center;min-width:7rem}.refresh-toggle{min-width:5rem}'
@@ -124,6 +128,7 @@ PORTAL_CSS = (
     '.update-actions{display:flex;gap:11px;'
     'align-items:center;flex-wrap:wrap;margin-top:13px}.update-options{display:flex;gap:8px;'
     'align-items:center;flex-wrap:wrap;padding:8px;border:1px solid var(--line);border-radius:9px}'
+    '.update-actions.next-stage{justify-content:flex-end}.update-actions.next-stage form{margin-left:auto}'
     '.update-options-label{font-size:.78rem;color:var(--muted)}.update-switch{display:flex;'
     'gap:5px;align-items:center}.update-switch input{width:1rem;height:1rem}'
     '.task-progress{display:flex;align-items:center;justify-content:center;width:100%;gap:9px;'
@@ -133,6 +138,18 @@ PORTAL_CSS = (
     'animation:status-spin .75s linear infinite}.status-text{font-variant-numeric:tabular-nums}'
     '.task-progress.complete .status-spinner,.task-progress.failed .status-spinner{display:none}'
     '.task-progress.complete{color:var(--good)}.task-progress.failed{color:var(--bad)}'
+    '.status-history{display:block;margin:8px 0;color:var(--muted);font-size:.82rem}'
+    '.status-history.complete{color:var(--good)}.status-history.failed{color:var(--bad)}'
+    '.conditional-fields{border:0;padding:0;margin:0;min-width:0}'
+    '.conditional-fields[disabled]{opacity:.55}'
+    '.field.disabled-field{opacity:.55}#release-check-fields{grid-column:1/-1}'
+    '.health-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:11px}'
+    '.health-group{border:1px solid var(--line);border-radius:11px;padding:11px;background:var(--soft)}'
+    '.health-group h3{margin:0 0 7px}.health-items{display:grid;gap:5px}'
+    '.health-item{display:flex;justify-content:space-between;align-items:baseline;gap:11px;'
+    'padding:5px 0;border-top:1px solid var(--line)}.health-item:first-child{border-top:0}'
+    '.health-item span{font-size:.75rem;color:var(--muted)}.health-item strong{font-size:.88rem;'
+    'text-align:right;overflow-wrap:anywhere;min-width:0}'
     '@keyframes status-spin{to{transform:rotate(360deg)}}.page-load-action{display:flex;'
     'justify-content:center;width:100%;margin:18px 0 0}.file-input-hidden{position:absolute;'
     'width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);'
@@ -149,7 +166,23 @@ PORTAL_CSS = (
     'margin-bottom:9px}.property-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));'
     'gap:7px}.property-row{min-width:0;padding:8px 10px;border:1px solid var(--line);'
     'border-radius:9px;background:var(--surface)}.property-row span{display:block;color:var(--muted);'
-    'font-size:.72rem}.property-row strong{display:block;overflow-wrap:anywhere}.entity-list{display:grid;'
+    'font-size:.72rem}.property-row strong{display:block;overflow-wrap:anywhere}'
+    '.restore-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(19rem,1fr));gap:11px}'
+    '.restore-card{min-width:0;padding:13px;border:1px solid var(--line);border-left-width:5px;'
+    'border-radius:11px;background:var(--surface)}.restore-card.same{border-left-color:var(--good);'
+    'background:#f4fbf7}.restore-card.changed{border-left-color:var(--warn);background:#fffaf1}'
+    '.restore-card.missing{border-left-color:var(--bad);background:#fff7f7}'
+    '.restore-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;'
+    'margin-bottom:9px}.restore-card-head strong{font-size:.86rem}.restore-state{font-size:.7rem;'
+    'font-weight:800;text-transform:uppercase;letter-spacing:.05em}.restore-card.same .restore-state{'
+    'color:var(--good)}.restore-card.changed .restore-state{color:var(--warn)}'
+    '.restore-card.missing .restore-state{color:var(--bad)}.restore-value{font-weight:750;'
+    'overflow-wrap:anywhere}.restore-compare{display:grid;grid-template-columns:1fr 1fr;gap:8px}'
+    '.restore-pane{min-width:0;padding:9px;border:1px solid var(--line);border-radius:8px;'
+    'background:rgba(255,255,255,.75)}.restore-pane span{display:block;margin-bottom:3px;'
+    'color:var(--muted);font-size:.69rem;font-weight:750;text-transform:uppercase}'
+    '.restore-pane strong{display:block;font-size:.82rem;overflow-wrap:anywhere}'
+    '.entity-list{display:grid;'
     'gap:7px}.entity-item{border:1px solid var(--line);border-radius:9px;background:var(--surface);'
     'padding:0 11px}.entity-item summary{padding:10px 0}.config-error{color:var(--bad)}'
     '.certificate-group{margin-top:18px;padding-top:2px}.certificate-group+.certificate-group{'
@@ -180,7 +213,25 @@ PORTAL_CSS = (
 
 
 PORTAL_JS = (
-    '(function(){var b=document.getElementById("nav-toggle"),n=document.getElementById("portal-nav");'
+    '(function(){function invalidField(field,message,report){if(!field)return false;if(message){'
+    'field.setCustomValidity(message);field.setAttribute("data-portal-custom-error","1");}'
+    'field.setAttribute("aria-invalid","true");var label=field.closest?field.closest("label"):null;'
+    'if(!label&&field.id)label=document.querySelector("label[for=\\\""+field.id+"\\\"]");'
+    'if(label)label.classList.add("field-invalid");if(report!==false&&field.focus)field.focus();'
+    'if(report!==false&&field.reportValidity)'
+    'field.reportValidity();return false;}function clearInvalid(field){if(!field)return;if(field.getAttribute('
+    '"data-portal-custom-error")){field.setCustomValidity("");field.removeAttribute("data-portal-custom-error");}'
+    'if(!field.validity||field.validity.valid){field.removeAttribute("aria-invalid");var label=field.closest?'
+    'field.closest("label"):null;if(!label&&field.id)label=document.querySelector("label[for=\\\""+'
+    'field.id+"\\\"]");if(label)label.classList.remove("field-invalid");}}window.portalInvalid='
+    'invalidField;window.portalRequire='
+    'function(field,message){var missing=!field||(field.type==="file"?!field.files||!field.files.length:'
+    'field.type==="checkbox"?!field.checked:!String(field.value||"").trim());if(missing)return invalidField('
+    'field,message);clearInvalid(field);if(field.validity&&!field.validity.valid)return invalidField(field);'
+    'return true;};document.addEventListener("invalid",function(e){invalidField(e.target,null,false);},true);'
+    'document.addEventListener("input",function(e){clearInvalid(e.target);},true);document.addEventListener('
+    '"change",function(e){clearInvalid(e.target);},true);'
+    'var b=document.getElementById("nav-toggle"),n=document.getElementById("portal-nav");'
     'if(b&&n){b.onclick=function(){var o=n.classList.toggle("open");b.setAttribute("aria-expanded",o?"true":"false");};}'
     'var groups=document.querySelectorAll(".nav-group");function close(skip){for(var i=0;i<groups.length;i++){'
     'if(groups[i]===skip)continue;groups[i].classList.remove("open");var x=groups[i].querySelector('
@@ -201,9 +252,11 @@ NAVIGATION = (
     ('system', '/settings', 'System', (
         ('settings', '/settings', 'Network'),
         ('portal_settings', '/portal-settings', 'Portal'),
-        ('ntp_settings', '/ntp-settings', 'NTP'),
+        ('ntp_settings', '/ntp-settings', 'Time / Date'),
         ('mqtt', '/mqtt', 'MQTT'),
         ('home_assistant', '/home-assistant', 'Home Assistant'),
+        ('device_api', '/device-api', 'Device API'),
+        ('logging_settings', '/logging-settings', 'Logging'),
     )),
     ('module', '/module-settings', 'Module', (
         ('modules', '/module-settings', 'Configuration'),
@@ -212,10 +265,12 @@ NAVIGATION = (
     ('user', '/user', 'User', (
         ('user_settings', '/user', 'Account'),
     )),
-    ('maintenance', '/updates?check=1', 'Maintenance', (
-        ('updates', '/updates?check=1', 'Upgrades'),
+    ('maintenance', '/updates', 'Maintenance', (
+        ('updates', '/updates', 'Upgrades'),
         ('certificates', '/certificates', 'Certificates'),
-        ('logging', '/logging', 'Logging'),
+        ('configuration_backup', '/configuration-backup', 'Configuration backup'),
+        ('health_history', '/health-history', 'Health history'),
+        ('logging', '/logging', 'Log viewer'),
         ('factory_default', '/factory-default', 'Factory default'),
     )),
 )
@@ -313,9 +368,11 @@ def page_heading(eyebrow, title, description, actions=''):
     )
 
 
-def progress(identifier='task-progress', label='Working…', hidden=False):
+def progress(identifier='task-progress', label='Working…', hidden=False, state=''):
+    state = str(state or '')
     return (
-        '<div id="' + escape(identifier) + '" class="task-progress" role="status" '
+        '<div id="' + escape(identifier) + '" class="task-progress' +
+        ((' ' + escape(state)) if state else '') + '" role="status" '
         'aria-live="polite"' + (' hidden' if hidden else '') +
         '><span class="status-spinner" aria-hidden="true"></span>'
         '<span class="status-text">' + escape(label) + '</span></div>'

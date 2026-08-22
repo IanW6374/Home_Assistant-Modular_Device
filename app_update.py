@@ -41,6 +41,7 @@ CHUNK_SIZE = 1024
 DEFAULT_MAX_BUNDLE_BYTES = 2 * 1024 * 1024
 RECOVERY_FILES = (
     'main.py', 'recovery_boot.py', 'app_update.py', 'firmware_update.py',
+    'universal_update.py',
     'hardware_platform.py', 'update_security.py', 'update_support.py',
     'wifi_recovery.py',
     'credential_security.py',
@@ -378,6 +379,9 @@ async def receive_bundle(
     received = 0
     try:
         update_support.require_free_space(content_length * 2)
+        await _report_progress(
+            progress_callback, 'receiving', received, content_length
+        )
         with open(temp_path, 'wb') as output:
             while received < content_length:
                 chunk = await reader.read(min(CHUNK_SIZE, content_length - received))
@@ -385,6 +389,11 @@ async def receive_bundle(
                     raise ValueError('update upload ended early')
                 output.write(chunk)
                 received += len(chunk)
+                await _report_progress(
+                    progress_callback, 'receiving', received, content_length
+                )
+                if asyncio:
+                    await asyncio.sleep(0)
         manifest = await validate_bundle_async(
             temp_path, allow_protected, progress_callback
         )

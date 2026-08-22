@@ -11,10 +11,12 @@ import http_support
 import web_portal_ui as portal_ui
 from web_portal import (
     apply_loglevel_change,
+    apply_logging_change,
     apply_portal_action,
     constant_time_equal,
     credentials_match,
     credentials_match_async,
+    configuration_backup_filename,
     download_response,
     friendly_label,
     has_portal_session,
@@ -36,6 +38,126 @@ from web_portal import (
 
 
 class WebPortalTests(unittest.TestCase):
+    def test_new_operations_pages_expose_runtime_controls(self):
+        settings = {
+            'portal_transport': 'auto',
+            'portal_port': 8443,
+            'portal_session_timeout_s': 3600,
+            'ntp_servers': ('pool.ntp.org',),
+            'timezone_offset_minutes': 60,
+            'timezone_name': 'Europe/London',
+            'log_buffer_lines': 250,
+            'syslog_enabled': True,
+            'syslog_host': 'logs.local',
+            'syslog_port': 6514,
+            'syslog_transport': 'tls',
+        }
+        portal = web_portal.render_portal_settings_page('csrf', settings)
+        ntp = web_portal.render_ntp_settings_page('csrf', settings)
+        logging = web_portal.render_logging_settings_page('csrf', settings)
+        backup = web_portal.render_configuration_backup_page('csrf')
+        certificates = web_portal.render_certificate_page('csrf', certificates={
+            'acme_settings': {
+                'directory_url': 'https://ca.local/directory',
+                'hostname': 'controller.local',
+            }
+        })
+
+        self.assertIn('name="portal_session_timeout_minutes"', portal)
+        self.assertIn('Inactive session timeout (minutes)', portal)
+        self.assertIn('value="60"', portal)
+        self.assertIn('value="8443"', portal)
+        self.assertIn('name="timezone_name"', ntp)
+        self.assertIn('value="Europe/London" selected', ntp)
+        self.assertIn('Daylight-saving changes are applied automatically', ntp)
+        self.assertIn('name="log_buffer_lines"', logging)
+        self.assertIn('name="syslog_transport"', logging)
+        self.assertIn('Encrypt backup and include secrets', backup)
+        self.assertIn('id="export-encryption" class="conditional-fields" disabled', backup)
+        self.assertIn('Uploading backup ', backup)
+        self.assertIn('id="configuration-preview-panel" hidden', backup)
+        self.assertIn('diffRows=p.changes||[]', backup)
+        self.assertIn('label.textContent="Preview ready"', backup)
+        self.assertIn('actionButton.disabled=false', backup)
+        self.assertEqual(backup.count('id="configuration-action"'), 1)
+        self.assertNotIn('id="configuration-apply"', backup)
+        self.assertNotIn('id="configuration-preview"', backup)
+        self.assertIn('class="restore-grid"', backup)
+        self.assertIn('row.className="restore-card "+state', backup)
+        self.assertIn('pane("Current",before)', backup)
+        self.assertIn('pane("Backup",after)', backup)
+        self.assertIn('portalRequire(importPassword', backup)
+        self.assertNotIn('Protected content', backup)
+        self.assertIn('name="directory_url"', certificates)
+        self.assertIn('multiple', certificates)
+        self.assertIn('Math.round(p.loaded*100/p.total)+"%"', certificates)
+        self.assertNotIn('href="/portal-settings">Portal settings</a>', certificates)
+        self.assertNotIn('href="/device-api">Device API settings</a>', certificates)
+
+    def test_configuration_backup_filenames_include_utc_timestamp(self):
+        self.assertEqual(
+            configuration_backup_filename(False, 0),
+            'ha-device-configuration-19700101-000000Z.json'
+        )
+        self.assertEqual(
+            configuration_backup_filename(True, 0),
+            'ha-device-complete-19700101-000000Z.encrypted.json'
+        )
+
+    def test_portal_marks_required_and_custom_invalid_fields(self):
+        backup = web_portal.render_configuration_backup_page('csrf')
+        certificates = web_portal.render_certificate_page('csrf')
+        update = web_portal.render_updates_page('csrf', {})
+
+        self.assertIn('id="configuration-import-file" type="file"', backup)
+        self.assertIn('accept="application/json,.json" required', backup)
+        self.assertIn('portalInvalid(confirmField', backup)
+        self.assertIn('portalRequire(primary', certificates)
+        self.assertIn('portalRequire(input', update)
+        self.assertIn('input[aria-invalid="true"]', portal_ui.PORTAL_CSS)
+        self.assertIn('document.addEventListener("invalid"', portal_ui.PORTAL_JS)
+
+    def test_health_history_groups_protocols_formats_values_and_can_reset(self):
+        page = web_portal.render_health_history_page('csrf', {
+            'timezone_offset_minutes': 60,
+            'health_history': {
+                'counters': {
+                    'boots': 1,
+                    'mqtt_publish_drops': 2,
+                    'mqtt_publish_failures': 3,
+                    'api_requests': 4,
+                },
+                'observations': {
+                    'last_update_result': {
+                        'kind': 'application', 'result': 'confirmed',
+                        'version': '2.0.0', 'time': 1787396400,
+                    }
+                },
+                'events': [{
+                    'time': 1787396400,
+                    'kind': 'api_request',
+                    'detail': 'GET /api/v1/device',
+                }],
+            }
+        })
+
+        self.assertIn('<h3>MQTT</h3>', page)
+        self.assertIn('<h3>API</h3>', page)
+        self.assertIn('<h3>Updates</h3>', page)
+        self.assertIn('<time>', page)
+        self.assertIn('<span>Type</span><strong>application</strong>', page)
+        self.assertIn('<span>Result</span><strong>confirmed</strong>', page)
+        self.assertIn('<span>Version</span><strong>2.0.0</strong>', page)
+        self.assertIn('<span>Completed at</span><strong>', page)
+        self.assertNotIn('last update result</span>', page)
+        self.assertNotIn('&#x27;result&#x27;', page)
+        self.assertIn('/reset-health-history', page)
+        self.assertNotIn('href="/logging">Open log viewer</a>', page)
+
+    def test_overview_shows_device_api_status(self):
+        overview = web_portal.render_overview_status({'api': 'online'})
+        self.assertIn('Device API', overview)
+        self.assertIn('online', overview)
     def test_http_request_parser_rejects_oversized_and_ambiguous_headers(self):
         class Reader:
             def __init__(self, lines):
@@ -64,6 +186,15 @@ class WebPortalTests(unittest.TestCase):
                 b'Content-Length: 2\r\n',
                 b'\r\n',
             ))))
+
+    def test_audit_peer_address_uses_stream_metadata(self):
+        class Stream:
+            def get_extra_info(self, key):
+                return ('192.0.2.44', 55231) if key == 'peername' else None
+
+        self.assertEqual(
+            web_portal.request_peer_address(Stream()), '192.0.2.44'
+        )
 
     def test_request_line_parsing(self):
         self.assertEqual(
@@ -226,6 +357,10 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('name="portal_username"', network)
         self.assertIn('Automatic (HTTPS with certificate)', portal)
         self.assertIn('name="wifi_ssid"', network)
+        self.assertIn('id="wifi-network-select"', network)
+        self.assertIn('id="wifi-manual-field"', network)
+        self.assertIn('Enter network name manually', network)
+        self.assertIn('fetch("/api/wifi-networks"', network)
         self.assertIn('>Network password<input', network)
         self.assertIn('name="wifi_dhcp" type="checkbox" value="true" checked', network)
         self.assertIn('name="wifi_ip_address"', network)
@@ -246,7 +381,38 @@ class WebPortalTests(unittest.TestCase):
         for html in (network, portal, ntp, mqtt):
             self.assertNotIn('value="broker-secret"', html)
 
-    def test_navigation_has_requested_top_levels_submenu_and_breadcrumb(self):
+    def test_post_rc1_operations_pages_expose_safe_workflows(self):
+        api = web_portal.render_device_api_page('csrf', {
+            'api_enabled': True,
+            'api_port': 8444,
+            'api_clients': [{
+                'label': 'automation', 'scopes': ['read', 'write'],
+                'subject': 'CN=automation', 'fingerprint': 'ab' * 32,
+                'not_after': '2030-01-01 00:00:00 UTC',
+                'expiry_level': 'ok', 'days_remaining': 100,
+            }],
+        })
+        backup = web_portal.render_configuration_backup_page('csrf')
+        health = web_portal.render_health_history_page('csrf', {
+            'health_history': {
+                'counters': {'boots': 3},
+                'observations': {'minimum_free_heap': 12345},
+                'events': [{'kind': 'boot', 'detail': 'soft_reset'}],
+            }
+        })
+
+        self.assertIn('Enable the mTLS device API', api)
+        self.assertIn('Mutual TLS (required)', api)
+        self.assertIn('CN=automation', api)
+        self.assertIn('/revoke-api-client', api)
+        self.assertIn('/configuration-import-preview', backup)
+        self.assertIn('/configuration-import-apply', backup)
+        self.assertIn('login verifiers', backup)
+        self.assertIn('3</strong>', health)
+        self.assertIn('12345', health)
+        self.assertIn('soft_reset', health)
+
+    def test_navigation_has_requested_top_levels_submenus_and_breadcrumb(self):
         html = render_settings_page('csrf', {})
         primary = html.split('aria-label="Primary"', 1)[1].split('</nav>', 1)[0]
 
@@ -260,9 +426,13 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('href="/settings" aria-current="page">Network</a>', html)
         self.assertIn('href="/portal-settings">Portal</a>', html)
         self.assertNotIn('href="/wifi-settings">Wi-Fi</a>', html)
-        self.assertIn('href="/ntp-settings">NTP</a>', html)
+        self.assertIn('href="/ntp-settings">Time / Date</a>', html)
+        self.assertIn('href="/logging-settings">Logging</a>', html)
         self.assertIn('href="/mqtt">MQTT</a>', html)
         self.assertIn('href="/home-assistant">Home Assistant</a>', html)
+        self.assertIn('href="/device-api">Device API</a>', html)
+        self.assertIn('href="/configuration-backup">Configuration backup</a>', html)
+        self.assertIn('href="/health-history">Health history</a>', html)
         user_menu = html.split(
             'aria-label="User submenu"', 1
         )[1].split('</div>', 1)[0]
@@ -272,10 +442,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('aria-label="Breadcrumb"', html)
         self.assertIn('<a href="/settings">System</a>', html)
         self.assertIn('aria-hidden="true">\\</span>', html)
-        header = html.split('</header>', 1)[0]
-        self.assertNotIn('aria-label="Breadcrumb"', header)
         self.assertIn('<main><div class="breadcrumb"', html)
-        self.assertLess(html.index('class="breadcrumb"'), html.index('class="page-head"'))
 
     def test_home_assistant_has_dedicated_configuration_page(self):
         html = web_portal.render_home_assistant_page('csrf', {
@@ -348,7 +515,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('href="/module-settings" aria-current="page">Configuration</a>', html)
         self.assertIn('href="/diagnostics">Diagnostics</a>', html)
 
-    def test_logging_is_grouped_under_maintenance(self):
+    def test_log_viewer_is_under_maintenance_and_configuration_under_system(self):
         html = web_portal.render_logging_page(
             'csrf', 'INFO', ('ERROR', 'INFO', 'DEBUG'), ['hello']
         )
@@ -357,9 +524,10 @@ class WebPortalTests(unittest.TestCase):
         )[1].split('</div>', 1)[0]
 
         self.assertIn('aria-label="Maintenance submenu"', html)
-        self.assertIn('href="/updates?check=1">Upgrades</a>', maintenance_menu)
+        self.assertIn('href="/updates">Upgrades</a>', maintenance_menu)
+        self.assertNotIn('/updates?check=1', maintenance_menu)
         self.assertIn('href="/certificates">Certificates</a>', maintenance_menu)
-        self.assertIn('href="/logging" aria-current="page">Logging</a>', maintenance_menu)
+        self.assertIn('href="/logging" aria-current="page">Log viewer</a>', maintenance_menu)
         self.assertIn('href="/factory-default">Factory default</a>', maintenance_menu)
         self.assertNotIn('href="/diagnostics">Diagnostics</a>', maintenance_menu)
         self.assertNotIn('href="/download-diagnostics"', html)
@@ -367,15 +535,29 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('>Pause</button>', html)
         self.assertIn('logRefreshPaused=!logRefreshPaused', html)
         self.assertIn('if(logRefreshPaused)return', html)
+        self.assertIn('href="/logging-settings"', html)
+        self.assertIn('name="log_buffer_lines"', html)
+        self.assertIn('>Stored lines <input', html)
+
+        settings = web_portal.render_logging_settings_page('csrf', {
+            'log_buffer_lines': 200, 'syslog_transport': 'udp'
+        })
+        system_menu = settings.split(
+            'aria-label="System submenu"', 1
+        )[1].split('</div>', 1)[0]
+        self.assertIn('href="/logging-settings" aria-current="page">Logging</a>', system_menu)
+        self.assertIn('name="log_buffer_lines"', settings)
 
         diagnostics = web_portal.render_module_diagnostics_page('csrf', [])
         self.assertIn('href="/download-diagnostics"', diagnostics)
+        self.assertNotIn('href="/module-settings">Module configuration</a>', diagnostics)
 
     def test_overview_shows_package_and_micropython_versions_and_value_tiles(self):
         html = web_portal.render_overview_page('csrf', {
             'device_name': 'Controller', 'wifi_ip': '192.0.2.2', 'mqtt': 'up',
             'uptime_s': 12, 'running_version': '1.9.0',
-            'firmware_running_version': 'core-1.6.0', 'base_version': '1.27.0',
+            'firmware_running_version': 'ham-core-1.9.0-rc.7-mpy1.28.0',
+            'base_version': '1.28.0',
         }, [{
             'name': 'Probe', 'type': 'MAX31865',
             'state': {'temperature': 21.5, 'resistance': 1097},
@@ -383,13 +565,15 @@ class WebPortalTests(unittest.TestCase):
         }])
 
         self.assertIn('<span>Application version</span><strong>1.9.0</strong>', html)
-        self.assertIn('<span>Core version</span><strong>core-1.6.0</strong>', html)
+        self.assertIn('<span>Core version</span><strong>1.9.0-rc.7</strong>', html)
+        self.assertNotIn('ham-core-', html)
+        self.assertNotIn('-mpy1.28.0', html)
         self.assertNotIn('class="metric wide"><span>Core version', html)
         self.assertIn('<h1>Overview</h1>', html)
         self.assertIn('<h2>Device</h2>', html)
         self.assertNotIn('<h2>Device health</h2>', html)
         self.assertNotIn('Open diagnostics', html)
-        self.assertIn('<span>MicroPython version</span><strong>1.27.0</strong>', html)
+        self.assertIn('<span>MicroPython version</span><strong>1.28.0</strong>', html)
         self.assertIn('MQTT-published values', html)
         self.assertIn('class="published-tile"><span>temperature</span>', html)
         self.assertIn('class="published-tile"><span>resistance</span>', html)
@@ -755,7 +939,8 @@ class WebPortalTests(unittest.TestCase):
                 for route, heading in (
                     ('/portal-settings', 'Portal'),
                     ('/wifi-settings', 'Network'),
-                    ('/ntp-settings', 'NTP'),
+                    ('/ntp-settings', 'Time / Date'),
+                    ('/logging-settings', 'Logging'),
                 ):
                     page = await request(
                         ('GET ' + route + ' HTTP/1.1\r\nCookie: ham_session=' +
@@ -763,13 +948,15 @@ class WebPortalTests(unittest.TestCase):
                     )
                     self.assertIn('<h1>' + heading + '</h1>', page)
 
+                action_count = len(portal_actions)
                 automatic_check = await request(
                     ('GET /updates?check=1 HTTP/1.1\r\nCookie: ham_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
-                self.assertIn('202 Accepted', automatic_check)
-                self.assertIn('Checking the signed release channel', automatic_check)
-                self.assertEqual(portal_actions[-1], ('check-release', {}))
+                self.assertIn('200 OK', automatic_check)
+                self.assertIn('<h1>Upgrades</h1>', automatic_check)
+                self.assertIn('Not checked', automatic_check)
+                self.assertEqual(len(portal_actions), action_count)
                 settings_body = (
                     'csrf=' + session_id + '&device_name=New+Controller'
                     '&wifi_ssid=new-network&wifi_dhcp=true'
@@ -880,6 +1067,29 @@ class WebPortalTests(unittest.TestCase):
         self.assertEqual(logs[0][2]['log'], 'Log level changed to ERROR')
         self.assertTrue(logs[0][2]['force'])
         self.assertEqual(logs[0][3], 'INFO')
+
+    def test_combined_logging_change_applies_level_and_retained_lines(self):
+        levels = []
+        limits = []
+        logs = []
+
+        result = apply_logging_change(
+            'debug', '275', ('ERROR', 'INFO', 'DEBUG'), levels.append,
+            limits.append,
+            lambda mode, action, data, logtype: logs.append(
+                (mode, action, data, logtype)
+            )
+        )
+
+        self.assertEqual(result, ('DEBUG', 275))
+        self.assertEqual(levels, ['DEBUG'])
+        self.assertEqual(limits, [275])
+        self.assertIn('275 retained lines', logs[0][2]['log'])
+        with self.assertRaisesRegex(ValueError, 'between 0 and 500'):
+            apply_logging_change(
+                'INFO', 501, ('ERROR', 'INFO', 'DEBUG'), levels.append,
+                limits.append, lambda *_args: None
+            )
 
     def test_apply_portal_action_logs_action_result_once(self):
         actions = []
@@ -1088,6 +1298,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('id="logs"', logging)
         self.assertIn('hello', logging)
         self.assertIn('name="level"', logging)
+        self.assertIn('name="log_buffer_lines"', logging)
         self.assertIn('href="/download-logs"', logging)
         self.assertNotIn('href="/download-diagnostics"', logging)
         self.assertIn('aria-label="Maintenance submenu"', logging)
@@ -1107,6 +1318,20 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('class="status-spinner"', updates)
         self.assertNotIn('<progress', updates)
         self.assertIn('X-Update-ID', updates)
+        self.assertIn('Writing firmware ', updates)
+        self.assertIn('Completed: upload · firmware write', updates)
+        self.assertIn('Verification complete', updates)
+        self.assertIn('setTimeout(poll,1000)', updates)
+        self.assertIn('x.upload.onload=function()', updates)
+        self.assertIn('Writing firmware 0%', updates)
+        self.assertIn('previous("Completed: upload");startPolling()', updates)
+        self.assertNotIn('Writing firmware on device', updates)
+        self.assertIn('Verifying application 0%', updates)
+        self.assertIn('.hamu', updates)
+        self.assertIn('firmware_verification', updates)
+        self.assertIn('application_verification', updates)
+        self.assertIn('startPolling()', updates)
+        self.assertNotIn('Upload complete; verifying', updates)
 
         settings = render_settings_page('abc', {})
         portal_settings = web_portal.render_portal_settings_page('abc', {})
@@ -1114,6 +1339,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertNotIn('name="loglevel"', settings)
         self.assertNotIn('Change administrator password', settings)
         self.assertIn('name="portal_port"', portal_settings)
+        self.assertIn('name="portal_session_timeout_minutes"', portal_settings)
+        self.assertIn('value="60"', portal_settings)
         return
 
         html = render_page(
@@ -1306,7 +1533,7 @@ class WebPortalTests(unittest.TestCase):
         })
         self.assertIn('id="update-summary"', idle_html)
         self.assertIn('Not staged', idle_html)
-        self.assertIn('<span>Release check</span>', idle_html)
+        self.assertIn('<span>Last automatic check</span>', idle_html)
         self.assertIn('No newer release — 2026-07-22 05:17:26', idle_html)
         self.assertIn('metric release-check good', idle_html)
         self.assertIn('refresh paused', html)
@@ -1351,6 +1578,15 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('action="/check-release"', idle)
         self.assertIn('id="update-upload-form"', idle)
         self.assertIn('Upload and verify', idle)
+        self.assertIn('name="release_check_schedule"', idle)
+        self.assertIn('<option value="disabled" selected>Disabled</option>', idle)
+        self.assertIn('>Daily</option>', idle)
+        self.assertIn('>Weekly</option>', idle)
+        self.assertIn('name="release_check_time" type="time"', idle)
+        self.assertIn('name="release_check_weekday"', idle)
+        self.assertIn('id="release-check-fields" class="conditional-fields"', idle)
+        self.assertIn('releaseFields.disabled=disabled', idle)
+        self.assertIn('syncReleaseSchedule()', idle)
 
         ready = web_portal.render_updates_page('csrf', {
             'release_checks_enabled': True,
@@ -1359,8 +1595,23 @@ class WebPortalTests(unittest.TestCase):
             'update_options': ('module_settings',),
         }, {})
         self.assertNotIn('id="update-upload-form"', ready)
+
+        universal = web_portal.render_updates_page('csrf', {
+            'release_checks_enabled': True,
+            'update_status': 'ready',
+            'firmware_update_status': 'ready',
+            'firmware_update_supported': True,
+            'universal_update_status': 'ready',
+            'universal_update_version': '2.0.0',
+        }, {})
+        self.assertIn('action="/activate-universal"', universal)
+        self.assertIn('Activate universal update 2.0.0 and reboot', universal)
+        self.assertNotIn('action="/activate-update"', universal)
+        self.assertNotIn('action="/activate-firmware"', universal)
         self.assertNotIn('Upload and verify', ready)
-        self.assertIn('The uploaded or downloaded bundle has been verified', ready)
+        self.assertIn('Application uploaded and verified. Ready for activation.', ready)
+        self.assertIn('class="task-progress complete"', ready)
+        self.assertIn('class="update-actions next-stage"', ready)
         self.assertIn('Activate and reboot', ready)
 
     def test_make_tls_context_reports_missing_certificate_file(self):

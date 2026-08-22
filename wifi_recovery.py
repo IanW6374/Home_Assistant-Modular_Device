@@ -23,11 +23,100 @@ try:
 except ImportError:
     import binascii
 
+import time
+
 import http_support
 
 
 RECOVERY_PORT = 80
 RECOVERY_TIMEOUT_S = 900
+WIFI_SCAN_CACHE_S = 300
+_wifi_scan_cache = []
+_wifi_scan_updated_ms = None
+_wifi_scan_task = None
+
+
+def scan_wifi_networks(limit=32):
+    """Return visible SSIDs once each, strongest signal first."""
+    if network is None:
+        raise RuntimeError('Wi-Fi scanning is unavailable')
+    wlan_class = network.WLAN
+    interface_id = getattr(wlan_class, 'IF_STA', getattr(network, 'STA_IF', 0))
+    station = wlan_class(interface_id)
+    station.active(True)
+    strongest = {}
+    for entry in station.scan() or ():
+        if not entry:
+            continue
+        raw_ssid = entry[0]
+        if isinstance(raw_ssid, bytes):
+            try:
+                ssid = raw_ssid.decode('utf-8')
+            except Exception:
+                ssid = raw_ssid.decode('utf-8', 'replace')
+        else:
+            ssid = str(raw_ssid)
+        if not ssid or len(ssid.encode('utf-8')) > 32:
+            continue
+        try:
+            rssi = int(entry[3])
+        except Exception:
+            rssi = -100
+        previous = strongest.get(ssid)
+        if previous is None or rssi > previous:
+            strongest[ssid] = rssi
+    ordered = sorted(strongest.items(), key=lambda item: (-item[1], item[0].lower()))
+    return [
+        {'ssid': ssid, 'rssi': rssi}
+        for ssid, rssi in ordered[:max(1, int(limit))]
+    ]
+
+
+def _ticks_ms():
+    getter = getattr(time, 'ticks_ms', None)
+    return int(getter() if getter else time.monotonic() * 1000)
+
+
+def _ticks_diff(left, right):
+    differ = getattr(time, 'ticks_diff', None)
+    return int(differ(left, right) if differ else left - right)
+
+
+async def _refresh_wifi_scan(limit=32):
+    global _wifi_scan_cache, _wifi_scan_updated_ms, _wifi_scan_task
+    try:
+        if hasattr(asyncio, 'sleep_ms'):
+            await asyncio.sleep_ms(0)
+        else:
+            await asyncio.sleep(0)
+        _wifi_scan_cache = list(scan_wifi_networks(limit))
+        _wifi_scan_updated_ms = _ticks_ms()
+    finally:
+        _wifi_scan_task = None
+
+
+def schedule_wifi_scan(limit=32):
+    """Start one background scan without making an HTTP request wait for it."""
+    global _wifi_scan_task
+    if asyncio is None or _wifi_scan_task is not None:
+        return False
+    try:
+        _wifi_scan_task = asyncio.create_task(_refresh_wifi_scan(limit))
+    except (AttributeError, RuntimeError):
+        _wifi_scan_task = None
+        return False
+    return True
+
+
+def cached_wifi_networks(limit=32, refresh=True):
+    """Return the last scan immediately and refresh it in the background."""
+    stale = (
+        _wifi_scan_updated_ms is None or
+        _ticks_diff(_ticks_ms(), _wifi_scan_updated_ms) >= WIFI_SCAN_CACHE_S * 1000
+    )
+    if refresh or stale:
+        schedule_wifi_scan(limit)
+    return list(_wifi_scan_cache[:max(1, int(limit))])
 
 
 def _decode(value):
@@ -198,10 +287,12 @@ def _login_page(message=''):
 def _recovery_page(reason, csrf, message=''):
     import app_update
     import firmware_update
+    import universal_update
     import update_security
 
     app_state = app_update.update_status()
     firmware_state = firmware_update.update_status()
+    universal_state = universal_update.update_status()
     previous = app_update.previous_slot()
     signing = update_security.signing_status()
     signed_ready = signing == 'required'
@@ -222,7 +313,13 @@ def _recovery_page(reason, csrf, message=''):
         )
 
     firmware_action = ''
-    if firmware_state.get('status') == 'ready':
+    if universal_state.get('status') == 'ready':
+        firmware_action = (
+            '<form action="/activate-universal" method="post"><input type="hidden" '
+            'name="csrf" value="' + _escape(csrf) + '"><button>Activate staged universal update</button></form>'
+        )
+        app_action = ''
+    elif firmware_state.get('status') == 'ready':
         firmware_action = (
             '<form action="/activate-firmware" method="post"><input type="hidden" '
             'name="csrf" value="' + _escape(csrf) + '"><button>Activate staged core firmware</button></form>'
@@ -233,7 +330,7 @@ def _recovery_page(reason, csrf, message=''):
     )
     if signed_ready:
         upload_controls += (
-            '<div class="upload"><input id="bundle" type="file" accept=".hamd,.hamf">'
+            '<div class="upload"><input id="bundle" type="file" accept=".hamd,.hamf,.hamu">'
             '<button id="upload" type="button">Upload and verify</button></div>'
             '<p id="upload-result" class="muted"></p>'
         )
@@ -276,9 +373,10 @@ def _recovery_page(reason, csrf, message=''):
         'var button=document.getElementById("upload");if(button){button.onclick=function(){'
         'var input=document.getElementById("bundle"),out=document.getElementById("upload-result");'
         'if(!input.files.length){return;}var file=input.files[0],firmware=/\\.hamf$/i.test(file.name),'
-        'application=/\\.hamd$/i.test(file.name);if(!firmware&&!application){out.textContent="Choose a .hamd or .hamf bundle.";return;}'
+        'application=/\\.hamd$/i.test(file.name),universal=/\\.hamu$/i.test(file.name);'
+        'if(!firmware&&!application&&!universal){out.textContent="Choose a .hamd, .hamf or .hamu bundle.";return;}'
         'button.disabled=true;out.textContent="Uploading and verifying...";var request=new XMLHttpRequest();'
-        'request.open("POST",firmware?"/upload-firmware":"/upload-application",true);'
+        'request.open("POST",universal?"/upload-universal":(firmware?"/upload-firmware":"/upload-application"),true);'
         'request.setRequestHeader("X-CSRF-Token",csrf);request.onload=function(){button.disabled=false;'
         'out.textContent=request.responseText||("HTTP "+request.status);if(request.status>=200&&request.status<300){location.reload();}};'
         'request.onerror=function(){button.disabled=false;out.textContent="Upload failed";};request.send(file);};}'
@@ -301,6 +399,7 @@ async def serve_core_recovery(
         raise RuntimeError('core recovery is unavailable')
     import app_update
     import firmware_update
+    import universal_update
     import update_security
 
     access_point = _activate_access_point(ap_name, ap_password)
@@ -395,21 +494,28 @@ async def serve_core_recovery(
                     reboot = True
                     clear_before_reboot = True
                     await send(writer, '200 OK', 'Core firmware activation selected; rebooting', 'text/plain')
+                elif path == '/activate-universal':
+                    universal_update.activate_pending()
+                    reboot = True
+                    clear_before_reboot = True
+                    await send(writer, '200 OK', 'Universal update activation selected; rebooting', 'text/plain')
                 elif path == '/retry':
                     reboot = True
                     clear_before_reboot = True
                     await send(writer, '200 OK', 'Retrying normal application', 'text/plain')
                 else:
                     await send(writer, '404 Not Found', 'Not found', 'text/plain')
-            elif path in ('/upload-application', '/upload-firmware'):
+            elif path in ('/upload-application', '/upload-firmware', '/upload-universal'):
                 if not update_security.signing_enabled():
                     await send(writer, '503 Service Unavailable', 'Signed recovery is not provisioned', 'text/plain')
                 else:
                     length = int(headers.get('content-length', '0') or 0)
                     if path == '/upload-application':
                         state = await app_update.receive_bundle(reader, length, allow_protected=False)
-                    else:
+                    elif path == '/upload-firmware':
                         state = await firmware_update.receive_bundle(reader, length)
+                    else:
+                        state = await universal_update.receive_bundle(reader, length)
                     await send(writer, '200 OK', 'Staged ' + str(state.get('version', '')), 'text/plain')
             else:
                 await send(writer, '404 Not Found', 'Not found', 'text/plain')

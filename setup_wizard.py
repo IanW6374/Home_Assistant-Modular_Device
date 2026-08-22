@@ -11,6 +11,11 @@ except ImportError:
     network = None
 
 try:
+    import ujson as json
+except ImportError:
+    import json
+
+try:
     import machine
 except ImportError:
     machine = None
@@ -46,7 +51,7 @@ CERTIFICATE_PATHS = {
 }
 HTTPS_PORT = 8443
 HTTP_PORT = 8080
-SETUP_ASSET_VERSION = '7'
+SETUP_ASSET_VERSION = '8'
 SELF_SIGNED_READY_MESSAGE = (
     'Self-signed HTTPS is ready. Choose ACME, manual certificates, or the explicit fallback.'
 )
@@ -169,12 +174,18 @@ def _page(csrf, message=''):
         + application_control +
         '<label class="field">Current UTC time<input id="browser-time" name="browser_time" required maxlength="32" '
         'placeholder="2026-07-23T05:30:00Z"></label>'
-        '</div></section><section class="card"><div class="section-title"><h2>Wi-Fi</h2></div><div class="grid">'
-        '<label class="field">Network name (SSID)<input name="wifi_ssid" required maxlength="32"></label>'
+        '</div></section><section class="card"><div class="section-title"><h2>Wi-Fi</h2>'
+        '<button id="wifi-rescan" class="secondary compact" type="button">Scan again</button></div><div class="grid">'
+        '<label class="field">Available network<select id="wifi-network-select" required>'
+        '<option value="">Select a Wi-Fi network</option>'
+        '<option value="__manual__">Enter network name manually…</option></select></label>'
+        '<label id="wifi-manual-field" class="field" hidden>Network name (SSID)'
+        '<input id="wifi-ssid-input" name="wifi_ssid" maxlength="32"></label>'
         '<label class="field">Network password<input name="wifi_password" type="password" maxlength="64" '
         'autocomplete="new-password"></label>'
         '<label class="field">Portal mDNS hostname<input id="mdns-hostname" name="certificate_hostname" required maxlength="253" '
         'placeholder="whes01.local" pattern="[A-Za-z0-9-]+\\.local"></label></div>'
+        '<p id="wifi-scan-status" class="muted">Scanning for nearby networks…</p>'
         '<label class="check"><input id="wifi-dhcp" name="wifi_dhcp" type="checkbox" '
         'value="true" checked>Use DHCP to obtain network settings automatically</label>'
         '<div id="wifi-static-settings" class="grid" hidden>'
@@ -226,6 +237,26 @@ def _page(csrf, message=''):
         '.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,63);'
         'if(!mdnsEdited)mdns.value=label?label+".local":"";}mdns.addEventListener("input",'
         'function(){mdnsEdited=true;});deviceName.addEventListener("input",hostnameFromDevice);'
+        'var wifiSelect=document.getElementById("wifi-network-select"),wifiInput=document.getElementById('
+        '"wifi-ssid-input"),wifiManual=document.getElementById("wifi-manual-field"),wifiStatus='
+        'document.getElementById("wifi-scan-status"),wifiRescan=document.getElementById("wifi-rescan");'
+        'function syncWifiSelection(){var manual=wifiSelect.value==="__manual__";wifiManual.hidden=!manual;'
+        'wifiInput.required=manual;if(!manual&&wifiSelect.value)wifiInput.value=wifiSelect.value;}'
+        'function wifiOption(value,text){var option=document.createElement("option");option.value=value;'
+        'option.textContent=text;return option;}function scanWifi(){var current=wifiInput.value;wifiRescan.disabled=true;'
+        'wifiStatus.textContent="Scanning for nearby networks…";fetch("/wifi-networks",{cache:"no-store",'
+        'credentials:"same-origin"}).then(function(response){if(!response.ok)throw new Error("HTTP "+response.status);'
+        'return response.json();}).then(function(networks){wifiSelect.textContent="";wifiSelect.appendChild('
+        'wifiOption("","Select a Wi-Fi network"));var found=false;for(var i=0;i<networks.length;i++){var network='
+        'networks[i],label=network.ssid+(typeof network.rssi==="number"?" ("+network.rssi+" dBm)":"");'
+        'wifiSelect.appendChild(wifiOption(network.ssid,label));if(network.ssid===current)found=true;}'
+        'wifiSelect.appendChild(wifiOption("__manual__","Enter network name manually…"));if(current){wifiSelect.value='
+        'found?current:"__manual__";}else wifiSelect.value="";syncWifiSelection();wifiStatus.textContent=networks.length?'
+        'networks.length+" network"+(networks.length===1?"":"s")+" found.":"No visible networks found; use manual entry.";'
+        'if(!networks.length){wifiSelect.value="__manual__";syncWifiSelection();}}).catch(function(){wifiSelect.value='
+        '"__manual__";syncWifiSelection();wifiStatus.textContent="Network scan unavailable; enter the SSID manually.";'
+        '}).finally(function(){wifiRescan.disabled=false;});}wifiSelect.onchange=syncWifiSelection;wifiRescan.onclick=scanWifi;'
+        'syncWifiSelection();scanWifi();'
         'var dhcp=document.getElementById("wifi-dhcp"),staticBox=document.getElementById('
         '"wifi-static-settings");function syncNetworkMode(){var manual=!dhcp.checked;'
         'staticBox.hidden=!manual;var fields=staticBox.querySelectorAll("input");for(var i=0;'
@@ -258,15 +289,20 @@ def _upload_page(csrf, message=''):
         'box.hidden=false;label.textContent="Uploading 0%";this.disabled=true;'
         'var x=new XMLHttpRequest();x.open("POST","/upload",true);x.setRequestHeader("Content-Type",'
         '"application/octet-stream");x.setRequestHeader("X-CSRF-Token","' + _escape(csrf) + '");'
+        'var finished=false,polling=false;function poll(){if(finished)return;fetch("/upload-progress",'
+        '{cache:"no-store",credentials:"same-origin"}).then(function(r){return r.json();}).then(function(s){'
+        'if(s.phase==="verification")label.textContent="Verifying "+(s.percent||0)+"%";setTimeout(poll,500);}'
+        ').catch(function(){setTimeout(poll,900);});}'
         'x.upload.onprogress=function(e){if(!e.lengthComputable)return;var p=Math.round(e.loaded*100/e.total);'
         'label.textContent="Uploading "+p+"%";};x.upload.onload=function(){'
-        'label.textContent="Verifying…";result.textContent="Upload complete; verifying signed application…";};'
+        'label.textContent="Verifying 0%";result.textContent="Completed: upload";'
+        'if(!polling){polling=true;poll();}};'
         'x.onload=function(){result.textContent=x.responseText;if(x.status>=200&&x.status<300){'
-        'box.classList.add("complete");label.textContent="Verified";var target=x.getResponseHeader("X-Portal-URL");if(target){setTimeout(function '
+        'finished=true;box.classList.add("complete");label.textContent="Verified 100%";var target=x.getResponseHeader("X-Portal-URL");if(target){setTimeout(function '
         'retry(){fetch(target,{mode:"no-cors",cache:"no-store"}).then(function(){location.replace(target);})'
-        '.catch(function(){setTimeout(retry,2000);});},2500);}}else{box.classList.add("failed");label.textContent="Failed";'
+        '.catch(function(){setTimeout(retry,2000);});},2500);}}else{finished=true;box.classList.add("failed");label.textContent="Failed";'
         'document.getElementById("install").disabled=false;}};x.onerror=function(){box.classList.add("failed");label.textContent='
-        '"Connection lost";result.textContent="Upload failed";document.getElementById("install").disabled=false;};'
+        '"Connection lost";finished=true;result.textContent="Upload failed";document.getElementById("install").disabled=false;};'
         'x.send(f);};</script></body></html>'
     )
     return body
@@ -728,8 +764,10 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
         pass
     station.active(False)
     access_point = wifi_recovery._activate_access_point(ap_name, ap_password)
+    wifi_recovery.schedule_wifi_scan()
     session = wifi_recovery._session_id()
     enrollment = {'status': 'idle', 'message': '', 'mode': ''}
+    upload_progress = {'phase': 'idle', 'percent': 0}
     enrollment_task = None
 
     async def send(writer, status, body, content_type='text/html; charset=utf-8', headers=()):
@@ -820,6 +858,16 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 ))
             elif not authenticated:
                 await send(writer, '401 Unauthorized', 'Reconnect to the setup page.', 'text/plain')
+            elif method == 'GET' and path == '/wifi-networks':
+                await send(
+                    writer, '200 OK', json.dumps(wifi_recovery.cached_wifi_networks()),
+                    'application/json'
+                )
+            elif method == 'GET' and path == '/upload-progress':
+                await send(
+                    writer, '200 OK', json.dumps(upload_progress),
+                    'application/json'
+                )
             elif method == 'GET' and path == '/upload':
                 config = credential_store.load()
                 await send(writer, '200 OK', _upload_page(session))
@@ -972,9 +1020,20 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 config = credential_store.load()
                 _validate_certificate_files(config['certificate']['mode'])
                 length = int(headers.get('content-length', '0') or 0)
+
+                async def report_upload_progress(phase, completed=0, total=0):
+                    total = int(total or 0)
+                    upload_progress['phase'] = str(phase)
+                    upload_progress['percent'] = (
+                        max(0, min(100, int(int(completed or 0) * 100 / total)))
+                        if total else 0
+                    )
+
                 state = await app_update.receive_bundle(
-                    reader, length, False, app_update.DEFAULT_MAX_BUNDLE_BYTES
+                    reader, length, False, app_update.DEFAULT_MAX_BUNDLE_BYTES,
+                    progress_callback=report_upload_progress
                 )
+                upload_progress.update({'phase': 'complete', 'percent': 100})
                 state = _prepare_setup_application(state)
                 credential_store.mark_provisioned(config)
                 credential_store.erase_bootstrap_key()

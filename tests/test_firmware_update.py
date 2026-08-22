@@ -110,7 +110,11 @@ class FirmwareUpdateTests(unittest.TestCase):
         self.assertEqual(state['status'], 'ready')
         self.assertEqual(state['target'], 'ota_1')
         self.assertEqual(state['release_sequence'], 1)
-        self.assertEqual(progress[0], ('verification', 0, len(payload)))
+        self.assertEqual(progress[0], ('writing', 0, len(payload)))
+        writing = [value for value in progress if value[0] == 'writing']
+        verification = [value for value in progress if value[0] == 'verification']
+        self.assertEqual(writing[-1], ('writing', len(payload), len(payload)))
+        self.assertEqual(verification[0], ('verification', 0, len(payload)))
         self.assertEqual(progress[-1], ('verification', len(payload), len(payload)))
         self.assertEqual(self.target.data[:len(payload)], payload)
         firmware_update.activate_pending()
