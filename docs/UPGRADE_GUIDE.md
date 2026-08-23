@@ -483,8 +483,9 @@ versions, sequences, sizes, and SHA-256 digests.
 
 HAMU format 2 also signs the activation order, whether a maintenance window is
 required, the paired/independent/manual rollback policy, and the trial timeout.
-Because v2 alpha deliberately does not retain the v1 HAMU parser, build new
-universal bundles with the v2 tool after installing the v2 alpha core.
+The v2 runtime accepts formats 1 and 2. Use format 1 only for the one-time
+universal package that bootstraps a v1.9 device into v2; use format 2 for all
+packages once v2 is installed.
 
 Build the component bundles first with the same release sequence, then combine
 them:
@@ -499,6 +500,10 @@ python3 tools/build_universal_update.py \
   --signing-key "$UPDATE_SIGNING_KEY"
 ```
 
+For the v1.9-to-v2 bootstrap only, add `--format-version 1`. The inner HAMD and
+HAMF packages remain independently signed current-format packages; only the
+small outer compatibility manifest uses HAMU format 1.
+
 Upload the `.hamu` through **Maintenance > Upgrades** or the authenticated core
 recovery portal. The device streams the core to the inactive OTA partition,
 stages the application in the inactive VFS slot, verifies both inner packages
@@ -509,9 +514,9 @@ and application verification.
 If either component sequence is already installed, that component is still
 read and hash-verified but is not staged again. If neither component is newer,
 the package is rejected. Core recovery API versions before 8 and their existing
-application portals cannot parse or route HAMU. Install the first HAMU-capable
-`.hamf` and its matching `.hamd` separately as a one-time bootstrap. Subsequent
-matched core-and-application releases can be installed using only `.hamu`.
+application portals cannot parse or route HAMU. Those older devices require the
+matching `.hamf` and `.hamd` separately. A v1.9 device with core API 8 can use a
+format-1 bootstrap HAMU; subsequent matched releases should use format 2.
 
 ## 4. Installing a new ESP32-S3
 

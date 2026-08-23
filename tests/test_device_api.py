@@ -1,4 +1,5 @@
 import asyncio
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -116,6 +117,30 @@ class DeviceAPITests(unittest.TestCase):
         registry.enrol(self.cert, 'reader', ('read',))
 
         self.assertTrue(path.is_file())
+
+    def test_v1_registry_is_atomically_migrated_without_losing_clients(self):
+        path = Path(self.temp.name) / 'legacy-clients.json'
+        fingerprint = api_security.certificate_fingerprint(self.cert)
+        path.write_text(json.dumps({
+            'format_version': 1,
+            'clients': [{
+                'fingerprint': fingerprint,
+                'label': 'v1 automation',
+                'scopes': ['read', 'write'],
+                'subject': 'automation-client.local',
+                'issuer': 'automation-client.local',
+                'not_after': '',
+            }],
+        }))
+        registry = api_security.ClientRegistry(str(path))
+
+        listed = registry.list_clients()
+
+        self.assertEqual(listed[0]['label'], 'v1 automation')
+        self.assertEqual(json.loads(path.read_text())['format_version'], 2)
+        self.assertEqual(
+            registry.authenticate(self.cert, 'write')['fingerprint'], fingerprint
+        )
 
     def test_invalid_module_uuid_returns_json_404(self):
         self.registry.enrol(self.cert, 'reader', ('read',))

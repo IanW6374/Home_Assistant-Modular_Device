@@ -134,11 +134,32 @@ class ClientRegistry:
         try:
             with open(self.path, 'r') as stream:
                 value = json.load(stream)
-            if not isinstance(value, dict) or value.get('format_version') != FORMAT_VERSION:
+            if not isinstance(value, dict):
                 raise ValueError('API client registry has an invalid format')
             clients = value.get('clients')
             if not isinstance(clients, list):
                 raise ValueError('API client registry is invalid')
+            version = int(value.get('format_version', 0))
+            if version == 1:
+                # V2 only extends the allowed scope vocabulary. Existing v1
+                # read/write records need no structural transformation, but
+                # the persisted version must be advanced atomically so a v1.9
+                # device can upgrade without losing its enrolled clients.
+                if len(clients) > self.maximum:
+                    raise ValueError('API client registry exceeds the client limit')
+                for client in clients:
+                    if not isinstance(client, dict):
+                        raise ValueError('API client registry is invalid')
+                    scopes = client.get('scopes')
+                    if not isinstance(scopes, list) or not scopes or any(
+                        scope not in ('read', 'write') for scope in scopes
+                    ):
+                        raise ValueError('API client registry has invalid v1 scopes')
+                value['format_version'] = FORMAT_VERSION
+                self._save(value)
+                return self._cache
+            if version != FORMAT_VERSION:
+                raise ValueError('API client registry has an invalid format')
             self._cache = value
             return self._cache
         except OSError:

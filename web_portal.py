@@ -2140,7 +2140,7 @@ def update_upload_script():
         'f.arrayBuffer().then(function(data){return crypto.subtle.digest("SHA-256",data);}).then(function(hash){var hex=Array.from(new Uint8Array(hash)).map(function(b){'
         'return b.toString(16).padStart(2,"0");}).join("");id=hex.slice(0,24)+"-"+f.size;var kind=universal?"universal":'
         '(firmware?"firmware":"application");return jsonPost("/resumable-upload-begin",{id:id,kind:kind,total_bytes:f.size,sha256:hex});'
-        '}).then(function(s){return sendChunk(Number(s.received_bytes||0));}).catch(function(err){finished=true;box.classList.add("failed");'
+        '}).then(function(s){startPolling();return sendChunk(Number(s.received_bytes||0));}).catch(function(err){finished=true;box.classList.add("failed");'
         'label.textContent="Failed";failure(err&&err.message?err.message:"Upload failed");});};'
     )
 
@@ -3051,8 +3051,20 @@ async def start_web_portal(
                 if resumable_begin is None:
                     await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
                 else:
-                    result = resumable_begin(json.loads(body.decode()))
-                    await send_response(writer, '200 OK', json.dumps(result), 'application/json')
+                    request = json.loads(body.decode())
+                    identifier = str(request.get('id', ''))[:64]
+                    try:
+                        result = resumable_begin(request)
+                    except Exception as exc:
+                        upload_progress_by_id[identifier] = {
+                            'phase': 'failed', 'percent': 0,
+                            'message': 'Upload rejected: ' + str(exc)
+                        }
+                        await send_response(
+                            writer, '400 Bad Request', str(exc), 'text/plain'
+                        )
+                    else:
+                        await send_response(writer, '200 OK', json.dumps(result), 'application/json')
             elif method == 'GET' and route == '/resumable-upload-status':
                 if resumable_status is None:
                     await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
@@ -3067,11 +3079,22 @@ async def start_web_portal(
                     await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
                 else:
                     params = parse_query(action_path)
-                    result = await resumable_append(
-                        params.get('id', ''), params.get('offset', 0), reader,
-                        int(headers.get('content-length', '0') or 0)
-                    )
-                    await send_response(writer, '200 OK', json.dumps(result), 'application/json')
+                    identifier = str(params.get('id', ''))[:64]
+                    try:
+                        result = await resumable_append(
+                            identifier, params.get('offset', 0), reader,
+                            int(headers.get('content-length', '0') or 0)
+                        )
+                    except Exception as exc:
+                        upload_progress_by_id[identifier] = {
+                            'phase': 'failed', 'percent': 0,
+                            'message': 'Upload rejected: ' + str(exc)
+                        }
+                        await send_response(
+                            writer, '400 Bad Request', str(exc), 'text/plain'
+                        )
+                    else:
+                        await send_response(writer, '200 OK', json.dumps(result), 'application/json')
             elif method == 'POST' and route == '/resumable-upload-complete':
                 if resumable_complete is None:
                     await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
@@ -3509,6 +3532,14 @@ async def start_web_portal(
                 return
             try:
                 log_output('Local', 'Web portal', {'log': 'Request failed - ' + str(exc)}, 'ERROR')
+            except Exception:
+                pass
+            try:
+                await send_response(
+                    writer, '500 Internal Server Error',
+                    'Portal request failed. See Maintenance > Log viewer for details.',
+                    'text/plain'
+                )
             except Exception:
                 pass
         finally:

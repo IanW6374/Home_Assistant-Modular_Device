@@ -690,9 +690,11 @@ python3 tools/build_universal_update.py universal-1.5.0.hamu \
 
 The portal streams and verifies both components and offers one activation and
 reboot action. Already-installed components at the same or a newer sequence are
-verified but skipped. A core older than recovery API 8 and its existing portal
-do not understand HAMU, so install the first HAMU-capable `.hamf` and matching
-`.hamd` separately; later releases can be delivered as one file.
+verified but skipped. Use `--format-version 1` only for a v1.9-to-v2 bootstrap
+HAMU; v2 accepts that bridge format and uses HAMU format 2 for subsequent
+releases. A core older than recovery API 8 and its existing portal does not
+understand HAMU, so install the first HAMU-capable `.hamf` and matching `.hamd`
+separately.
 
 ### ESP32-S3 Migration Configuration
 

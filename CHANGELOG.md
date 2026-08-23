@@ -3,6 +3,19 @@
 All notable user-visible changes are recorded here. This project follows
 Semantic Versioning for product release labels.
 
+## [2.0.0-alpha.2] - 2026-08-23
+
+### Fixed
+
+- Migrated persisted v1 API-client registries during the v1.9-to-v2 upgrade so
+  System configuration pages do not fail after an enrolled client is retained.
+- Returned an explicit HTTP error response when a portal route fails instead of
+  silently dropping the browser connection.
+- Added a signed HAMU format-1 bootstrap envelope for installing v2 on the v1.9
+  universal-update loader and retained formats 1 and 2 in v2.
+- Started upload-status polling before resumable transfer completion so an
+  early server rejection cannot leave a stale upload percentage in the portal.
+
 ## [2.0.0-alpha.1] - 2026-08-22
 
 ### Added

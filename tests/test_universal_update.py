@@ -272,6 +272,34 @@ class UniversalUpdateTests(unittest.TestCase):
             'hamu', stored, stored['signature'], point
         ))
 
+    def test_builder_can_create_v1_bootstrap_bundle_for_v1_9_loader(self):
+        source = Path('source.py')
+        source.write_text('VALUE = 1')
+        settings = Path('settings.json')
+        settings.write_text('{}')
+        build_bundle(
+            Path('application.hamd'), '2.0.0-alpha.1',
+            [('HA-Device.py', source), ('app_settings.json', settings)],
+            signing_key=self.private_key, release_sequence=2101,
+            minimum_core_api=1, components={'runtime': 1, 'modules': {}},
+        )
+        image = Path('micropython.bin')
+        image.write_bytes(b'\xe9' + b'core image' * 20)
+        build_firmware_bundle(
+            image, Path('firmware.hamf'), '2.0.0-alpha.1',
+            signing_key=self.private_key, release_sequence=2101,
+            minimum_core_api=1,
+        )
+        manifest = build_universal_bundle(
+            Path('bootstrap.hamu'), Path('application.hamd'),
+            Path('firmware.hamf'), '2.0.0-alpha.1', 2101,
+            self.private_key, format_version=1,
+        )
+        self.assertEqual(manifest['format_version'], 1)
+        self.assertNotIn('activation_order', manifest)
+        self.assertNotIn('maintenance_required', manifest)
+        update_security.validate_universal_manifest(manifest)
+
 
 if __name__ == '__main__':
     unittest.main()

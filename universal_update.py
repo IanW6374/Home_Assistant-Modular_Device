@@ -252,7 +252,9 @@ async def receive_bundle(
         'application_sequence': int(application.get('release_sequence', 0)),
         'firmware_required': firmware_required,
         'application_required': application_required,
-        'activation_order': list(manifest.get('activation_order', ())),
+        'activation_order': list(manifest.get(
+            'activation_order', ('application', 'firmware')
+        )),
         'maintenance_required': bool(manifest.get('maintenance_required')),
         'rollback_policy': str(manifest.get('rollback_policy', 'paired')),
         'trial_timeout_s': int(manifest.get('trial_timeout_s', 180)),

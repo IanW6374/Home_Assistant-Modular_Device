@@ -46,7 +46,8 @@ def _component(path, expected_type, signing_key):
 def build_universal_bundle(
     output, application_bundle, firmware_bundle, version,
     release_sequence, signing_key, activation_order=None,
-    maintenance_required=True, rollback_policy='paired', trial_timeout_s=180
+    maintenance_required=True, rollback_policy='paired', trial_timeout_s=180,
+    format_version=2
 ):
     application = _component(application_bundle, 'application', signing_key)
     firmware = _component(firmware_bundle, 'firmware', signing_key)
@@ -85,8 +86,11 @@ def build_universal_bundle(
     trial_timeout_s = int(trial_timeout_s)
     if trial_timeout_s < 30 or trial_timeout_s > 3600:
         raise ValueError('universal trial timeout is invalid')
+    format_version = int(format_version)
+    if format_version not in (1, 2):
+        raise ValueError('universal format version must be 1 or 2')
     manifest_object = {
-        'format_version': 2,
+        'format_version': format_version,
         'target_board': 'esp32-s3',
         'version': str(version),
         'release_sequence': release_sequence,
@@ -98,12 +102,15 @@ def build_universal_bundle(
             key: application[key]
             for key in ('version', 'release_sequence', 'size', 'sha256')
         },
-        'activation_order': activation_order,
-        'maintenance_required': bool(maintenance_required),
-        'rollback_policy': rollback_policy,
-        'trial_timeout_s': trial_timeout_s,
         'signature_scheme': update_security.SIGNATURE_SCHEME,
     }
+    if format_version >= 2:
+        manifest_object.update({
+            'activation_order': activation_order,
+            'maintenance_required': bool(maintenance_required),
+            'rollback_policy': rollback_policy,
+            'trial_timeout_s': trial_timeout_s,
+        })
     manifest_object['signature'] = update_security.sign_manifest(
         'hamu', manifest_object, signing_key
     )
@@ -147,6 +154,10 @@ def main():
         default='paired'
     )
     parser.add_argument('--trial-timeout-s', type=int, default=180)
+    parser.add_argument(
+        '--format-version', type=int, choices=(1, 2), default=2,
+        help='HAMU manifest format; use 1 only to bootstrap a v1.9 device'
+    )
     args = parser.parse_args()
     try:
         manifest = build_universal_bundle(
@@ -155,7 +166,7 @@ def main():
             ['application', 'firmware'] if args.activation_order == 'application-first'
             else ['firmware', 'application'],
             not args.no_maintenance_window, args.rollback_policy,
-            args.trial_timeout_s
+            args.trial_timeout_s, args.format_version
         )
     except ValueError as exc:
         raise SystemExit('build failed: ' + str(exc))

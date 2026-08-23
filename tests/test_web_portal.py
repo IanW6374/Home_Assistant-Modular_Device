@@ -3,6 +3,7 @@ import asyncio
 import builtins
 import os
 import tempfile
+from pathlib import Path
 from unittest import mock
 
 import web_portal
@@ -1143,6 +1144,14 @@ class WebPortalTests(unittest.TestCase):
         self.assertTrue(is_client_disconnect_error(OSError('MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE')))
         self.assertFalse(is_client_disconnect_error(OSError(12, 'ENOMEM')))
 
+    def test_unhandled_portal_route_error_has_an_http_fallback(self):
+        source = (Path(__file__).resolve().parents[1] / 'web_portal.py').read_text()
+        self.assertIn("'500 Internal Server Error'", source)
+        self.assertIn(
+            'Portal request failed. See Maintenance > Log viewer for details.',
+            source,
+        )
+
     def test_response_sets_content_length(self):
         raw = response('200 OK', 'hello', 'text/plain')
         self.assertIn('Content-Length: 5', raw)
@@ -1411,6 +1420,7 @@ class WebPortalTests(unittest.TestCase):
         )
         self.assertIn('Software update', html)
         self.assertIn('id="update-upload-form"', html)
+        self.assertIn('startPolling();return sendChunk', html)
         self.assertIn('Upload and verify', html)
         self.assertIn('application (.hamd) or base firmware (.hamf)', html)
         self.assertNotIn('Application update options:', html)

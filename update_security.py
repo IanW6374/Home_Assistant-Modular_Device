@@ -474,8 +474,9 @@ def validate_manifest(bundle_type, manifest, key_path=VERIFICATION_KEY_PATH):
 
 def validate_universal_manifest(manifest, key_path=VERIFICATION_KEY_PATH):
     """Validate a signed manifest binding one HAMF and one HAMD bundle."""
-    if not isinstance(manifest, dict) or int(manifest.get('format_version', 0)) != 2:
+    if not isinstance(manifest, dict) or int(manifest.get('format_version', 0)) not in (1, 2):
         raise ValueError('unsupported universal update format')
+    format_version = int(manifest.get('format_version', 0))
     if str(manifest.get('target_board', '')) != TARGET_BOARD:
         raise ValueError('universal update target board is not supported')
     if not str(manifest.get('version', '')).strip():
@@ -501,17 +502,18 @@ def validate_universal_manifest(manifest, key_path=VERIFICATION_KEY_PATH):
             character not in '0123456789abcdef' for character in digest
         ):
             raise ValueError('universal ' + name + ' SHA-256 is invalid')
-    if manifest.get('activation_order') not in (
-        ['application', 'firmware'], ['firmware', 'application']
-    ):
-        raise ValueError('universal activation order is invalid')
-    if not isinstance(manifest.get('maintenance_required'), bool):
-        raise ValueError('universal maintenance policy is invalid')
-    if manifest.get('rollback_policy') not in ('paired', 'independent', 'manual'):
-        raise ValueError('universal rollback policy is invalid')
-    timeout = int(manifest.get('trial_timeout_s', 0))
-    if timeout < 30 or timeout > 3600:
-        raise ValueError('universal trial timeout is invalid')
+    if format_version >= 2:
+        if manifest.get('activation_order') not in (
+            ['application', 'firmware'], ['firmware', 'application']
+        ):
+            raise ValueError('universal activation order is invalid')
+        if not isinstance(manifest.get('maintenance_required'), bool):
+            raise ValueError('universal maintenance policy is invalid')
+        if manifest.get('rollback_policy') not in ('paired', 'independent', 'manual'):
+            raise ValueError('universal rollback policy is invalid')
+        timeout = int(manifest.get('trial_timeout_s', 0))
+        if timeout < 30 or timeout > 3600:
+            raise ValueError('universal trial timeout is invalid')
     public_key = _public_key(key_path)
     if public_key is None:
         raise ValueError('update verification key is not provisioned')
