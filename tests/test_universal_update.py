@@ -272,7 +272,7 @@ class UniversalUpdateTests(unittest.TestCase):
             'hamu', stored, stored['signature'], point
         ))
 
-    def test_builder_can_create_v1_bootstrap_bundle_for_v1_9_loader(self):
+    def test_clean_seed_runtime_rejects_legacy_universal_format(self):
         source = Path('source.py')
         source.write_text('VALUE = 1')
         settings = Path('settings.json')
@@ -291,14 +291,13 @@ class UniversalUpdateTests(unittest.TestCase):
             minimum_core_api=1,
         )
         manifest = build_universal_bundle(
-            Path('bootstrap.hamu'), Path('application.hamd'),
+            Path('universal.hamu'), Path('application.hamd'),
             Path('firmware.hamf'), '2.0.0-alpha.1', 2101,
-            self.private_key, format_version=1,
+            self.private_key,
         )
-        self.assertEqual(manifest['format_version'], 1)
-        self.assertNotIn('activation_order', manifest)
-        self.assertNotIn('maintenance_required', manifest)
-        update_security.validate_universal_manifest(manifest)
+        manifest['format_version'] = 1
+        with self.assertRaisesRegex(ValueError, 'unsupported universal'):
+            update_security.validate_universal_manifest(manifest)
 
 
 if __name__ == '__main__':

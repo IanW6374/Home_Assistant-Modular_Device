@@ -119,21 +119,13 @@ class DeviceAPI:
             )
             return 200, result
 
-        if method == 'GET' and route == '/api/v1/device':
-            return 200, {
-                'api_version': API_VERSION,
-                'device': self.device_getter(),
-                'client': {'label': client.get('label', ''), 'scopes': client.get('scopes', [])},
-            }
-        if method == 'GET' and route == '/api/v1/modules':
+        if method == 'GET' and route == '/api/v2/modules':
             return 200, {'api_version': API_VERSION, 'modules': self.broker.catalog()}
-        if method == 'GET' and route == '/api/v1/health/history':
-            return 200, {'api_version': API_VERSION, 'health': self.health.snapshot()}
-        if method == 'GET' and route.startswith('/api/v1/operations/'):
+        if method == 'GET' and route.startswith('/api/v2/operations/'):
             operation = self.broker.operation(route.rsplit('/', 1)[-1])
             return (200, operation) if operation else (404, {'error': 'operation not found'})
 
-        prefix = '/api/v1/modules/'
+        prefix = '/api/v2/modules/'
         if route.startswith(prefix):
             remainder = route[len(prefix):]
             parts = remainder.split('/')

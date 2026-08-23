@@ -53,6 +53,14 @@ class FakeBroker:
 
 
 class DeviceAPITests(unittest.TestCase):
+    def test_v1_namespace_is_not_exposed_by_clean_seed_runtime(self):
+        self.registry.enrol(self.cert, 'reader', ('read',))
+        status, body = self.api.dispatch(
+            'GET', '/api/v1/modules', b'', self.cert
+        )
+        self.assertEqual(status, 404)
+        self.assertEqual(body['error'], 'endpoint not found')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         registry_path = str(Path(self.temp.name) / 'clients.json')
@@ -76,21 +84,21 @@ class DeviceAPITests(unittest.TestCase):
         self.assertIn('days_remaining', listed)
 
         status, payload = self.api.dispatch(
-            'GET', '/api/v1/modules/0001/state', b'', self.cert
+            'GET', '/api/v2/modules/0001/state', b'', self.cert
         )
         self.assertEqual(status, 200)
         self.assertEqual(payload['state']['temperature'], 55)
 
         with self.assertRaisesRegex(PermissionError, 'write scope'):
             self.api.dispatch(
-                'POST', '/api/v1/modules/0001/commands', b'{"value":1}', self.cert
+                'POST', '/api/v2/modules/0001/commands', b'{"value":1}', self.cert
             )
 
     def test_write_client_submits_same_json_command_contract(self):
         self.registry.enrol(self.cert, 'controller', ('read', 'write'))
 
         status, operation = self.api.dispatch(
-            'POST', '/api/v1/modules/0001/commands',
+            'POST', '/api/v2/modules/0001/commands',
             b'{"request_id":"abc","operation":"write","value":20}',
             self.cert
         )
@@ -102,13 +110,13 @@ class DeviceAPITests(unittest.TestCase):
 
     def test_unenrolled_certificate_is_rejected(self):
         with self.assertRaisesRegex(PermissionError, 'not enrolled'):
-            self.api.dispatch('GET', '/api/v1/device', b'', self.cert)
+            self.api.dispatch('GET', '/api/v2/device/inventory', b'', self.cert)
 
     def test_revoked_certificate_is_rejected(self):
         record = self.registry.enrol(self.cert, 'reader', ('read',))
         self.assertTrue(self.registry.revoke(record['fingerprint']))
         with self.assertRaises(PermissionError):
-            self.api.dispatch('GET', '/api/v1/device', b'', self.cert)
+            self.api.dispatch('GET', '/api/v2/device/inventory', b'', self.cert)
 
     def test_registry_creates_nested_absolute_directory(self):
         path = Path(self.temp.name) / 'nested' / 'certs' / 'clients.json'
@@ -118,7 +126,7 @@ class DeviceAPITests(unittest.TestCase):
 
         self.assertTrue(path.is_file())
 
-    def test_v1_registry_is_atomically_migrated_without_losing_clients(self):
+    def test_v1_registry_is_rejected_by_clean_seed_runtime(self):
         path = Path(self.temp.name) / 'legacy-clients.json'
         fingerprint = api_security.certificate_fingerprint(self.cert)
         path.write_text(json.dumps({
@@ -134,19 +142,14 @@ class DeviceAPITests(unittest.TestCase):
         }))
         registry = api_security.ClientRegistry(str(path))
 
-        listed = registry.list_clients()
-
-        self.assertEqual(listed[0]['label'], 'v1 automation')
-        self.assertEqual(json.loads(path.read_text())['format_version'], 2)
-        self.assertEqual(
-            registry.authenticate(self.cert, 'write')['fingerprint'], fingerprint
-        )
+        with self.assertRaisesRegex(ValueError, 'invalid format'):
+            registry.list_clients()
 
     def test_invalid_module_uuid_returns_json_404(self):
         self.registry.enrol(self.cert, 'reader', ('read',))
 
         status, payload = self.api.dispatch(
-            'GET', '/api/v1/modules/ffff/state', b'', self.cert
+            'GET', '/api/v2/modules/ffff/state', b'', self.cert
         )
 
         self.assertEqual(status, 404)
@@ -184,7 +187,7 @@ class DeviceAPITests(unittest.TestCase):
             def __init__(stream_self):
                 stream_self.s = TLSStream()
                 stream_self.data = (
-                    b'GET /api/v1/modules HTTP/1.1\r\n'
+                    b'GET /api/v2/modules HTTP/1.1\r\n'
                     b'Connection: close\r\n\r\n'
                 )
 

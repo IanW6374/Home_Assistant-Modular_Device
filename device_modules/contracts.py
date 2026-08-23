@@ -8,6 +8,10 @@ ALLOWED_CAPABILITIES = (
     'state', 'commands', 'calibration', 'diagnostics', 'discovery', 'local-input'
 )
 
+LIFECYCLE_METHODS = (
+    'get_state_payload', 'diagnostics_payload'
+)
+
 
 def _type_keys(module):
     result = []
@@ -47,6 +51,22 @@ def metadata_for(module_name, module):
             'configuration_schema': getattr(module, 'CONFIGURATION_SCHEMA', {}),
         }
     return validate_metadata(metadata)
+
+
+def validate_driver_instance(driver):
+    """Validate the minimum transport-neutral lifecycle of a live driver."""
+    missing = [
+        name for name in LIFECYCLE_METHODS
+        if not callable(getattr(driver, name, None))
+    ]
+    if missing:
+        raise ValueError('driver lifecycle methods are missing: ' + ', '.join(missing))
+    if not (
+        callable(getattr(driver, 'set', None)) or
+        callable(getattr(driver, 'handle_set', None))
+    ):
+        raise ValueError('driver command lifecycle method is missing')
+    return driver
 
 
 def validate_metadata(metadata):

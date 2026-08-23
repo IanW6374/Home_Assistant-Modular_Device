@@ -380,7 +380,7 @@ The helper:
    release-mode flash encryption, NVS encryption, and rollback settings;
 6. builds `micropython.bin`, `firmware.bin`, and the USB flash artifacts; and
 7. embeds the clean HAMD Git revision inside the signed image content;
-8. warns at 85% OTA-slot use, refuses packaging at 95%, and wraps only
+8. warns at 80% OTA-slot use, refuses packaging at 85%, and wraps only
    application image `micropython.bin` in the signed `.hamf`.
 
 Core helper options:
@@ -483,9 +483,7 @@ versions, sequences, sizes, and SHA-256 digests.
 
 HAMU format 2 also signs the activation order, whether a maintenance window is
 required, the paired/independent/manual rollback policy, and the trial timeout.
-The v2 runtime accepts formats 1 and 2. Use format 1 only for the one-time
-universal package that bootstraps a v1.9 device into v2; use format 2 for all
-packages once v2 is installed.
+It is the only universal-update format accepted by the clean-seed v2 runtime.
 
 Build the component bundles first with the same release sequence, then combine
 them:
@@ -500,10 +498,6 @@ python3 tools/build_universal_update.py \
   --signing-key "$UPDATE_SIGNING_KEY"
 ```
 
-For the v1.9-to-v2 bootstrap only, add `--format-version 1`. The inner HAMD and
-HAMF packages remain independently signed current-format packages; only the
-small outer compatibility manifest uses HAMU format 1.
-
 Upload the `.hamu` through **Maintenance > Upgrades** or the authenticated core
 recovery portal. The device streams the core to the inactive OTA partition,
 stages the application in the inactive VFS slot, verifies both inner packages
@@ -513,10 +507,8 @@ and application verification.
 
 If either component sequence is already installed, that component is still
 read and hash-verified but is not staged again. If neither component is newer,
-the package is rejected. Core recovery API versions before 8 and their existing
-application portals cannot parse or route HAMU. Those older devices require the
-matching `.hamf` and `.hamd` separately. A v1.9 device with core API 8 can use a
-format-1 bootstrap HAMU; subsequent matched releases should use format 2.
+the package is rejected. Devices are provisioned with a complete v2 factory
+image; the release tooling does not generate a legacy bootstrap HAMU.
 
 ## 4. Installing a new ESP32-S3
 
@@ -750,13 +742,13 @@ done
 Generate release evidence beside the signed artifacts:
 
 ```sh
-python3 tools/generate_sbom.py --version 2.0.0-alpha.1 \
-  --output releases/hamd-2.0.0-alpha.1.cdx.json
-python3 tools/generate_provenance.py --version 2.0.0-alpha.1 \
-  --output releases/hamd-2.0.0-alpha.1.provenance.json \
-  releases/application-2.0.0-alpha.1.hamd \
-  releases/ham-core-2.0.0-alpha.1.hamf \
-  releases/universal-2.0.0-alpha.1.hamu
+python3 tools/generate_sbom.py --version 2.0.0-alpha.5 \
+  --output releases/hamd-2.0.0-alpha.5.cdx.json
+python3 tools/generate_provenance.py --version 2.0.0-alpha.5 \
+  --output releases/hamd-2.0.0-alpha.5.provenance.json \
+  releases/application-2.0.0-alpha.5.hamd \
+  releases/ham-core-2.0.0-alpha.5.hamf \
+  releases/universal-2.0.0-alpha.5.hamu
 ```
 
 Run `tools/hil_qualify.py` with the enrolled fleet mTLS identity to record the

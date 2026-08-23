@@ -47,6 +47,7 @@ app_update.py                   Transactional Python application updater
 firmware_update.py              ESP32 dual-partition base firmware updater
 hardware_platform.py            ESP32-S3 capability and hardware abstraction
 HA-Device.py                    WiFi, MQTT, discovery, and device orchestration
+application/                    Explicit application context, lifecycle and task ownership
 module_settings.json            Module and register configuration
 device_config.py                Immutable hardware/security policy frozen into core
 app_settings.json               Signed application policy carried in every app bundle
@@ -80,10 +81,14 @@ fleet_management.py             Signed device-side fleet policy and command stat
 resumable_upload.py             Power-safe update upload sessions
 support_bundle.py               Bounded secret-redacted support snapshots
 portal_auth.py                  Portal users, roles and route policy
+portal_contracts.py             Named portal-to-application dependency contract
+portal_routes.py                Versioned route authorization registry
+portal_view_models.py           Transport-neutral portal presentation models
 portal_sessions.py              Independent expiring portal sessions and CSRF
 home_assistant_addons/hamd_fleet Home Assistant fleet-manager add-on
 device_modules/                 Device driver modules
 device_modules/contracts.py     Versioned driver metadata/capability contract
+device_modules/resources.py     Deterministic GPIO/UART/SPI/ADC allocation preflight
 device_modules/whes.py          WHES inverter presentation/calculation driver
 device_modules/rs485_modbus.py   Generic ESP32-S3 RS485 Modbus driver
 device_modules/ems.py           Read-only EMS boiler monitor
@@ -102,6 +107,7 @@ tools/provision_update_signing.py Update public-key provisioning helper
 docs/UPGRADE_GUIDE.md           Complete application/core/new-device procedures
 firmware/                       ESP32 OTA partition layout
 tests/                          Host-side unit tests
+docs/ARCHITECTURE.md            Clean-seed v2 dependency and persistence model
 lib/                            MicroPython support libraries
 ```
 
@@ -321,14 +327,12 @@ and always requires a CA-validated, enrolled client certificate.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/v1/device` | Safe device/application/core identity |
-| `GET /api/v1/modules` | Module identities and capabilities |
-| `GET /api/v1/modules/{uuid}/state` | Latest cached state |
-| `GET /api/v1/modules/{uuid}/diagnostics` | Driver and transport health |
-| `POST /api/v1/modules/{uuid}/commands` | Submit the same JSON command used by MQTT `/set` |
-| `GET /api/v1/operations/{id}` | Retrieve queued/deferred command status |
-| `GET /api/v1/health/history` | Persistent health counters and events |
 | `GET /api/v2/device/inventory` | Fleet-safe identity, versions, capabilities and driver inventory |
+| `GET /api/v2/modules` | Module identities and capabilities |
+| `GET /api/v2/modules/{uuid}/state` | Latest cached state |
+| `GET /api/v2/modules/{uuid}/diagnostics` | Driver and transport health |
+| `POST /api/v2/modules/{uuid}/commands` | Submit the same JSON command used by MQTT `/set` |
+| `GET /api/v2/operations/{id}` | Retrieve queued/deferred command status |
 | `GET /api/v2/health` | Current health and bounded history snapshot |
 | `GET /api/v2/events?cursor=N&limit=M` | Cursor-based structured audit/health events |
 | `GET /api/v2/support` | Secret-redacted bounded diagnostic bundle |
@@ -353,7 +357,7 @@ example:
 ```sh
 curl --cert automation-client.crt --key automation-client.key \
   --cacert portal-ca.crt \
-  https://device-name.local:8444/api/v1/modules
+  https://device-name.local:8444/api/v2/modules
 ```
 
 Revocation is immediate for new connections and is available under **System >
@@ -563,6 +567,14 @@ standard ESP32 frozen modules. The first installation requires a full USB
 flash; an application-only image or `.hamf` contains no partition table and
 cannot perform this initial migration.
 
+The production board is deliberately Wi-Fi-only: Bluetooth/NimBLE, PPP and SPI
+Ethernet are excluded from the immutable core, and ESP-IDF is compiled for
+size. The reproducible build rejects those components if they are accidentally
+re-enabled or linked. Core images warn at 80% of an OTA slot and fail the build
+at 85%, preserving at least 15% for security and recovery maintenance. Wired or
+Bluetooth support must be introduced as an explicit hardware-profile decision,
+not inherited from the generic MicroPython board.
+
 The complete, version-pinned procedures for application upgrades, core
 upgrades, and first installation are in
 [docs/UPGRADE_GUIDE.md](docs/UPGRADE_GUIDE.md). They also explain which
@@ -690,11 +702,9 @@ python3 tools/build_universal_update.py universal-1.5.0.hamu \
 
 The portal streams and verifies both components and offers one activation and
 reboot action. Already-installed components at the same or a newer sequence are
-verified but skipped. Use `--format-version 1` only for a v1.9-to-v2 bootstrap
-HAMU; v2 accepts that bridge format and uses HAMU format 2 for subsequent
-releases. A core older than recovery API 8 and its existing portal does not
-understand HAMU, so install the first HAMU-capable `.hamf` and matching `.hamd`
-separately.
+verified but skipped. Clean-seed v2 accepts HAMU format 2 only; legacy bridge
+packages are deliberately rejected. Provision a complete v2 factory image on
+new hardware rather than carrying an upgrade-only compatibility path.
 
 ### ESP32-S3 Migration Configuration
 

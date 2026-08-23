@@ -32,6 +32,7 @@ import web_portal_ui as portal_ui
 import http_support
 import timezone_rules
 import portal_auth
+from portal_view_models import overview_metrics, update_check_summary
 from portal_sessions import PortalSessions
 from device_modules.base import module_diagnostics_need_attention
 
@@ -1658,20 +1659,10 @@ def render_update_summary_html(status):
         status.get('firmware_update_availability', 'Unknown') or 'Unknown'
     )
     availability_tone = ' good' if availability.lower() == 'ready' else ' warn'
-    release_status = str(status.get(
-        'release_automatic_check_status',
-        status.get('release_check_status', 'Not checked')
-    ) or 'Not checked')
-    release_checked = str(status.get(
-        'release_automatic_last_checked', status.get('release_last_checked', '')
-    ) or '')
-    release_text = release_status + (
-        ' — ' + release_checked if release_checked else ''
-    )
-    release_tone = (
-        ' warn' if release_status.lower().startswith('check failed') else
-        (' good' if release_status not in ('Not checked', 'Checking') else '')
-    )
+    release_check = update_check_summary(status)
+    release_status = release_check['status']
+    release_text = release_check['text']
+    release_tone = (' ' + release_check['tone']) if release_check['tone'] else ''
     paired = status.get('paired_update', {}) or {}
     paired_html = ''
     if int(paired.get('total_steps', 0) or 0) > 1:
@@ -1839,19 +1830,11 @@ def render_update_actions_html(status, token):
 
 def render_overview_status(status):
     status = status or {}
-    keys = (
-        ('device_name', 'Device'),
-        ('wifi_ip', 'Wi-Fi address'),
-        ('mqtt', 'MQTT'),
-        ('api', 'Device API'),
-        ('uptime_s', 'Uptime (s)'),
-        ('running_version', 'Application version'),
-        ('firmware_running_version', 'Core version'),
-        ('base_version', 'MicroPython version'),
-    )
     values = []
-    for key, label in keys:
-        value = status.get(key, 'unknown')
+    for metric in overview_metrics(status):
+        key = metric['key']
+        label = metric['label']
+        value = metric['value']
         if key == 'firmware_running_version':
             value = display_release_version(value)
         tone = ''
@@ -2232,25 +2215,49 @@ def make_tls_context(cert_path, key_path):
     return context
 
 
-async def start_web_portal(
-    settings, log_getter, loglevel_getter, loglevel_setter, log_output,
-    status_getter=None, module_getter=None, action_handler=None,
-    upload_handler=None, firmware_upload_handler=None, config_backup_getter=None,
-    config_import_preview_handler=None, config_import_apply_handler=None,
-    settings_getter=None, settings_setter=None, module_settings_getter=None,
-    module_settings_setter=None, certificate_upload_handler=None,
-    certificate_validate_handler=None, update_preferences_setter=None,
-    task_status_getter=None, certificate_info_getter=None,
-    network_trial_confirmer=None, factory_reset_handler=None,
-    secure_config_backup_getter=None, secure_config_import_preview_handler=None,
-    secure_config_import_apply_handler=None, log_buffer_lines_setter=None,
-    wifi_scan_getter=None, universal_upload_handler=None,
-    portal_user_getter=None, portal_user_add=None, portal_user_update=None,
-    portal_user_remove=None, resumable_begin=None, resumable_status=None,
-    resumable_append=None, resumable_complete=None
-):
+async def start_web_portal(portal):
+    """Start the portal transport from one explicit application contract."""
     if asyncio is None:
         return None
+
+    settings = portal.settings
+    log_getter = portal.require('logs.get')
+    loglevel_getter = portal.require('logs.level.get')
+    loglevel_setter = portal.require('logs.level.set')
+    log_output = portal.require('events.log')
+    status_getter = portal.get('status.get')
+    module_getter = portal.get('modules.list')
+    action_handler = portal.get('actions.apply')
+    upload_handler = portal.get('updates.application.receive')
+    firmware_upload_handler = portal.get('updates.firmware.receive')
+    config_backup_getter = portal.get('configuration.backup')
+    config_import_preview_handler = portal.get('configuration.preview')
+    config_import_apply_handler = portal.get('configuration.apply')
+    settings_getter = portal.get('settings.get')
+    settings_setter = portal.get('settings.apply')
+    module_settings_getter = portal.get('module_configuration.get')
+    module_settings_setter = portal.get('module_configuration.apply')
+    certificate_upload_handler = portal.get('certificates.upload')
+    certificate_validate_handler = portal.get('certificates.apply')
+    update_preferences_setter = portal.get('updates.preferences.apply')
+    task_status_getter = portal.get('tasks.status')
+    certificate_info_getter = portal.get('certificates.get')
+    network_trial_confirmer = portal.get('network.confirm')
+    factory_reset_handler = portal.get('factory_reset.request')
+    secure_config_backup_getter = portal.get('configuration.secure.backup')
+    secure_config_import_preview_handler = portal.get('configuration.secure.preview')
+    secure_config_import_apply_handler = portal.get('configuration.secure.apply')
+    log_buffer_lines_setter = portal.get('logs.limit.set')
+    wifi_scan_getter = portal.get('network.scan')
+    universal_upload_handler = portal.get('updates.universal.receive')
+    portal_user_getter = portal.get('users.list')
+    portal_user_add = portal.get('users.add')
+    portal_user_update = portal.get('users.update')
+    portal_user_remove = portal.get('users.remove')
+    resumable_begin = portal.get('updates.upload.begin')
+    resumable_status = portal.get('updates.upload.status')
+    resumable_append = portal.get('updates.upload.append')
+    resumable_complete = portal.get('updates.upload.complete')
 
     username = settings.get('username', 'admin') or 'admin'
     password_verifier = settings.get('password_verifier', '')

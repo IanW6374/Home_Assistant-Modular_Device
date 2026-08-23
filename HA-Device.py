@@ -36,8 +36,14 @@ from device_api import DeviceAPI, start_device_api
 from runtime_health import HealthHistory
 from message_broker import BoundedPublishQueue, ModuleBroker
 from services.event_service import EventService
+from services.event_sinks import LegacyLogSink
 from services.module_runtime import ModuleRuntime
+from services.network_service import NetworkService
+from services.messaging_service import MessagingService
 from services.portal_service import PortalService
+from services.update_service import UpdateService
+from portal_contracts import PortalDependencies
+from application import ApplicationContext, RuntimeState
 import settings_loader as device_settings
 try:
     import network
@@ -159,12 +165,11 @@ device_api_config = runtime_credentials.get('api', {
 })
 device_api_enabled = device_api_config.get('enabled') is True
 device_api_port = int(device_api_config.get('port', device_settings.device_api_port))
-api_client_ca_path = device_settings.service_ca_path('api_client')
 api_client_registry = api_security.ClientRegistry(
     device_settings.api_client_registry_path
 )
 api_client_ca_store = api_security.CATrustStore(
-    device_settings.api_client_ca_directory, legacy_path=api_client_ca_path
+    device_settings.api_client_ca_directory
 )
 
 
@@ -348,6 +353,37 @@ module_runtime = ModuleRuntime(module_broker, driver_loader)
 portal_service = PortalService(start_web_portal)
 
 
+def _critical_task_failure(name, exc):
+    detail = str(name) + ': ' + (str(exc) or exc.__class__.__name__)
+    runtime_health.observe('last_startup_exception', detail, force=True)
+    application_context.lifecycle.transition('failed', detail)
+    logOutput('Local', 'Task', {'log': detail + ' stopped'}, 'ERROR')
+    set_main_device_error()
+
+
+application_context = ApplicationContext(
+    {
+        'device_id': hardware_deviceid,
+        'runtime_id': deviceid,
+        'device_name': ha_devicename,
+        'board': hardware_platform.platform_id(),
+    },
+    configuration=device_settings,
+    state=RuntimeState({
+        'phase': 'initialising',
+        'network': 'offline',
+        'portal': 'stopped',
+        'api': 'stopped',
+        'mqtt': 'stopped',
+    }),
+    event_service=event_service,
+    critical_failure=_critical_task_failure,
+)
+application_context.register('events', event_service)
+application_context.register('modules', module_runtime)
+application_context.register('portal', portal_service)
+
+
 
 # Function:  Validate UUID
 def validUUID(uuid):
@@ -450,6 +486,9 @@ def logOutput(mode, action, data, logtype):
         )
 
 
+event_service.add_sink(LegacyLogSink(logOutput))
+
+
 def publish_logtype(msg):
     if 'logtype' in msg:
         return msg['logtype']
@@ -516,22 +555,9 @@ portal_tasks = {}
 
 
 def start_task(name, coroutine, main_device_task=False):
-    async def runner():
-        try:
-            logOutput('Local', 'Task', {'log': 'Started ' + name}, 'DEBUG')
-            await coroutine
-        except Exception as exc:
-            logOutput('Local', 'Task', {'log': name + ' stopped - ' + str(exc)}, 'ERROR')
-            if main_device_task:
-                runtime_health.observe(
-                    'last_startup_exception', name + ': ' + str(exc), force=True
-                )
-                runtime_health.record_event(
-                    'startup_exception', name + ': ' + str(exc), force=True
-                )
-                set_main_device_error()
-
-    return asyncio.create_task(runner())
+    return application_context.tasks.start(
+        name, coroutine, critical=main_device_task
+    )
 
 
 def _perform_scheduled_reset(_timer=None):
@@ -1206,9 +1232,7 @@ def apply_configuration_import(token):
 def portal_settings():
     settings = credential_store.public_settings()
     settings['api_clients'] = api_client_registry.list_clients()
-    settings['api_client_ca_installed'] = bool(
-        certificate_manager.certificate_details(api_client_ca_path).get('installed')
-    )
+    settings['api_client_ca_installed'] = bool(api_client_ca_store.paths())
     return settings
 
 
@@ -1218,7 +1242,7 @@ def installed_certificate_details():
         'trusted_ca': certificate_manager.certificate_lifecycle(mqtt_ca_cert_path),
         'mqtt_ca': certificate_manager.certificate_lifecycle(mqtt_ca_cert_path),
         'release_ca': certificate_manager.certificate_lifecycle(release_ca_cert_path),
-        'api_client_ca': certificate_manager.certificate_lifecycle(api_client_ca_path),
+        'api_client_ca': {'installed': False},
         'api_client_cas': api_client_ca_store.list(),
         'api_clients': api_client_registry.list_clients(),
         'syslog_ca': certificate_manager.certificate_lifecycle(
@@ -1665,6 +1689,8 @@ def device_api_info():
         'uptime_s': uptime_seconds(),
         'board': hardware_platform.platform_id(),
         'drivers': module_runtime.inventory()['drivers'],
+        'resources': driver_loader.resource_catalog(),
+        'runtime': application_context.inventory(),
         'release_sequence': app_update.running_release_sequence(),
         'firmware_release_sequence': firmware_update.running_release_sequence(),
     }
@@ -2143,58 +2169,24 @@ async def portal_universal_upload(reader, content_length, params):
     )
 
 
-class _AsyncUploadFile:
-    def __init__(self, path):
-        self.stream = open(path, 'rb')
-
-    async def read(self, size):
-        return self.stream.read(size)
-
-    def close(self):
-        self.stream.close()
-
-
-def begin_resumable_update(request):
-    if not isinstance(request, dict):
-        raise ValueError('resumable upload request is invalid')
-    return resumable_update_store.begin(
-        request.get('id', ''), request.get('kind', ''),
-        request.get('total_bytes', 0), request.get('sha256', '')
-    )
-
-
-def resumable_update_status(identifier):
-    return resumable_update_store.status(identifier)
-
-
-async def append_resumable_update(identifier, offset, reader, length):
-    length = int(length)
-    if length <= 0 or length > resumable_upload.MAX_CHUNK_BYTES:
-        raise ValueError('resumable upload chunk size is invalid')
-    payload = bytearray()
-    while len(payload) < length:
-        chunk = await reader.read(length - len(payload))
-        if not chunk:
-            raise ValueError('resumable upload chunk ended early')
-        payload.extend(chunk)
-    return resumable_update_store.append(identifier, offset, payload)
-
-
-async def complete_resumable_update(identifier, progress_callback=None):
-    value = resumable_update_store.complete(identifier)
-    reader = _AsyncUploadFile(value['path'])
-    params = {'_progress': progress_callback}
-    try:
-        if value['kind'] == 'application':
-            message = await portal_update_upload(reader, value['total_bytes'], params)
-        elif value['kind'] == 'firmware':
-            message = await portal_firmware_upload(reader, value['total_bytes'], params)
-        else:
-            message = await portal_universal_upload(reader, value['total_bytes'], params)
-    finally:
-        reader.close()
-        resumable_update_store.remove(identifier)
-    return message
+update_service = UpdateService(
+    resumable_update_store,
+    {
+        'application': portal_update_upload if web_portal_updates_enabled else None,
+        'firmware': (
+            portal_firmware_upload if web_portal_firmware_updates_enabled else None
+        ),
+        'universal': portal_universal_upload,
+    },
+    status_getter=lambda: {
+        'application': app_update.update_status(),
+        'firmware': firmware_update.update_status(),
+        'universal': universal_update.update_status(),
+        'paired': update_orchestrator.status(),
+    },
+    maximum_chunk_bytes=resumable_upload.MAX_CHUNK_BYTES,
+)
+application_context.register('updates', update_service)
 
 
 async def _check_release_once():
@@ -2392,46 +2384,50 @@ async def start_admin_portal():
 
     try:
         wifi_recovery.schedule_wifi_scan()
-        web_portal_server = await portal_service.start(
-            settings,
-            get_log_buffer,
-            get_loglevel,
-            set_loglevel,
-            logOutput,
-            portal_status,
-            module_summaries,
-            portal_action,
-            portal_update_upload if web_portal_updates_enabled else None,
-            portal_firmware_upload if web_portal_firmware_updates_enabled else None,
-            configuration_backup,
-            preview_configuration_import,
-            apply_configuration_import,
-            portal_settings,
-            update_portal_settings,
-            module_settings_json,
-            update_module_settings,
-            upload_certificate_file,
-            validate_uploaded_certificates,
-            update_release_preferences,
-            portal_task_status,
-            installed_certificate_details,
-            confirm_network_settings,
-            request_factory_default,
-            secure_configuration_backup,
-            preview_secure_configuration_import,
-            apply_secure_configuration_import,
-            set_log_buffer_lines,
-            wifi_recovery.cached_wifi_networks,
-            portal_universal_upload,
-            portal_auth.list_users,
-            portal_auth.add_user,
-            portal_auth.update_user,
-            portal_auth.remove_user,
-            begin_resumable_update,
-            resumable_update_status,
-            append_resumable_update,
-            complete_resumable_update
-        )
+        dependencies = PortalDependencies(settings, {
+            'logs.get': get_log_buffer,
+            'logs.level.get': get_loglevel,
+            'logs.level.set': set_loglevel,
+            'logs.limit.set': set_log_buffer_lines,
+            'events.log': logOutput,
+            'status.get': portal_status,
+            'modules.list': module_summaries,
+            'actions.apply': portal_action,
+            'updates.application.receive': (
+                portal_update_upload if web_portal_updates_enabled else None
+            ),
+            'updates.firmware.receive': (
+                portal_firmware_upload if web_portal_firmware_updates_enabled else None
+            ),
+            'updates.universal.receive': portal_universal_upload,
+            'updates.preferences.apply': update_release_preferences,
+            'updates.upload.begin': update_service.begin,
+            'updates.upload.status': update_service.status,
+            'updates.upload.append': update_service.append,
+            'updates.upload.complete': update_service.complete,
+            'configuration.backup': configuration_backup,
+            'configuration.preview': preview_configuration_import,
+            'configuration.apply': apply_configuration_import,
+            'configuration.secure.backup': secure_configuration_backup,
+            'configuration.secure.preview': preview_secure_configuration_import,
+            'configuration.secure.apply': apply_secure_configuration_import,
+            'settings.get': portal_settings,
+            'settings.apply': update_portal_settings,
+            'module_configuration.get': module_settings_json,
+            'module_configuration.apply': update_module_settings,
+            'certificates.upload': upload_certificate_file,
+            'certificates.apply': validate_uploaded_certificates,
+            'certificates.get': installed_certificate_details,
+            'tasks.status': portal_task_status,
+            'network.confirm': confirm_network_settings,
+            'network.scan': wifi_recovery.cached_wifi_networks,
+            'factory_reset.request': request_factory_default,
+            'users.list': portal_auth.list_users,
+            'users.add': portal_auth.add_user,
+            'users.update': portal_auth.update_user,
+            'users.remove': portal_auth.remove_user,
+        })
+        web_portal_server = await portal_service.start(dependencies)
     except Exception as exc:
         logOutput('Local', 'Web portal', {'log': 'Failed to start - ' + str(exc)}, 'ERROR')
         return None
@@ -2975,10 +2971,37 @@ def ssl_error_message(exc):
     return detail
 
 
+network_service = NetworkService(
+    lambda: {
+        'address': wifi_ip_address(),
+        'connected': wifi_ip_address() not in ('', '0.0.0.0'),
+    },
+    lambda: wifi_recovery.cached_wifi_networks(refresh=False),
+    confirm_network_settings,
+)
+messaging_service = MessagingService(
+    lambda topic, payload, retain=False, qos=0: publish_message(
+        {'topic': topic, 'payload': payload, 'log': 'Service publish'},
+        qos, False, retain
+    ),
+    status_getter=lambda: {
+        'status': mqtt_connection_status(),
+        'queue': mqtt_publish_queue.stats(),
+    },
+)
+application_context.register('network', network_service)
+application_context.register('messaging', messaging_service)
+application_context.seal((
+    'events', 'modules', 'portal', 'updates', 'network', 'messaging'
+))
+
+
 
 async def main(client):
     global watchdog, release_available, release_check_status
 
+    application_context.lifecycle.transition('starting')
+    application_context.state.set('phase', 'starting')
     start_local_display()
     start_task('module_command_broker', module_broker.run(), main_device_task=True)
 
@@ -2988,11 +3011,14 @@ async def main(client):
     try:
         logOutput('MQTT', 'Connect', {'log': 'Connect WiFi before NTP sync'}, 'INFO')
         await client.wifi_connect(quick=True)
+        application_context.lifecycle.transition('network-ready')
+        application_context.state.set('network', 'online')
         try:
             runtime_health.observe_wifi(network.WLAN(network.STA_IF).status('rssi'))
         except Exception:
             pass
     except (OSError, ValueError) as exc:
+        application_context.lifecycle.transition('failed', 'Wi-Fi: ' + str(exc))
         logOutput('WiFi', 'Connect', {'log': 'Connection error: ' + str(exc)}, 'ERROR')
         set_main_device_error()
         if credential_store.network_trial_pending():
@@ -3017,6 +3043,7 @@ async def main(client):
 
     portal_started = await start_admin_portal()
     if web_portal_enabled and portal_started is None:
+        application_context.lifecycle.transition('failed', 'portal failed to start')
         set_main_device_error()
         if credential_store.network_trial_pending():
             credential_store.rollback_network_trial()
@@ -3035,6 +3062,12 @@ async def main(client):
                 {'log': 'Portal health check failed; update will roll back'}, 'ERROR'
             )
         return
+    application_context.lifecycle.transition(
+        'portal-ready', 'listening' if portal_started is not None else 'disabled'
+    )
+    application_context.state.set(
+        'portal', 'listening' if portal_started is not None else 'disabled'
+    )
     if portal_started is not None:
         hardware_platform.set_status_led_state(status_led, 'ok')
     if credential_store.network_trial_pending():
@@ -3070,6 +3103,8 @@ async def main(client):
 
     await sync_ntp_time()
     await start_module_api()
+    application_context.lifecycle.transition('services-ready')
+    application_context.state.set('api', 'ready')
     start_task('fleet_policy_monitor', fleet_policy_monitor())
     if remote_syslog.enabled:
         start_task('remote_syslog', remote_syslog.run())
@@ -3147,6 +3182,7 @@ async def main(client):
         set_main_device_error()
 
     if mqtt_started:
+        application_context.state.set('mqtt', 'online')
         for coroutine in (up, messages):
             start_task(coroutine.__name__, coroutine(client), main_device_task=True)
 
@@ -3165,7 +3201,9 @@ async def main(client):
         watchdog = WDT(timeout=watchdog_timeout)
         credential_security.set_progress_callback(service_password_calculation)
         logOutput('Local', 'Watchdog', {'log': 'Enabled: ' + str(watchdog_timeout) + ' ms'}, 'INFO')
-    
+
+    application_context.lifecycle.transition('running')
+    application_context.state.set('phase', 'running')
     while True:
         if watchdog:
             watchdog.feed()

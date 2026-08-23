@@ -1,16 +1,19 @@
 try:
     from .logging import log_output
     from .driver_index import DRIVER_MODULES
-    from .contracts import metadata_for
+    from .contracts import metadata_for, validate_driver_instance
+    from .resources import validate_resources
 except ImportError:
     from logging import log_output
     from driver_index import DRIVER_MODULES
-    from contracts import metadata_for
+    from contracts import metadata_for, validate_driver_instance
+    from resources import validate_resources
 
 
 _DEVICE_TYPES = {}
 _MODULES = []
 _DRIVER_METADATA = {}
+_RESOURCE_MANAGER = None
 
 
 def _import_driver(module_name):
@@ -76,9 +79,18 @@ def configured_driver_names(devices):
 
 def configure_for_devices(devices):
     """Import only drivers referenced by the installed module configuration."""
-    global _MODULES, _DEVICE_TYPES, _DRIVER_METADATA
+    global _MODULES, _DEVICE_TYPES, _DRIVER_METADATA, _RESOURCE_MANAGER
+    errors, manager = validate_resources(devices)
+    if errors:
+        raise ValueError('hardware resource conflict: ' + '; '.join(errors))
     _MODULES, _DEVICE_TYPES, _DRIVER_METADATA = _load_for_devices(devices)
+    _RESOURCE_MANAGER = manager
     return list(_DEVICE_TYPES.values())
+
+
+def resource_catalog():
+    """Return the preflight allocation used by the active driver set."""
+    return _RESOURCE_MANAGER.snapshot() if _RESOURCE_MANAGER else []
 
 
 def _find_module_for_device(device):
@@ -135,6 +147,8 @@ def setup_device(device, index):
             device_char['driver'] = module.create_driver(device, device_char)
         elif hasattr(module, 'Driver'):
             device_char['driver'] = module.Driver(device, device_char)
+        if device_char.get('driver') is not None:
+            validate_driver_instance(device_char['driver'])
     except Exception as exc:
         message = str(exc)
         log_output(

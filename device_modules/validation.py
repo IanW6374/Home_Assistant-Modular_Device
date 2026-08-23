@@ -44,6 +44,8 @@ ESP32_S3_INVALID_GPIOS = {
     46: 'boot strapping',
 }
 
+from .resources import validate_resources
+
 
 def validate_device_config(device_config, device_types):
     errors = []
@@ -59,6 +61,9 @@ def validate_device_config(device_config, device_types):
     for index, device in enumerate(devices):
         label = _device_label(device, index)
         errors.extend(_validate_device(device, device_types, label, uuids))
+
+    resource_errors, _manager = validate_resources(devices)
+    errors.extend('resource conflict: ' + error for error in resource_errors)
 
     return errors
 

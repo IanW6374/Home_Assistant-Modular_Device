@@ -57,7 +57,9 @@ def main():
     addon = ROOT / 'home_assistant_addons/hamd_fleet/rootfs/app/fleet_app.py'
     with tempfile.TemporaryDirectory() as temporary:
         os.environ['HAMD_FLEET_DATA'] = temporary
-        namespace = {'__name__': 'hamd_fleet_accessibility'}
+        namespace = {
+            '__name__': 'hamd_fleet_accessibility', '__file__': str(addon)
+        }
         exec(compile(addon.read_text(), str(addon), 'exec'), namespace)
         pages = {
             'portal overview': web_portal.render_page('csrf', 'INFO', ('INFO',), [], 5000),
@@ -65,6 +67,7 @@ def main():
             'portal backup': web_portal.render_configuration_backup_page('csrf'),
             'fleet add-on': namespace['HTML'],
         }
+        namespace['STORE'].close()
     failures = []
     for name, html in pages.items():
         failures.extend(check(name, html))

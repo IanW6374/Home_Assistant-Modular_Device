@@ -7,36 +7,7 @@ except ImportError:
 
 import credential_security
 import credential_store
-
-
-ROLE_LEVELS = {'viewer': 10, 'operator': 20, 'administrator': 30}
-VIEWER_ROUTES = {
-    '/', '/partials', '/diagnostics', '/logging', '/health-history',
-    '/task-status', '/update-progress',
-}
-OPERATOR_ROUTES = {
-    '/updates', '/check-release', '/download-release', '/update-upload',
-    '/firmware-upload', '/universal-upload', '/activate-update',
-    '/activate-firmware', '/activate-universal', '/rollback-application',
-    '/calibrate', '/discover', '/ems-debug', '/trigger-discovery',
-    '/display-loglevel',
-    '/resumable-upload-begin', '/resumable-upload-status',
-    '/resumable-upload-chunk', '/resumable-upload-complete',
-}
-
-
-def role_allows(role, required):
-    return ROLE_LEVELS.get(str(role), -1) >= ROLE_LEVELS.get(str(required), 999)
-
-
-def required_role(method, route):
-    route = str(route).split('?', 1)[0]
-    method = str(method).upper()
-    if route in VIEWER_ROUTES and method == 'GET':
-        return 'viewer'
-    if route in OPERATOR_ROUTES:
-        return 'operator'
-    return 'administrator'
+from portal_routes import ROLE_LEVELS, required_role, role_allows
 
 
 def _find(config, username):

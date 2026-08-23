@@ -25,6 +25,12 @@ firmware defect.
 - Record partition use, minimum heap, scan latency, API latency, and flash-write
   counts as release baselines with regression thresholds.
 
+The v2 production core now enforces its partition baseline during every secure
+build: 80% produces a warning and 85% fails. Unused Bluetooth/NimBLE, PPP and
+SPI-Ethernet stacks are excluded and checked against both generated sdkconfig
+and the final linker map. Heap and on-device latency baselines still require the
+physical test fixture.
+
 ## Reproducibility and supply chain
 
 - Produce an SBOM for Python, MicroPython, ESP-IDF, and native components.
@@ -54,9 +60,11 @@ firmware defect.
 
 ## v2 alpha implementation status
 
-- Service adapters, driver/event/API/configuration contracts and
-  characterisation tests are implemented; further shrinking of the two legacy
-  composition files continues during alpha without changing these contracts.
+- The runtime uses a sealed application context, ordered lifecycle, supervised
+  named tasks, resource-preflighted drivers, unified update coordinator and
+  structured event sinks. Portal dependencies, routes and view models are
+  separate from HTTP rendering; the retained entry points are composition
+  adapters rather than sources of new domain behavior.
 - The one-device HIL recorder is implemented. Power-interruption, ACME, syslog,
   DST and local-midnight cases still require execution against the physical
   fixture before promotion beyond alpha.
@@ -65,10 +73,11 @@ firmware defect.
   infrastructure deployment choice, not something safely emulated in source.
 - Ordered rollout cohorts, maintenance windows, signed policies, bounded event
   retention and automatic failure stops are implemented in the Home Assistant
-  add-on.
+  add-on. SQLite transactions and durable idempotent retry jobs replace the
+  alpha JSON/in-memory prototype.
 - Deterministic parser fuzzing and structural accessibility automation run in
   CI. Native/event-driven Wi-Fi scanning remains dependent on the MicroPython
   network API and is not required for alpha correctness.
-- v2 is deliberately breaking while there is one test device. All new formats
-  and APIs are nevertheless versioned, and compatibility must be frozen before
-  v2 stable.
+- v2 is deliberately clean-seed while there is one test device. The v1 API and
+  bootstrap HAMU format are not shipped; compatibility begins with the v2
+  contracts and must be frozen before v2 stable.

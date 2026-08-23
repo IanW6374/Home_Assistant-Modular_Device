@@ -24,6 +24,22 @@ NVS_SIZE = 0x6000
 NVS_KEYS_OFFSET = 0x1A000
 NVS_KEYS_SIZE = 0x1000
 
+REQUIRED_PRODUCTION_SDKCONFIG = (
+    'CONFIG_SECURE_BOOT_V2_ENABLED=y',
+    'CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y',
+    'CONFIG_SECURE_FLASH_ENC_ENABLED=y',
+    'CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y',
+    'CONFIG_NVS_ENCRYPTION=y',
+    'CONFIG_COMPILER_OPTIMIZATION_SIZE=y',
+)
+
+FORBIDDEN_PRODUCTION_SDKCONFIG = (
+    'CONFIG_COMPILER_OPTIMIZATION_PERF=y',
+    'CONFIG_BT_ENABLED=y',
+    'CONFIG_LWIP_PPP_SUPPORT=y',
+    'CONFIG_ETH_USE_SPI_ETHERNET=y',
+)
+
 
 def validate_ota_headroom(image_bytes, lock):
     partition_bytes = int(lock['ota_partition_bytes'])
@@ -36,6 +52,50 @@ def validate_ota_headroom(image_bytes, lock):
             )
         )
     return used_percent, used_percent >= float(lock.get('ota_warning_percent', 85))
+
+
+def validate_production_sdkconfig(sdkconfig):
+    """Reject production firmware that violates the locked core policy."""
+    active = set(str(sdkconfig).splitlines())
+    missing = [value for value in REQUIRED_PRODUCTION_SDKCONFIG if value not in active]
+    forbidden = [value for value in FORBIDDEN_PRODUCTION_SDKCONFIG if value in active]
+    if missing or forbidden:
+        details = []
+        if missing:
+            details.append('missing: ' + ', '.join(missing))
+        if forbidden:
+            details.append('forbidden: ' + ', '.join(forbidden))
+        raise ValueError(
+            'production firmware configuration violates the core policy; ' +
+            '; '.join(details)
+        )
+
+
+def validate_linked_component_policy(map_text, lock):
+    """Ensure excluded native stacks were actually removed by the linker."""
+    linked = []
+    text = str(map_text)
+    for archive in lock.get('forbidden_linked_archives', ()):
+        if str(archive) + '(' in text:
+            linked.append(str(archive))
+    if linked:
+        raise ValueError(
+            'production firmware links forbidden components: ' + ', '.join(linked)
+        )
+
+
+def clear_module_registration_cache(build_directory):
+    """Remove board-macro-sensitive MicroPython registration outputs."""
+    generated_headers = Path(build_directory) / 'genhdr'
+    shutil.rmtree(generated_headers / 'module', ignore_errors=True)
+    for name in (
+        'moduledefs.collected', 'moduledefs.collected.hash',
+        'moduledefs.h', 'moduledefs.split',
+    ):
+        try:
+            (generated_headers / name).unlink()
+        except FileNotFoundError:
+            pass
 
 
 def write_core_metadata(directory, version, release_sequence, source_revision=''):
@@ -281,6 +341,11 @@ def main():
             generated_sdkconfig.unlink()
         except FileNotFoundError:
             pass
+        # MicroPython's module-registration cache does not depend on board
+        # feature macros. Reusing it after disabling a module can retain an
+        # undefined registration such as ``mp_module_bluetooth``. Clear only
+        # that derived cache so incremental native compilation remains useful.
+        clear_module_registration_cache(port / build_dir)
         run(configure_command, port, env=build_env)
         run(command, port, env=build_env)
         compile_commands = port / build_dir / 'compile_commands.json'
@@ -290,19 +355,14 @@ def main():
         ):
             raise SystemExit('refusing to package firmware without the native HAMD crypto module')
         sdkconfig = (port / build_dir / 'sdkconfig').read_text()
-        required_security = (
-            'CONFIG_SECURE_BOOT_V2_ENABLED=y',
-            'CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=y',
-            'CONFIG_SECURE_FLASH_ENC_ENABLED=y',
-            'CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE=y',
-            'CONFIG_NVS_ENCRYPTION=y',
-        )
-        missing = [value for value in required_security if value not in sdkconfig]
-        if missing:
-            raise SystemExit(
-                'refusing to package an insecure production build; missing: ' +
-                ', '.join(missing)
-            )
+        try:
+            validate_production_sdkconfig(sdkconfig)
+            map_path = port / build_dir / 'micropython.map'
+            if not map_path.is_file():
+                raise ValueError('firmware linker map is unavailable')
+            validate_linked_component_policy(map_path.read_text(), lock)
+        except ValueError as exc:
+            raise SystemExit('refusing to package production firmware: ' + str(exc))
         # ESP-IDF names the OTA application image ``micropython.bin``.  Some
         # distributed MicroPython builds call the same application-only image
         # ``micropython.app-bin``.  Never select ``firmware.bin`` here because

@@ -2,11 +2,10 @@
 
 ## Release intent
 
-`2.0.0-alpha.1` is a deliberately breaking development release. The single
-test device may be factory-reseeded from the retained v1.9 production image;
-v1.9 configuration and backup compatibility is not an alpha acceptance gate.
-The v2 formats are nevertheless versioned so a compatibility policy can be
-established before v2 stable.
+`2.0.0-alpha.5` is a deliberately breaking clean-seed development release.
+Devices receive a complete v2 factory image; v1.9 configuration, API and
+universal-update compatibility are intentionally excluded. The v2 formats
+remain versioned so a compatibility policy can be frozen before v2 stable.
 
 The alpha is accepted only when its device runtime, Home Assistant fleet
 add-on, release tooling, documentation, host tests and one-device hardware
@@ -27,9 +26,10 @@ following services and is injected through a narrow interface:
 | `FleetService` | inventory, signed policy, maintenance windows and rollout state | firmware writes |
 | `EventService` | structured audit/health events and support snapshots | page-specific formatting |
 
-The existing `HA-Device.py` and `web_portal.py` entry points are retained while
-code moves behind these interfaces. Characterisation tests protect observable
-behavior during each extraction.
+`HA-Device.py` remains the composition root and `web_portal.py` remains the
+embedded HTTP renderer. Application state, task ownership, driver resources,
+route policy, view models and update orchestration live behind explicit,
+enforced interfaces. Characterisation tests protect observable behavior.
 
 ## Versioned contracts
 
@@ -37,9 +37,8 @@ behavior during each extraction.
   capabilities, diagnostics and standard health callbacks.
 - Event API: version 2. Events carry an identifier, UTC epoch, severity,
   component, correlation identifier, message and bounded structured values.
-- Device API: `/api/v2` exposes inventory, health, support and fleet-policy
-  resources over mandatory mTLS. Existing v1 resources may remain during the
-  alpha only when they cost no additional runtime state.
+- Device API: `/api/v2` exclusively exposes modules, operations, inventory,
+  health, support and fleet-policy resources over mandatory mTLS.
 - Fleet policy: format 1, ECDSA P-256 signed, monotonically sequenced and bound
   to a device or named cohort.
 - Configuration: format 4. Alpha imports reject unsupported formats clearly;
@@ -79,6 +78,8 @@ endpoints; management credentials remain in add-on protected storage.
 - Desktop/mobile HTML passes structural accessibility checks.
 - Application, core and universal artifacts verify independently.
 - SBOM and provenance documents accompany the artifacts.
+- The production core is size-optimised, contains no Bluetooth/NimBLE, PPP or
+  SPI-Ethernet support, warns at 80% OTA occupancy and fails at 85%.
 - The core image remains below the configured hard OTA threshold.
 - The connected ESP32-S3 completes the one-device qualification plan,
   including interrupted staging, rollback/recovery, mTLS, backup, DST and

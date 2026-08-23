@@ -5,7 +5,9 @@ from pathlib import Path
 
 from tools.build_firmware_update import build_firmware_bundle
 from tools.build_micropython_firmware import (
-    validate_ota_headroom, write_core_metadata,
+    REQUIRED_PRODUCTION_SDKCONFIG, clear_module_registration_cache,
+    validate_linked_component_policy, validate_ota_headroom,
+    validate_production_sdkconfig, write_core_metadata,
 )
 from tools.build_update import build_bundle
 from tools.generate_secure_boot_key import generation_command
@@ -83,6 +85,37 @@ class ReleaseProvenanceTests(unittest.TestCase):
         self.assertEqual(validate_ota_headroom(850, lock), (85.0, True))
         with self.assertRaisesRegex(ValueError, '95.0%'):
             validate_ota_headroom(950, lock)
+
+    def test_production_core_policy_accepts_size_optimised_minimal_config(self):
+        validate_production_sdkconfig('\n'.join(REQUIRED_PRODUCTION_SDKCONFIG))
+
+    def test_production_core_policy_rejects_unused_transports(self):
+        config = '\n'.join(REQUIRED_PRODUCTION_SDKCONFIG + (
+            'CONFIG_BT_ENABLED=y',
+            'CONFIG_LWIP_PPP_SUPPORT=y',
+            'CONFIG_ETH_USE_SPI_ETHERNET=y',
+        ))
+        with self.assertRaisesRegex(ValueError, 'CONFIG_BT_ENABLED=y'):
+            validate_production_sdkconfig(config)
+
+    def test_linker_policy_rejects_bluetooth_archives(self):
+        lock = {'forbidden_linked_archives': ['libbt.a', 'libbtdm_app.a']}
+        validate_linked_component_policy('libmain.a(runtime.c.obj)', lock)
+        with self.assertRaisesRegex(ValueError, 'libbt.a'):
+            validate_linked_component_policy(
+                'esp-idf/bt/libbt.a(nimble.c.obj)', lock
+            )
+
+    def test_module_registration_cache_is_cleared_for_board_changes(self):
+        build = Path('build')
+        module_cache = build / 'genhdr' / 'module'
+        module_cache.mkdir(parents=True)
+        (module_cache / 'bluetooth.module').write_text('stale')
+        for name in ('moduledefs.collected', 'moduledefs.h', 'moduledefs.split'):
+            (build / 'genhdr' / name).write_text('stale')
+        clear_module_registration_cache(build)
+        self.assertFalse(module_cache.exists())
+        self.assertFalse((build / 'genhdr' / 'moduledefs.h').exists())
 
     def test_secure_boot_helper_uses_esp_idf_55_command_name(self):
         command = generation_command('/idf', '/tmp/key.pem', 'python')

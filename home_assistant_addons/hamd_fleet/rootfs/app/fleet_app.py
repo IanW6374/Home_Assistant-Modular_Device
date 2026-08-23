@@ -1,413 +1,41 @@
 #!/usr/bin/env python3
 """Small ingress-ready Home Assistant add-on for managing HAMD v2 devices."""
 
-import hashlib
 import json
 import os
-import ssl
+import sys
 import threading
 import time
 import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+APP_DIRECTORY = Path(__file__).resolve().parent
+if str(APP_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(APP_DIRECTORY))
+
+from fleet_repository import FleetRepository
+from fleet_policy import PolicySigner
+from fleet_service import FleetController
 
 
 DATA_DIRECTORY = Path(os.environ.get('HAMD_FLEET_DATA', '/data'))
 OPTIONS_PATH = DATA_DIRECTORY / 'options.json'
-STATE_PATH = DATA_DIRECTORY / 'fleet.json'
+STATE_PATH = DATA_DIRECTORY / 'fleet.db'
 SIGNING_KEY_PATH = DATA_DIRECTORY / 'fleet-signing-key.pem'
 PUBLIC_KEY_PATH = DATA_DIRECTORY / 'fleet-verification-key.bin'
-P256_ORDER = int(
-    'ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551', 16
-)
-
-
-def atomic_json(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + '.tmp')
-    temporary.write_text(json.dumps(value, separators=(',', ':')))
-    os.replace(temporary, path)
 
 
 def bounded_text(value, maximum=256):
     return str(value or '')[:maximum]
 
 
-def policy_message(policy):
-    maintenance = policy.get('maintenance', {}) or {}
-    updates = policy.get('updates', {}) or {}
-    telemetry = policy.get('telemetry', {}) or {}
-    fields = [
-        'fleet-policy', str(policy.get('format_version', 1)), 'esp32-s3',
-        str(policy.get('policy_sequence', '')), str(policy.get('issued_at', '')),
-        str(policy.get('not_before', '')), str(policy.get('expires_at', '')),
-        str(policy.get('target_device', '')), str(policy.get('target_cohort', '')),
-        ','.join(str(value) for value in maintenance.get('weekdays', ()) or ()),
-        str(maintenance.get('start_minute', '')),
-        str(maintenance.get('duration_minutes', '')),
-        str(updates.get('channel', '')),
-        str(bool(updates.get('automatic_download', False))),
-        str(bool(updates.get('automatic_activation', False))),
-        str(updates.get('maximum_consecutive_failures', '')),
-        str(bool(telemetry.get('enabled', False))),
-        str(telemetry.get('minimum_interval_s', '')),
-        ','.join(str(value) for value in telemetry.get('severities', ()) or ()),
-    ]
-    commands = policy.get('commands', ()) or ()
-    fields.append(str(len(commands)))
-    for command in commands:
-        fields.extend((
-            str(command.get('id', '')), str(command.get('action', '')),
-            str(command.get('release_sequence', '')),
-        ))
-    return ('\n'.join(fields) + '\n').encode()
+class FleetStore(FleetRepository):
+    """Fleet repository with the add-on's standard database location."""
 
-
-class PolicySigner:
-    def __init__(self, private_path=SIGNING_KEY_PATH, public_path=PUBLIC_KEY_PATH):
-        self.private_path = Path(private_path)
-        self.public_path = Path(public_path)
-        self.private_key = self._load_or_create()
-
-    def _load_or_create(self):
-        if self.private_path.exists():
-            return serialization.load_pem_private_key(
-                self.private_path.read_bytes(), password=None
-            )
-        self.private_path.parent.mkdir(parents=True, exist_ok=True)
-        private = ec.generate_private_key(ec.SECP256R1())
-        self.private_path.write_bytes(private.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        ))
-        os.chmod(self.private_path, 0o600)
-        numbers = private.public_key().public_numbers()
-        self.public_path.write_bytes(
-            numbers.x.to_bytes(32, 'big') + numbers.y.to_bytes(32, 'big')
-        )
-        os.chmod(self.public_path, 0o644)
-        return private
-
-    def sign(self, policy):
-        value = json.loads(json.dumps(policy))
-        value.pop('signature', None)
-        value['target_board'] = 'esp32-s3'
-        value['signature_scheme'] = 'ecdsa-p256-sha256'
-        der = self.private_key.sign(policy_message(value), ec.ECDSA(hashes.SHA256()))
-        r, s = decode_dss_signature(der)
-        if s > P256_ORDER // 2:
-            s = P256_ORDER - s
-        value['signature'] = (r.to_bytes(32, 'big') + s.to_bytes(32, 'big')).hex()
-        return value
-
-
-class FleetStore:
-    def __init__(self, path=STATE_PATH, event_retention=5000):
-        self.path = Path(path)
-        self.event_retention = max(100, int(event_retention))
-        self.lock = threading.RLock()
-        self.data = self._load()
-
-    def _empty(self):
-        return {
-            'format_version': 1, 'devices': {}, 'events': [], 'rollouts': {},
-            'next_policy_sequence': 1,
-        }
-
-    def _load(self):
-        try:
-            value = json.loads(self.path.read_text())
-            return value if value.get('format_version') == 1 else self._empty()
-        except Exception:
-            return self._empty()
-
-    def save(self):
-        with self.lock:
-            self.data['events'] = self.data['events'][-self.event_retention:]
-            atomic_json(self.path, self.data)
-
-    def register(self, record):
-        identifier = bounded_text(record.get('id'), 64)
-        if not identifier:
-            raise ValueError('device id is required')
-        host = bounded_text(record.get('host'), 253)
-        if not host:
-            raise ValueError('device host is required')
-        port = int(record.get('port', 8444))
-        if not 1 <= port <= 65535:
-            raise ValueError('device port is invalid')
-        value = {
-            'id': identifier, 'name': bounded_text(record.get('name') or identifier, 64),
-            'host': host, 'port': port,
-            'ca_path': bounded_text(record.get('ca_path'), 512),
-            'cert_path': bounded_text(record.get('cert_path'), 512),
-            'key_path': bounded_text(record.get('key_path'), 512),
-            'cohort': bounded_text(record.get('cohort') or 'default', 64),
-            'enabled': bool(record.get('enabled', True)),
-            'inventory': {}, 'health': {}, 'fleet': {}, 'last_error': '',
-            'last_seen': 0, 'event_cursor': 0,
-        }
-        with self.lock:
-            previous = self.data['devices'].get(identifier, {})
-            for key in ('inventory', 'health', 'fleet', 'last_seen', 'event_cursor'):
-                value[key] = previous.get(key, value[key])
-            self.data['devices'][identifier] = value
-            self.save()
-        return self.public_device(value)
-
-    def public_device(self, value):
-        return {
-            key: item for key, item in value.items()
-            if key not in ('ca_path', 'cert_path', 'key_path')
-        }
-
-    def list_devices(self):
-        with self.lock:
-            return [
-                self.public_device(value)
-                for _, value in sorted(self.data['devices'].items())
-            ]
-
-    def next_policy_sequence(self):
-        with self.lock:
-            value = int(self.data.get('next_policy_sequence', 1))
-            self.data['next_policy_sequence'] = value + 1
-            self.save()
-            return value
-
-    def create_rollout(self, request):
-        identifier = bounded_text(
-            request.get('id') or ('rollout-' + os.urandom(6).hex()), 64
-        )
-        if any(character not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_' for character in identifier):
-            raise ValueError('rollout id contains unsupported characters')
-        cohorts = [bounded_text(value, 64) for value in request.get('cohorts', ())]
-        cohorts = [value for value in cohorts if value]
-        if not cohorts or len(cohorts) > 16:
-            raise ValueError('rollout requires 1 to 16 ordered cohorts')
-        maximum_failures = int(request.get('maximum_failures', 1))
-        if not 1 <= maximum_failures <= 100:
-            raise ValueError('rollout failure threshold is invalid')
-        rollout = {
-            'id': identifier, 'release_sequence': int(request.get('release_sequence', 0)),
-            'channel': bounded_text(request.get('channel') or 'alpha', 16),
-            'cohorts': cohorts, 'cohort_index': 0, 'status': 'active',
-            'maximum_failures': maximum_failures, 'successes': 0, 'failures': 0,
-            'results': {}, 'created_at': int(time.time()),
-        }
-        if rollout['release_sequence'] <= 0:
-            raise ValueError('rollout release sequence must be positive')
-        with self.lock:
-            if identifier in self.data['rollouts']:
-                raise ValueError('rollout id already exists')
-            self.data['rollouts'][identifier] = rollout
-            self.save()
-        return dict(rollout)
-
-    def record_rollout_result(self, identifier, device_id, result, detail=''):
-        with self.lock:
-            rollout = self.data['rollouts'].get(str(identifier))
-            if not rollout:
-                raise ValueError('rollout does not exist')
-            if rollout['status'] not in ('active', 'stopped'):
-                raise ValueError('rollout is already complete')
-            device = self.data['devices'].get(str(device_id))
-            if not device:
-                raise ValueError('device is not registered')
-            expected = rollout['cohorts'][rollout['cohort_index']]
-            if device.get('cohort') != expected:
-                raise ValueError('device is not in the active rollout cohort')
-            normalized = 'complete' if str(result) == 'complete' else 'failed'
-            previous = rollout['results'].get(str(device_id))
-            if previous:
-                rollout[
-                    'successes' if previous['result'] == 'complete' else 'failures'
-                ] -= 1
-            rollout['results'][str(device_id)] = {
-                'result': normalized, 'detail': bounded_text(detail, 256),
-                'recorded_at': int(time.time()),
-            }
-            rollout[('successes' if normalized == 'complete' else 'failures')] += 1
-            if rollout['failures'] >= rollout['maximum_failures']:
-                rollout['status'] = 'stopped'
-            self.save()
-            return dict(rollout)
-
-    def advance_rollout(self, identifier):
-        with self.lock:
-            rollout = self.data['rollouts'].get(str(identifier))
-            if not rollout:
-                raise ValueError('rollout does not exist')
-            if rollout['status'] == 'stopped':
-                raise ValueError('rollout is stopped at its failure threshold')
-            cohort = rollout['cohorts'][rollout['cohort_index']]
-            targets = [
-                value['id'] for value in self.data['devices'].values()
-                if value.get('enabled') and value.get('cohort') == cohort
-            ]
-            incomplete = [value for value in targets if value not in rollout['results']]
-            failed = [
-                value for value in targets
-                if rollout['results'].get(value, {}).get('result') == 'failed'
-            ]
-            if incomplete:
-                raise ValueError('active cohort still has incomplete devices')
-            if failed:
-                raise ValueError('active cohort contains failed devices')
-            if rollout['cohort_index'] + 1 >= len(rollout['cohorts']):
-                rollout['status'] = 'complete'
-            else:
-                rollout['cohort_index'] += 1
-            self.save()
-            return dict(rollout)
-
-
-class DeviceClient:
-    def __init__(self, record, timeout=10):
-        self.record = record
-        self.timeout = int(timeout)
-
-    def _context(self):
-        context = ssl.create_default_context(cafile=self.record['ca_path'])
-        context.load_cert_chain(self.record['cert_path'], self.record['key_path'])
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-        return context
-
-    def request(self, path, method='GET', payload=None):
-        body = None if payload is None else json.dumps(payload).encode()
-        request = urllib.request.Request(
-            'https://' + self.record['host'] + ':' + str(self.record['port']) + path,
-            data=body, method=method,
-            headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
-        )
-        with urllib.request.urlopen(
-            request, context=self._context(), timeout=self.timeout
-        ) as response:
-            return json.loads(response.read())
-
-
-class FleetController:
-    def __init__(self, store, signer, timeout=10):
-        self.store = store
-        self.signer = signer
-        self.timeout = int(timeout)
-
-    def poll_device(self, identifier):
-        with self.store.lock:
-            record = self.store.data['devices'][identifier]
-            if not record.get('enabled'):
-                return
-            cursor = int(record.get('event_cursor', 0))
-        client = DeviceClient(record, self.timeout)
-        try:
-            inventory = client.request('/api/v2/device/inventory')
-            health = client.request('/api/v2/health')
-            events = client.request('/api/v2/events?cursor=' + str(cursor) + '&limit=64')
-        except Exception as exc:
-            with self.store.lock:
-                record['last_error'] = bounded_text(exc, 256)
-                self.store.save()
-            return
-        with self.store.lock:
-            record['inventory'] = inventory
-            record['health'] = health
-            record['fleet'] = inventory.get('fleet') or {}
-            record['last_seen'] = int(time.time())
-            record['last_error'] = ''
-            record['event_cursor'] = int(events.get('cursor', cursor))
-            for event in events.get('events', ()):
-                self.store.data['events'].append({
-                    'device_id': identifier, 'event': event,
-                    'received_at': int(time.time()),
-                })
-            self.store.save()
-
-    def apply_policy(self, request):
-        now = int(time.time())
-        target = bounded_text(request.get('device_id'), 64)
-        with self.store.lock:
-            record = self.store.data['devices'].get(target)
-        if not record:
-            raise ValueError('device is not registered')
-        command = request.get('command') or None
-        commands = [] if not command else [{
-            'id': bounded_text(command.get('id') or os.urandom(8).hex(), 64),
-            'action': command.get('action', 'check-update'),
-            'release_sequence': int(command.get('release_sequence', 0)),
-        }]
-        policy = {
-            'format_version': 1,
-            'target_board': 'esp32-s3',
-            'policy_sequence': self.store.next_policy_sequence(),
-            'issued_at': now - 5, 'not_before': now - 5,
-            'expires_at': now + int(request.get('valid_for_s', 86400)),
-            'target_device': target, 'target_cohort': '',
-            'maintenance': {
-                'weekdays': request.get('weekdays', [0, 1, 2, 3, 4, 5, 6]),
-                'start_minute': int(request.get('start_minute', 120)),
-                'duration_minutes': int(request.get('duration_minutes', 120)),
-            },
-            'updates': {
-                'channel': request.get('channel', 'alpha'),
-                'automatic_download': bool(request.get('automatic_download', False)),
-                'automatic_activation': bool(request.get('automatic_activation', False)),
-                'maximum_consecutive_failures': int(request.get('maximum_failures', 2)),
-            },
-            'telemetry': {
-                'enabled': bool(request.get('telemetry_enabled', True)),
-                'minimum_interval_s': int(request.get('telemetry_interval_s', 60)),
-                'severities': request.get(
-                    'severities', ['warning', 'error', 'critical']
-                ),
-            },
-            'commands': commands,
-        }
-        signed = self.signer.sign(policy)
-        result = DeviceClient(record, self.timeout).request(
-            '/api/v2/fleet/policy', 'POST', signed
-        )
-        self.poll_device(target)
-        return result
-
-    def dispatch_rollout(self, identifier):
-        with self.store.lock:
-            rollout = self.store.data['rollouts'].get(str(identifier))
-            if not rollout:
-                raise ValueError('rollout does not exist')
-            if rollout['status'] != 'active':
-                raise ValueError('rollout is not active')
-            cohort = rollout['cohorts'][rollout['cohort_index']]
-            targets = [
-                value['id'] for value in self.store.data['devices'].values()
-                if value.get('enabled') and value.get('cohort') == cohort
-            ]
-        results = {}
-        for device_id in targets:
-            try:
-                results[device_id] = self.apply_policy({
-                    'device_id': device_id, 'channel': rollout['channel'],
-                    'automatic_download': True, 'automatic_activation': True,
-                    'maximum_failures': rollout['maximum_failures'],
-                    'command': {
-                        'action': 'download-update',
-                        'release_sequence': rollout['release_sequence'],
-                    },
-                })
-            except Exception as exc:
-                results[device_id] = {'error': bounded_text(exc)}
-                self.store.record_rollout_result(
-                    identifier, device_id, 'failed', str(exc)
-                )
-                if self.store.data['rollouts'][identifier]['status'] == 'stopped':
-                    break
-        return {'rollout': self.store.data['rollouts'][identifier], 'dispatch': results}
+    def __init__(self, path=STATE_PATH, event_retention=5000, now=None):
+        super().__init__(path, event_retention=event_retention, now=now)
 
 
 HTML = '''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
@@ -436,7 +64,7 @@ def read_options():
 
 OPTIONS = read_options()
 STORE = FleetStore(event_retention=int(OPTIONS.get('event_retention', 5000)))
-SIGNER = PolicySigner()
+SIGNER = PolicySigner(SIGNING_KEY_PATH, PUBLIC_KEY_PATH)
 CONTROLLER = FleetController(
     STORE, SIGNER, timeout=int(OPTIONS.get('request_timeout_s', 10))
 )
@@ -476,9 +104,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/devices':
                 self._json(200, {'devices': STORE.list_devices()})
             elif path == '/api/events':
-                self._json(200, {'events': STORE.data['events'][-500:]})
+                self._json(200, {'events': STORE.list_events(500)})
             elif path == '/api/rollouts':
-                self._json(200, {'rollouts': list(STORE.data['rollouts'].values())})
+                self._json(200, {'rollouts': STORE.list_rollouts()})
             elif path == '/api/fleet-public-key':
                 body = PUBLIC_KEY_PATH.read_bytes()
                 self.send_response(200)
@@ -488,7 +116,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
             elif path == '/health':
-                self._json(200, {'status': 'ok', 'devices': len(STORE.data['devices'])})
+                self._json(200, {
+                    'status': 'ok', 'devices': STORE.count_devices(),
+                    'storage': 'sqlite',
+                })
             else:
                 self._json(404, {'error': 'not found'})
         except Exception as exc:
@@ -512,7 +143,16 @@ class Handler(BaseHTTPRequestHandler):
             elif path == '/api/rollouts':
                 self._json(201, STORE.create_rollout(request))
             elif path == '/api/rollouts/dispatch':
-                self._json(202, CONTROLLER.dispatch_rollout(request.get('id', '')))
+                rollout_id = str(request.get('id', ''))
+                if not STORE.get_rollout(rollout_id):
+                    raise ValueError('rollout does not exist')
+                self._json(202, STORE.enqueue_job(
+                    'rollout', rollout_id,
+                    idempotency_key=str(
+                        request.get('idempotency_key') or
+                        ('rollout:' + rollout_id + ':' + str(int(time.time())))
+                    )
+                ))
             elif path == '/api/rollouts/result':
                 self._json(200, STORE.record_rollout_result(
                     request.get('id', ''), request.get('device_id', ''),
@@ -536,13 +176,37 @@ class Handler(BaseHTTPRequestHandler):
 def poll_loop():
     interval = max(10, int(OPTIONS.get('poll_interval_s', 60)))
     while True:
-        for identifier in list(STORE.data['devices']):
-            CONTROLLER.poll_device(identifier)
+        for identifier in STORE.device_ids(enabled_only=True):
+            STORE.enqueue_job(
+                'poll', identifier, idempotency_key=(
+                    'poll:' + identifier + ':' + str(int(time.time()) // interval)
+                )
+            )
         time.sleep(interval)
+
+
+def job_loop():
+    while True:
+        job = STORE.claim_job()
+        if job is None:
+            time.sleep(1)
+            continue
+        try:
+            if job['kind'] == 'poll':
+                CONTROLLER.poll_device(job['target'])
+            elif job['kind'] == 'rollout':
+                CONTROLLER.dispatch_rollout(job['target'])
+            else:
+                raise ValueError('unsupported fleet job: ' + str(job['kind']))
+        except Exception as exc:
+            STORE.fail_job(job['id'], exc)
+        else:
+            STORE.complete_job(job['id'])
 
 
 def main():
     threading.Thread(target=poll_loop, daemon=True).start()
+    threading.Thread(target=job_loop, daemon=True).start()
     ThreadingHTTPServer(('0.0.0.0', 8099), Handler).serve_forever()
 
 

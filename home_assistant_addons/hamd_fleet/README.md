@@ -3,7 +3,9 @@
 This v2 alpha add-on provides an ingress dashboard, persistent device
 inventory, bounded event retention, mTLS polling, independently signed fleet
 policies, maintenance windows, ordered rollout cohorts, automatic failure-stop
-thresholds and bounded update/rollback commands.
+thresholds and bounded update/rollback commands. Inventory, events, rollout
+state, and idempotent background jobs are transactionally stored in SQLite;
+queued work survives add-on restarts and retries with bounded backoff.
 
 Copy the fleet mTLS client certificate, key and issuing CA into Home Assistant's
 `/ssl` directory, install the add-on repository, start **HAMD Fleet Manager**,

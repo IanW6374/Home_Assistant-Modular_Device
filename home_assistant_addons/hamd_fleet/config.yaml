@@ -1,5 +1,5 @@
 name: HAMD Fleet Manager
-version: 2.0.0-alpha.1
+version: 2.0.0-alpha.5
 slug: hamd_fleet
 description: Inventory, health, policy and staged update management for HAMD devices
 url: https://github.com/ianwalton/Home_Assistant-Modular_Device

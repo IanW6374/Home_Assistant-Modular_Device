@@ -3,6 +3,37 @@
 All notable user-visible changes are recorded here. This project follows
 Semantic Versioning for product release labels.
 
+## [2.0.0-alpha.5] - 2026-08-23
+
+### Changed
+
+- Reduced immutable-core flash pressure by removing unused Bluetooth/NimBLE,
+  PPP and SPI-Ethernet support and selecting size-oriented compilation.
+- Tightened production OTA occupancy gates to warn at 80% and fail at 85%,
+  with generated-configuration and linker-map checks preventing excluded
+  native stacks from returning.
+- Replaced implicit runtime wiring with an explicit application context,
+  supervised named tasks, ordered lifecycle states, and sealed service
+  composition.
+- Added deterministic GPIO, UART, SPI and ADC resource preflight and live
+  driver lifecycle conformance checks before module startup.
+- Routed application, core and universal resumable uploads through one update
+  coordinator with named receiver contracts.
+- Split portal route policy, dependency contracts and view models from the
+  embedded HTTP renderer.
+- Replaced fleet JSON state and in-memory work with transactional SQLite state,
+  durable idempotent jobs, retry backoff, and separate repository, policy and
+  device-client services.
+- Made v2 a clean-seed platform: the Device API is exposed only under
+  `/api/v2`, and HAMU format 2 is the sole universal-update format.
+
+### Added
+
+- CI architecture dependency enforcement and MicroPython compatibility checks,
+  including detection of CPython-only SHA-256 `hexdigest()` use.
+- Structured event sinks bridging lifecycle/task events into the existing
+  bounded console, portal-log and remote-syslog pipeline.
+
 ## [2.0.0-alpha.3] - 2026-08-23
 
 ### Fixed

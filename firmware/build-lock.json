@@ -6,6 +6,10 @@
   "board": "HAM_ESP32_S3",
   "variant": "SPIRAM_OCT",
   "ota_partition_bytes": 2097152,
-  "ota_warning_percent": 85,
-  "ota_failure_percent": 95
+  "ota_warning_percent": 80,
+  "ota_failure_percent": 85,
+  "forbidden_linked_archives": [
+    "libbt.a",
+    "libbtdm_app.a"
+  ]
 }

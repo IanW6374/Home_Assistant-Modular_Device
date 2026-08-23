@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import web_portal
+from portal_contracts import PortalDependencies
 import credential_security
 import http_support
 import web_portal_ui as portal_ui
@@ -734,25 +735,29 @@ class WebPortalTests(unittest.TestCase):
                         }
                     return ''
 
-                await web_portal.start_web_portal(
+                await web_portal.start_web_portal(PortalDependencies(
                     {
                         'username': 'admin', 'password_verifier': verifier,
                         'https': True, 'password_change_required': True,
                         'password_setter': set_password
                     },
-                    lambda: ['initial portal log'], lambda: 'INFO', lambda level: None,
-                    lambda *args: None,
-                    status_getter=lambda: {'device_name': 'Controller'},
-                    action_handler=handle_action,
-                    settings_getter=get_settings,
-                    settings_setter=set_settings,
-                    network_trial_confirmer=(
+                    {
+                    'logs.get': lambda: ['initial portal log'],
+                    'logs.level.get': lambda: 'INFO',
+                    'logs.level.set': lambda level: None,
+                    'events.log': lambda *args: None,
+                    'status.get': lambda: {'device_name': 'Controller'},
+                    'actions.apply': handle_action,
+                    'settings.get': get_settings,
+                    'settings.apply': set_settings,
+                    'network.confirm': (
                         lambda: network_confirmations.append(True) or True
                     ),
-                    factory_reset_handler=(
+                    'factory_reset.request': (
                         lambda password: factory_resets.append(password) or True
                     ),
-                )
+                    }
+                ))
 
                 unauthorized = await request(b'GET / HTTP/1.1\r\n\r\n')
                 self.assertIn('401 Unauthorized', unauthorized)

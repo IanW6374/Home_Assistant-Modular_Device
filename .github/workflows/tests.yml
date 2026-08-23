@@ -19,9 +19,11 @@ jobs:
       - run: python tools/check_documentation.py
       - run: python tools/validate_json_schemas.py
       - run: python tools/check_accessibility.py
+      - run: python tools/check_architecture.py
+      - run: python tools/check_micropython_compat.py
       - run: python -m unittest discover -s tests -v
       - name: Compile host-only Python
-        run: python -m py_compile tools/*.py tests/*.py
+        run: python -m py_compile tools/*.py tests/*.py home_assistant_addons/hamd_fleet/rootfs/app/*.py
       - uses: actions/checkout@v4
         with:
           repository: micropython/micropython
@@ -34,7 +36,7 @@ jobs:
         run: |
           set -e
           MPY_CROSS="$PWD/.ci-micropython/mpy-cross/build/mpy-cross"
-          for file in *.py device_modules/*.py services/*.py lib/*.py lib/primitives/*.py lib/uhcsr04/*.py; do
+          for file in *.py application/*.py device_modules/*.py services/*.py lib/*.py lib/primitives/*.py lib/uhcsr04/*.py; do
             "$MPY_CROSS" "$file" -o /tmp/ham-device-check.mpy
           done
 

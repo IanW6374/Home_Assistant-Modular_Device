@@ -29,6 +29,9 @@ CORE_FILES = (
     'device_api.py',
     'message_broker.py',
     'portal_auth.py',
+    'portal_contracts.py',
+    'portal_routes.py',
+    'portal_view_models.py',
     'portal_sessions.py',
     'runtime_health.py',
     'support_bundle.py',
@@ -42,7 +45,11 @@ CORE_FILES = (
     'services/portal_service.py',
     'services/update_service.py',
     'services/event_service.py',
+    'services/event_sinks.py',
     'services/module_runtime.py',
+    'application/__init__.py',
+    'application/context.py',
+    'application/lifecycle.py',
 )
 CORE_DEVICE_MODULES = (
     'device_modules/__init__.py',
@@ -50,6 +57,7 @@ CORE_DEVICE_MODULES = (
     'device_modules/driver_index.py',
     'device_modules/base.py',
     'device_modules/contracts.py',
+    'device_modules/resources.py',
     'device_modules/logging.py',
     'device_modules/validation.py',
 )

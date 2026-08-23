@@ -67,7 +67,7 @@
             },
             "pollinterval": 30,
             "max31865": {
-                "spi": 0,
+                "spi": 1,
                 "sck": 12,
                 "mosi": 11,
                 "miso": 13,
