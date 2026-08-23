@@ -2,7 +2,9 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import resumable_upload
 from resumable_upload import ResumableUploadStore
 
 
@@ -52,6 +54,28 @@ class ResumableUploadTests(unittest.TestCase):
         self.assertEqual(part.stat().st_size, 10)
         restored.append('session-power-loss', 10, self.payload[10:])
         self.assertTrue(restored.complete('session-power-loss')['complete'])
+
+    def test_verification_uses_micropython_digest_api_without_hexdigest(self):
+        native_sha256 = hashlib.sha256
+
+        class MicroPythonSHA256:
+            def __init__(self):
+                self._digest = native_sha256()
+
+            def update(self, payload):
+                self._digest.update(payload)
+
+            def digest(self):
+                return self._digest.digest()
+
+        self.store.begin('session-micropython', 'application', len(self.payload), self.digest)
+        self.store.append('session-micropython', 0, self.payload)
+        with mock.patch.object(
+            resumable_upload.hashlib, 'sha256', MicroPythonSHA256
+        ):
+            complete = self.store.complete('session-micropython')
+
+        self.assertTrue(complete['complete'])
 
 
 if __name__ == '__main__':

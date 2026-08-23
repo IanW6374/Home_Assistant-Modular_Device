@@ -15,10 +15,19 @@ try:
 except ImportError:
     import hashlib
 
+try:
+    import ubinascii as binascii
+except ImportError:
+    import binascii
+
 
 FORMAT_VERSION = 1
 ALLOWED_KINDS = ('application', 'firmware', 'universal')
 MAX_CHUNK_BYTES = 64 * 1024
+
+
+def _hex_digest(hasher):
+    return binascii.hexlify(hasher.digest()).decode()
 
 
 def _safe_identifier(value):
@@ -193,7 +202,7 @@ class ResumableUploadStore:
                 if not chunk:
                     break
                 digest.update(chunk)
-        actual = digest.hexdigest()
+        actual = _hex_digest(digest)
         if actual != value['sha256']:
             raise ValueError('upload SHA-256 verification failed')
         value['complete'] = True

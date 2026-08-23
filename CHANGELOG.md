@@ -3,6 +3,13 @@
 All notable user-visible changes are recorded here. This project follows
 Semantic Versioning for product release labels.
 
+## [2.0.0-alpha.3] - 2026-08-23
+
+### Fixed
+
+- Made resumable-upload SHA-256 verification use the MicroPython-compatible
+  `digest()` API instead of CPython-only `hexdigest()`.
+
 ## [2.0.0-alpha.2] - 2026-08-23
 
 ### Fixed
