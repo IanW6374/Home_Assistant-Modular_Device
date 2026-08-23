@@ -9,6 +9,8 @@ Semantic Versioning for product release labels.
 
 - Made resumable-upload SHA-256 verification use the MicroPython-compatible
   `digest()` API instead of CPython-only `hexdigest()`.
+- Made USB application recovery watchdog-safe and able to stage a transferred
+  bundle in place without requiring storage for a second full copy.
 
 ## [2.0.0-alpha.2] - 2026-08-23
 

@@ -3,7 +3,13 @@
 
 import argparse
 import sys
+import time
 from pathlib import Path
+
+
+TRANSFER_CHUNK_BYTES = 4096
+TRANSFER_PHASE_BYTES = 192 * 1024
+USB_MAINTENANCE_WATCHDOG_TIMEOUT_MS = 300000
 
 
 def main():
@@ -32,59 +38,106 @@ def main():
     import pyboard
 
     remote_path = '/.hamd-usb-application.hamd'
-    board = pyboard.Pyboard(args.device)
-    try:
+
+    def open_maintenance_session():
+        board = pyboard.Pyboard(args.device)
         board.enter_raw_repl(soft_reset=False)
         board.exec_(
             "import machine\n"
-            "_hamd_wdt=machine.WDT(0)\n"
+            "_hamd_wdt=machine.WDT(0,timeout=" +
+            str(USB_MAINTENANCE_WATCHDOG_TIMEOUT_MS) + ")\n"
             "def _hamd_feed():\n"
             " _hamd_wdt.feed()\n"
-            "_hamd_upload=open('" + remote_path + "','wb')\n"
-            "_hamd_write=_hamd_upload.write"
+            "_hamd_feed()"
         )
+        return board
+
+    def reset_and_reconnect(board):
+        try:
+            board.exec_('import machine\nmachine.reset()', timeout=5)
+        except (OSError, pyboard.PyboardError):
+            pass
+        finally:
+            board.close()
+        last_error = None
+        for _attempt in range(12):
+            time.sleep(1)
+            try:
+                return open_maintenance_session()
+            except (OSError, pyboard.PyboardError) as exc:
+                last_error = exc
+        raise last_error or RuntimeError('device did not return after reset')
+
+    board = open_maintenance_session()
+    try:
         total = bundle.stat().st_size
         written = 0
         with bundle.open('rb') as stream:
-            while True:
-                chunk = stream.read(512)
-                if not chunk:
-                    break
-                board.exec_('_hamd_write(' + repr(chunk) + ')\n_hamd_feed()')
-                written += len(chunk)
-                if written == total or written % (64 * 1024) < 512:
-                    print('copied', written, 'of', total)
-        board.exec_('_hamd_upload.close()\n_hamd_feed()')
+            first_phase = True
+            while written < total:
+                board.exec_(
+                    "_hamd_upload=open('" + remote_path + "','" +
+                    ('wb' if first_phase else 'ab') + "')\n"
+                    "_hamd_write=_hamd_upload.write"
+                )
+                first_phase = False
+                phase_end = min(total, written + TRANSFER_PHASE_BYTES)
+                while written < phase_end:
+                    chunk = stream.read(min(TRANSFER_CHUNK_BYTES, phase_end - written))
+                    if not chunk:
+                        raise RuntimeError('local HAMD bundle ended early')
+                    board.exec_('_hamd_write(' + repr(chunk) + ')\n_hamd_feed()')
+                    written += len(chunk)
+                    if written == total or written % (64 * 1024) < TRANSFER_CHUNK_BYTES:
+                        print('copied', written, 'of', total, 'bytes', flush=True)
+                board.exec_('_hamd_upload.close()\n_hamd_feed()')
+                if written < total:
+                    print('transfer phase complete; restarting USB session', flush=True)
+                    board = reset_and_reconnect(board)
+        print('bundle transfer complete; restarting before signed staging', flush=True)
+        board = reset_and_reconnect(board)
+        print('validating and staging signed application', flush=True)
 
+        # The normal HTTP receiver needs space for both its upload temporary
+        # file and the final bundle.  USB has already placed the complete file
+        # on the device, so validate it in place and then atomically adopt it as
+        # the pending bundle.  This preserves the same signature, release
+        # sequence, manifest, and per-file SHA-256 checks without requiring a
+        # second full copy on storage-constrained devices.
         stage_code = """
 import os
-try:
- import uasyncio as _hamd_asyncio
-except ImportError:
- import asyncio as _hamd_asyncio
 import app_update as _hamd_application
-_hamd_source=open('%s','rb')
-class _HamdReader:
- async def read(self,count):
-  _hamd_feed()
-  return _hamd_source.read(count)
-async def _hamd_progress(phase,completed,total):
- _hamd_feed()
-async def _hamd_stage():
- return await _hamd_application.receive_bundle(
-  _HamdReader(),%d,progress_callback=_hamd_progress)
+import recovery_boot as _hamd_recovery
+_hamd_state=_hamd_application.update_status()
+if _hamd_state.get('status') == 'ready':
+ _hamd_application.discard_pending_update()
+elif _hamd_state.get('status') != 'idle':
+ raise ValueError('cannot replace application update in state '+str(_hamd_state.get('status')))
+_hamd_manifest=_hamd_application.validate_bundle('%s',False)
 try:
- print(_hamd_asyncio.run(_hamd_stage()))
-finally:
- _hamd_source.close()
- os.remove('%s')
-""" % (remote_path, total, remote_path)
+ os.remove(_hamd_application.BUNDLE_PATH)
+except OSError:
+ pass
+os.rename('%s',_hamd_application.BUNDLE_PATH)
+_hamd_state=_hamd_application.stage_bundle(
+ _hamd_application.BUNDLE_PATH,False,manifest=_hamd_manifest)
+_hamd_recovery.clear_recovery_request()
+print(_hamd_state)
+""" % (remote_path, remote_path)
         result = board.exec_(stage_code, timeout=180)
-        print(result.decode().strip())
-        print('signed application staged and verified')
+        print('signed staging call returned', flush=True)
+        print(result.decode().strip(), flush=True)
+        print('signed application staged and verified', flush=True)
 
         if args.activate:
-            print('resetting to activate the staged application')
+            result = board.exec_(
+                "import app_update,recovery_boot\n"
+                "print(app_update.activate_pending())\n"
+                "recovery_boot.clear_recovery_request()",
+                timeout=180,
+            )
+            print(result.decode().strip(), flush=True)
+            print('resetting to activate the staged application', flush=True)
             try:
                 board.exec_('import machine\nmachine.reset()', timeout=5)
             except (OSError, pyboard.PyboardError):
