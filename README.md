@@ -197,7 +197,8 @@ certificate validation. UTC remains the default.
 missing file means zero configured modules. Use **Module > Configuration** to
 load a JSON file or work in the structured advanced editor. **Verify and apply
 configuration** performs JSON and module-driver validation, retains a validated
-previous generation, writes the replacement, and restarts the device.
+previous generation, and writes the replacement. The portal then marks a
+restart as pending so it can be activated together with other committed changes.
 
 ### Web Portal
 
@@ -214,8 +215,14 @@ separates work by task:
   replacement; legacy direct password-change URLs are disabled.
 - **Maintenance** contains upgrades, configuration backup/restore, persistent
   health history, logging, the guarded factory-default
-  action, and decoded certificate information split into **CA Trust** and
-  **Device Certificates** sections for independent service identities.
+action, and decoded certificate information split into **CA Trust** and
+**Device Certificates** sections for independent service identities.
+
+Settings that require a restart are committed without closing the administrator
+session. A **Restart required** control then appears in the title banner, allowing
+changes from multiple portal tabs to be activated with one restart. Firmware
+activation, rollback, network recovery, and factory reset remain immediate
+operations because deferring them would be unsafe or ambiguous.
 
 **Maintenance > Factory default** requires the current administrator password,
 an exact reset confirmation, and a new strong setup-AP password entered twice.
@@ -1046,14 +1053,9 @@ homeassistant/binary_sensor/<deviceid><uuid>_<entity_id>/config
 ```
 
 For WHES, `<entity_id>` is based on the published key, such as `pv_p`,
-`grid_import_e`, or `rs485_last_latency_ms`. When migrating from firmware that
-used only the raw hardware id in discovery topics, set
-`"ha": {"discovery_cleanup_legacy_identity": true}` so the firmware publishes
-empty retained payloads for matching hardware-only config topics and Home
-Assistant can remove stale entities. It can also publish empty retained payloads
-for the old numeric discovery topics from earlier firmware versions when
-`"ha": {"discovery_cleanup_legacy": true}`. Both cleanup options are disabled by
-default to avoid unnecessary retained cleanup publishes after migration.
+`grid_import_e`, or `rs485_last_latency_ms`. Clean-seed v2 devices publish only
+the current device-name-bound identity and do not carry retained-topic migration
+logic for pre-v2 installations.
 
 Availability is published to:
 

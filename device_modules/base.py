@@ -175,27 +175,6 @@ class DeviceDriver:
             }
             publish_callable(data, 0, False)
 
-    def discovery_cleanup_topics(self, deviceid, current_ids):
-        if not device_settings.ha_discovery_cleanup_legacy:
-            return []
-
-        topics = []
-        current_ids = set(str(entity_id) for entity_id in current_ids)
-        cleanup_count = max(len(current_ids) + 10, 64)
-        cleanup_count = device_settings.ha_discovery_cleanup_legacy_count
-
-        for index in range(cleanup_count):
-            entity_id = str(index)
-            if entity_id not in current_ids:
-                topics.append(ha_config_topic(
-                    self.device['type']['class'],
-                    deviceid,
-                    self.device['uuid'],
-                    entity_id
-                ))
-
-        return topics
-
     def handle_set(self, payload):
         return
 

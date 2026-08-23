@@ -32,19 +32,11 @@ _G = (_GX, _GY)
 
 
 def installed_recovery_api():
-    try:
-        import recovery_boot
-        return int(getattr(recovery_boot, 'RECOVERY_API_VERSION', 1))
-    except Exception:
-        return 1
+    return RECOVERY_API_VERSION
 
 
 def installed_core_api():
-    try:
-        import recovery_boot
-        return int(getattr(recovery_boot, 'CORE_API_VERSION', 1))
-    except Exception:
-        return 1
+    return CORE_API_VERSION
 
 
 def _bytes_to_int(value):

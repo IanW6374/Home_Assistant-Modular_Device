@@ -40,6 +40,10 @@ PORTAL_CSS = (
     'right:0;left:auto}.nav-dropdown .nav-link{display:flex;width:100%;white-space:nowrap}'
     '.nav-menu-trigger{border:0;background:transparent;color:var(--muted);font-weight:650}'
     '.nav-menu-trigger:hover,.nav-menu-trigger[aria-current="page"]{background:var(--bg);color:var(--ink)}'
+    '.restart-required{display:flex;align-items:center;gap:8px;margin-left:auto;padding:5px 6px 5px 10px;'
+    'border:1px solid #efcf92;border-radius:10px;background:#fffaf1;color:#744500;white-space:nowrap}'
+    '.restart-required[hidden]{display:none}.restart-required span{font-size:.78rem;font-weight:750}'
+    '.restart-required form{margin:0}.restart-required button{padding:6px 9px;font-size:.78rem}'
     '.nav-group:hover>.nav-dropdown,.nav-group:focus-within>.nav-dropdown,'
     '.nav-group.open>.nav-dropdown{display:grid;gap:2px}'
     '.breadcrumb{display:flex;align-items:center;justify-content:flex-end;gap:7px;white-space:nowrap;'
@@ -194,6 +198,8 @@ PORTAL_CSS = (
     '.auth-card button{width:100%}.setup-main{width:auto;max-width:none;'
     'margin:0 clamp(16px,4vw,38px)}.setup-main>.brand{margin-bottom:13px}'
     '.setup-main button,.setup-main .button{width:100%}'
+    '.setup-main .section-title{align-items:center}.setup-main .section-title button.compact{'
+    'width:auto;min-width:8rem;flex:0 0 auto;margin-left:auto}'
     '.setup-steps{display:flex;gap:6px;width:100%;margin:0 0 28px}.setup-step{height:5px;flex:1;'
     'border-radius:99px;background:#d7e0e2}.setup-step.active{background:var(--accent)}'
     '@media(max-width:900px){.nav-toggle{display:inline-flex}.nav-actions{display:none;'
@@ -241,6 +247,11 @@ PORTAL_JS = (
     'group.classList.toggle("open",open);this.setAttribute("aria-expanded",open?"true":"false");};}'
     'document.onclick=function(){close();};document.onkeydown=function(e){if(e.key==="Escape"){close();'
     'if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();}};'
+    'var restart=document.getElementById("restart-required");if(restart){fetch("/api/restart-required",'
+    '{cache:"no-store",credentials:"same-origin"}).then(function(r){return r.ok?r.json():null;}).then('
+    'function(s){if(!s||!s.required)return;restart.hidden=false;var label=document.getElementById('
+    '"restart-required-label");if(label&&s.reason_count)label.textContent=s.reason_count===1?'
+    '"Restart required":"Restart required ("+s.reason_count+" changes)";}).catch(function(){});}'
     '})();'
 )
 
@@ -342,7 +353,14 @@ def breadcrumb(active):
 
 def shell(title, active, body, csrf='', script='', extra_css='', authenticated=True,
           main_class=''):
-    header = '<header class="topbar">' + brand() + (
+    restart = (
+        '<div id="restart-required" class="restart-required" role="status" hidden>'
+        '<span id="restart-required-label">Restart required</span>'
+        '<form action="/restart-device" method="post"><input type="hidden" name="csrf" value="' +
+        escape(csrf) + '"><button type="submit">Restart device</button></form></div>'
+        if authenticated else ''
+    )
+    header = '<header class="topbar">' + brand() + restart + (
         navigation(active, csrf) if authenticated else ''
     ) + '</header>'
     return (

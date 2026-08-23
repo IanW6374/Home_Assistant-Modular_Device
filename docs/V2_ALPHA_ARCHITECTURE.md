@@ -2,7 +2,7 @@
 
 ## Release intent
 
-`2.0.0-alpha.5` is a deliberately breaking clean-seed development release.
+`2.0.0-alpha.8` is a deliberately breaking clean-seed development release.
 Devices receive a complete v2 factory image; v1.9 configuration, API and
 universal-update compatibility are intentionally excluded. The v2 formats
 remain versioned so a compatibility policy can be frozen before v2 stable.
@@ -26,10 +26,25 @@ following services and is injected through a narrow interface:
 | `FleetService` | inventory, signed policy, maintenance windows and rollout state | firmware writes |
 | `EventService` | structured audit/health events and support snapshots | page-specific formatting |
 
-`HA-Device.py` remains the composition root and `web_portal.py` remains the
-embedded HTTP renderer. Application state, task ownership, driver resources,
+`HA-Device.py` remains the composition root and `web_portal.py` is the embedded
+HTTP request controller. Application state, task ownership, driver resources,
 route policy, view models and update orchestration live behind explicit,
 enforced interfaces. Characterisation tests protect observable behavior.
+
+Alpha.8 physically separates the formerly embedded implementation clusters:
+
+- portal HTTP/authentication helpers, presenters, live views and settings views;
+- setup-wizard HTTP control, provisioning workflow and HTML views;
+- certificate wire codecs from certificate lifecycle management;
+- credential schema validation from encrypted persistence;
+- application slot storage from bundle verification and activation;
+- Modbus register codecs from bus transport; and
+- Home Assistant discovery from boot and hardware coordination.
+
+`tools/check_architecture.py` enforces dependency direction, retired clean-seed
+compatibility markers, and line/function ceilings for the remaining composition
+and transport roots. Limits may be lowered as further code is extracted; raising
+one requires an explicit architecture review recorded in this document.
 
 ## Versioned contracts
 

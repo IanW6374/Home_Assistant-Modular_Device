@@ -19,6 +19,11 @@ import os
 import sys
 import update_security
 import update_support
+from application_storage import (
+    _copy_file, _file_exists, _read_json, _remove_if_exists, _remove_tree,
+    _replace_file, _skip_stream, _write_json_atomic, _write_stream_file,
+    _write_text_atomic,
+)
 
 try:
     import asyncio
@@ -45,9 +50,12 @@ RECOVERY_FILES = (
     'hardware_platform.py', 'update_security.py', 'update_support.py',
     'wifi_recovery.py',
     'credential_security.py',
-    'credential_store.py', 'setup_wizard.py', 'factory_config.py',
+    'credential_store.py', 'credential_schema.py',
+    'setup_wizard.py', 'setup_wizard_views.py', 'setup_workflow.py',
+    'factory_config.py',
     'device_config.py', 'portal_ui.py', 'http_support.py',
-    'release_update.py', 'certificate_manager.py',
+    'release_update.py', 'certificate_manager.py', 'certificate_codec.py',
+    'application_storage.py',
     '.update-verification-key',
     '.recovery-state.json'
 )
@@ -378,7 +386,12 @@ async def receive_bundle(
     temp_path = BUNDLE_PATH + '.upload'
     received = 0
     try:
-        update_support.require_free_space(content_length * 2)
+        # The upload and inactive application slot do not need to coexist as
+        # two *new* copies.  The inactive slot is disposable and is reclaimed
+        # immediately before activation below.  Reserving twice the bundle
+        # size here incorrectly rejects a valid A/B update on a normally
+        # populated device.
+        update_support.require_free_space(content_length)
         await _report_progress(
             progress_callback, 'receiving', received, content_length
         )
@@ -470,19 +483,24 @@ def _activate_pending_locked():
                 backup_size += int(os.stat(path)[6])
             except Exception:
                 pass
-    update_support.require_free_space(selected_size + backup_size)
     current_slot = active_slot()
     target_slot = ''
     if state.get('has_application'):
         target_slot = 'b' if current_slot == 'a' else 'a'
+
+    # A/B activation always replaces the inactive generation.  Reclaim it
+    # before checking capacity for the new slot; counting its occupied blocks
+    # made otherwise valid updates fail while still preserving a redundant
+    # rollback generation.  The active slot is never touched here.
+    if target_slot:
+        _remove_tree(_slot_path(target_slot))
+    update_support.require_free_space(selected_size + backup_size)
+
     state['status'] = 'activating'
     state['applied'] = []
     state['previous_slot'] = current_slot
     state['target_slot'] = target_slot
     _write_json_atomic(STATE_PATH, state)
-
-    if target_slot:
-        _remove_tree(_slot_path(target_slot))
 
     with open(BUNDLE_PATH, 'rb') as stream:
         read_manifest(stream)
@@ -715,110 +733,3 @@ def validate_slot_integrity(slot, entry_only=False):
         return checked_entry if entry_only else True
     except Exception:
         return False
-
-
-def _write_stream_file(stream, size, path):
-    temp_path = path + '.update-tmp'
-    _ensure_parent(path)
-    with open(temp_path, 'wb') as output:
-        remaining = size
-        while remaining:
-            chunk = stream.read(min(CHUNK_SIZE, remaining))
-            if not chunk:
-                raise ValueError('truncated update file: ' + path)
-            output.write(chunk)
-            remaining -= len(chunk)
-    _replace_file(temp_path, path)
-
-
-def _skip_stream(stream, size, path):
-    remaining = size
-    while remaining:
-        chunk = stream.read(min(CHUNK_SIZE, remaining))
-        if not chunk:
-            raise ValueError('truncated update file: ' + path)
-        remaining -= len(chunk)
-
-
-def _copy_file(source, destination):
-    _ensure_parent(destination)
-    temp_path = destination + '.copy-tmp'
-    with open(source, 'rb') as src, open(temp_path, 'wb') as dst:
-        while True:
-            chunk = src.read(CHUNK_SIZE)
-            if not chunk:
-                break
-            dst.write(chunk)
-    _replace_file(temp_path, destination)
-
-
-def _replace_file(source, destination):
-    _remove_if_exists(destination)
-    os.rename(source, destination)
-
-
-def _ensure_parent(path):
-    parts = path.split('/')[:-1]
-    current = ''
-    for part in parts:
-        current = part if not current else current + '/' + part
-        try:
-            os.mkdir(current)
-        except OSError:
-            pass
-
-
-def _file_exists(path):
-    try:
-        os.stat(path)
-        return True
-    except OSError:
-        return False
-
-
-def _read_json(path):
-    with open(path, 'rb') as stream:
-        return json.loads(stream.read())
-
-
-def _write_json_atomic(path, value):
-    temp_path = path + '.tmp'
-    with open(temp_path, 'w') as stream:
-        stream.write(json.dumps(value))
-    _replace_file(temp_path, path)
-
-
-def _write_text_atomic(path, value):
-    temp_path = path + '.tmp'
-    with open(temp_path, 'w') as stream:
-        stream.write(str(value))
-    _replace_file(temp_path, path)
-
-
-def _remove_if_exists(path):
-    try:
-        os.remove(path)
-    except OSError:
-        pass
-
-
-def _remove_tree(path):
-    try:
-        entries = os.listdir(path)
-    except OSError:
-        return
-    for name in entries:
-        child = path + '/' + name
-        try:
-            mode = os.stat(child)[0]
-            is_dir = bool(mode & 0x4000)
-        except OSError:
-            continue
-        if is_dir:
-            _remove_tree(child)
-        else:
-            _remove_if_exists(child)
-    try:
-        os.rmdir(path)
-    except OSError:
-        pass

@@ -19,6 +19,38 @@ FORBIDDEN_TRANSPORT_IMPORTS = {
     'credential_store',
 }
 
+# These ceilings prevent the former monoliths from silently growing back.
+# They are deliberately just above the alpha.8 baselines and should only move
+# down as responsibilities are extracted; increasing one requires an explicit
+# architecture review.
+LINE_LIMITS = {
+    'HA-Device.py': 3300,
+    'web_portal.py': 1450,
+    'setup_wizard.py': 450,
+    'certificate_manager.py': 700,
+    'credential_store.py': 750,
+    'app_update.py': 750,
+    'device_modules/modbus_transport.py': 850,
+}
+FUNCTION_LIMITS = {
+    ('web_portal.py', 'start_web_portal'): 1400,
+    ('setup_wizard.py', 'serve'): 350,
+    ('HA-Device.py', 'main'): 260,
+}
+RETIRED_SOURCE_MARKERS = {
+    'settings_loader.py': ('ha_discovery_cleanup_legacy',),
+    'factory_config.py': ('SETUP_CA_CERT_PATH',),
+    'release_update.py': ('_release_manifest_request_url',),
+}
+REQUIRED_APPLICATION_MODULES = (
+    'portal_http.py', 'portal_live_views.py', 'portal_presenters.py',
+    'portal_settings_views.py', 'services/home_assistant_service.py',
+)
+REQUIRED_FROZEN_MODULES = (
+    'application_storage.py', 'certificate_codec.py', 'credential_schema.py',
+    'setup_workflow.py', 'setup_wizard_views.py',
+)
+
 
 def imported_roots(path):
     tree = ast.parse(path.read_text(), filename=str(path))
@@ -34,6 +66,44 @@ def imported_roots(path):
 def architecture_errors(root=ROOT):
     root = Path(root)
     errors = []
+    for relative, maximum in LINE_LIMITS.items():
+        path = root / relative
+        count = len(path.read_text().splitlines())
+        if count > maximum:
+            errors.append(
+                relative + ' exceeds architecture line limit: ' +
+                str(count) + ' > ' + str(maximum)
+            )
+    for (relative, function_name), maximum in FUNCTION_LIMITS.items():
+        path = root / relative
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function_name:
+                count = node.end_lineno - node.lineno + 1
+                if count > maximum:
+                    errors.append(
+                        relative + ':' + function_name +
+                        ' exceeds architecture function limit: ' +
+                        str(count) + ' > ' + str(maximum)
+                    )
+                break
+        else:
+            errors.append(relative + ' is missing required boundary ' + function_name)
+    for relative, markers in RETIRED_SOURCE_MARKERS.items():
+        source = (root / relative).read_text()
+        for marker in markers:
+            if marker in source:
+                errors.append(relative + ' restores retired compatibility: ' + marker)
+    if 'recovery_boot' in imported_roots(root / 'update_security.py'):
+        errors.append('update_security.py restores the recovery/update import cycle')
+    application_builder = (root / 'tools/build_update.py').read_text()
+    for relative in REQUIRED_APPLICATION_MODULES:
+        if repr(relative) not in application_builder:
+            errors.append('application builder omits extracted module: ' + relative)
+    frozen_manifest = (root / 'firmware/manifest.py').read_text()
+    for relative in REQUIRED_FROZEN_MODULES:
+        if 'module("' + relative + '"' not in frozen_manifest:
+            errors.append('frozen manifest omits extracted module: ' + relative)
     for directory_name in ('application', 'services'):
         for path in sorted((root / directory_name).glob('*.py')):
             forbidden = imported_roots(path) & FORBIDDEN_INWARD_IMPORTS

@@ -505,6 +505,11 @@ and the outer binding, then presents **Activate universal update and reboot**.
 Progress is reported separately for core writing, core read-back verification,
 and application verification.
 
+The application bundle is first retained as one verified VFS copy. At
+activation, the currently inactive application slot is reclaimed before the
+replacement slot's capacity check and extraction. The active slot remains
+untouched throughout staging and is the rollback target for the new trial.
+
 If either component sequence is already installed, that component is still
 read and hash-verified but is not staged again. If neither component is newer,
 the package is rejected. Devices are provisioned with a complete v2 factory
@@ -742,13 +747,13 @@ done
 Generate release evidence beside the signed artifacts:
 
 ```sh
-python3 tools/generate_sbom.py --version 2.0.0-alpha.5 \
-  --output releases/hamd-2.0.0-alpha.5.cdx.json
-python3 tools/generate_provenance.py --version 2.0.0-alpha.5 \
-  --output releases/hamd-2.0.0-alpha.5.provenance.json \
-  releases/application-2.0.0-alpha.5.hamd \
-  releases/ham-core-2.0.0-alpha.5.hamf \
-  releases/universal-2.0.0-alpha.5.hamu
+python3 tools/generate_sbom.py --version 2.0.0-alpha.8 \
+  --output releases/hamd-2.0.0-alpha.8.cdx.json
+python3 tools/generate_provenance.py --version 2.0.0-alpha.8 \
+  --output releases/hamd-2.0.0-alpha.8.provenance.json \
+  releases/application-2.0.0-alpha.8.hamd \
+  releases/ham-core-2.0.0-alpha.8.hamf \
+  releases/universal-2.0.0-alpha.8.hamu
 ```
 
 Run `tools/hil_qualify.py` with the enrolled fleet mTLS identity to record the

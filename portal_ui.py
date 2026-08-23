@@ -1,7 +1,7 @@
 """Shared, dependency-free UI shell for setup and the authenticated portal."""
 
 
-ASSET_VERSION = '8'
+ASSET_VERSION = '9'
 
 
 PORTAL_CSS = (
@@ -142,6 +142,8 @@ PORTAL_CSS = (
     '.auth-card button{width:100%}.setup-main{width:auto;max-width:none;'
     'margin:0 clamp(16px,4vw,38px)}.setup-main label.field{margin:.7rem 0}'
     '.setup-main button,.setup-main .button{width:100%}'
+    '.setup-main .section-title{align-items:center}.setup-main .section-title button.compact{'
+    'width:auto;min-width:8rem;flex:0 0 auto;margin-left:auto}'
     '.setup-steps{display:flex;gap:6px;width:100%;'
     'margin:0 0 28px}.setup-step{height:5px;flex:1;'
     'border-radius:99px;background:#d7e0e2}.setup-step.active{background:var(--accent)}'

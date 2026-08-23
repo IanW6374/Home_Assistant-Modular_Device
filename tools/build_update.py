@@ -23,6 +23,10 @@ CORE_FILES = (
     'display.py',
     'web_portal_ui.py',
     'web_portal.py',
+    'portal_http.py',
+    'portal_live_views.py',
+    'portal_presenters.py',
+    'portal_settings_views.py',
     'api_security.py',
     'fleet_management.py',
     'configuration_manager.py',
@@ -42,6 +46,7 @@ CORE_FILES = (
     'services/__init__.py',
     'services/network_service.py',
     'services/messaging_service.py',
+    'services/home_assistant_service.py',
     'services/portal_service.py',
     'services/update_service.py',
     'services/event_service.py',
@@ -68,7 +73,7 @@ CORE_LIB_FILES = (
 )
 LOADER_EXCLUDED_MODULES = {
     '__init__.py', 'loader.py', 'base.py', 'logging.py', 'sensor.py',
-    'spi_bus.py', 'template.py', 'validation.py'
+    'spi_bus.py', 'template.py', 'validation.py', 'modbus_codec.py'
 }
 IGNORE_FILE = '.build_update_ignore'
 

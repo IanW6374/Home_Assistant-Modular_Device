@@ -166,7 +166,7 @@ class UpdateSecurityTests(unittest.TestCase):
             'components': {'runtime': 1, 'modules': {}},
             'files': [],
         }
-        with patch.object(recovery_boot, 'RECOVERY_API_VERSION', 1):
+        with patch.object(update_security, 'RECOVERY_API_VERSION', 1):
             with self.assertRaisesRegex(ValueError, 'installed API is 1'):
                 update_security.validate_manifest('hamd', manifest)
 
@@ -398,13 +398,13 @@ class UpdateSecurityTests(unittest.TestCase):
 
     def test_release_channel_supports_query_and_static_url_templates(self):
         self.assertEqual(
-            release_update._release_manifest_request_url(
+            release_update.release_manifest_request_url(
                 'https://updates.example/latest.json', 'stable'
             ),
             'https://updates.example/latest.json?channel=stable'
         )
         self.assertEqual(
-            release_update._release_manifest_request_url(
+            release_update.release_manifest_request_url(
                 'https://updates.example/{channel}/latest.json', 'beta'
             ),
             'https://updates.example/beta/latest.json'
@@ -423,10 +423,8 @@ class UpdateSecurityTests(unittest.TestCase):
         application_source = (Path(self.previous_cwd) / 'HA-Device.py').read_text()
         self.assertIn('scheduled_reset_timer = Timer(-1)', application_source)
         self.assertIn('mode=Timer.ONE_SHOT', application_source)
-        self.assertIn(
-            "schedule_hardware_reset('module_settings_reboot')",
-            application_source
-        )
+        self.assertIn("mark_restart_required('Module configuration changed')", application_source)
+        self.assertIn("schedule_hardware_reset('portal_requested_reboot')", application_source)
         self.assertNotIn('async def reboot_with_new_modules', application_source)
 
     def test_signed_release_descriptor_detects_metadata_tampering(self):

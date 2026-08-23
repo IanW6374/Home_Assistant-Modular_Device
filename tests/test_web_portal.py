@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import web_portal
+import portal_http
 from portal_contracts import PortalDependencies
 import credential_security
 import http_support
@@ -77,6 +78,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Encrypt backup and include secrets', backup)
         self.assertIn('id="export-encryption" class="conditional-fields" disabled', backup)
         self.assertIn('Uploading backup ', backup)
+        self.assertIn('Validating configuration · "+percent+"% (estimated)', backup)
+        self.assertIn('Validating configuration · 100%', backup)
         self.assertIn('id="configuration-preview-panel" hidden', backup)
         self.assertIn('diffRows=p.changes||[]', backup)
         self.assertIn('label.textContent="Preview ready"', backup)
@@ -461,7 +464,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('name="ha_discovery" checked', html)
         self.assertIn('action="/discover" method="post"', html)
         discovery_card = html.split('<h2>Home Assistant discovery</h2>', 1)[1].split('</section>', 1)[0]
-        self.assertIn('Save settings and restart', discovery_card)
+        self.assertIn('Save changes', discovery_card)
         self.assertIn('aria-label="System submenu"', html)
         self.assertNotIn('<h2>MQTT connection</h2>', html)
 
@@ -474,7 +477,9 @@ class WebPortalTests(unittest.TestCase):
             'ha_discovery': True,
         }
         mqtt = web_portal.render_mqtt_page('csrf', settings)
-        user = web_portal.render_user_settings_page('csrf', settings)
+        user = web_portal.render_user_settings_page('csrf', settings, users=(
+            {'username': 'admin', 'role': 'administrator', 'enabled': True},
+        ))
 
         self.assertIn('<h1>MQTT</h1>', mqtt)
         self.assertIn('action="/mqtt"', mqtt)
@@ -487,7 +492,8 @@ class WebPortalTests(unittest.TestCase):
         identity_card = user.split(
             '<h2>Administrator identity</h2>', 1
         )[1].split('</section>', 1)[0]
-        self.assertIn('Save username and restart', identity_card)
+        self.assertIn('Save changes', identity_card)
+        self.assertIn('>Administrator</option>', user)
         self.assertIn('action="/user?action=password"', user)
         self.assertNotIn('/change-password', user)
         self.assertNotIn('/user/password', user)
@@ -632,13 +638,13 @@ class WebPortalTests(unittest.TestCase):
         }
         pages = (
             (web_portal.render_portal_settings_page('csrf', settings),
-             'Portal access', 'Save settings and restart'),
+             'Portal access', 'Save changes'),
             (web_portal.render_ntp_settings_page('csrf', settings),
-             'Time synchronisation', 'Save settings and restart'),
+             'Time synchronisation', 'Save changes'),
             (web_portal.render_mqtt_page('csrf', settings),
-             'MQTT connection', 'Save settings and restart'),
+             'MQTT connection', 'Save changes'),
             (web_portal.render_user_settings_page('csrf', settings),
-             'Administrator identity', 'Save username and restart'),
+             'Administrator identity', 'Save changes'),
         )
         for html, heading, action in pages:
             card = html.split('<h2>' + heading + '</h2>', 1)[1].split(
@@ -705,6 +711,7 @@ class WebPortalTests(unittest.TestCase):
                 portal_actions = []
                 network_confirmations = []
                 factory_resets = []
+                restart_requests = []
 
                 def get_settings():
                     return {
@@ -717,7 +724,7 @@ class WebPortalTests(unittest.TestCase):
 
                 def set_settings(params):
                     changed_settings.append(params)
-                    return 'Settings saved; restarting'
+                    return 'Settings saved; restart when ready'
 
                 def set_password(password):
                     updated = credential_security.password_verifier(
@@ -755,6 +762,16 @@ class WebPortalTests(unittest.TestCase):
                     ),
                     'factory_reset.request': (
                         lambda password: factory_resets.append(password) or True
+                    ),
+                    'restart.status': lambda: {
+                        'required': True, 'reason_count': 1,
+                        'reasons': ['System settings changed'],
+                    },
+                    'restart.request': lambda: (
+                        restart_requests.append(True) or {
+                            'message': 'Committed changes are being activated.',
+                            'login_url': '/login',
+                        }
                     ),
                     }
                 ))
@@ -988,9 +1005,25 @@ class WebPortalTests(unittest.TestCase):
                      '\r\n\r\n').encode() + settings_body
                 )
                 self.assertIn('200 OK', settings_saved)
-                self.assertIn('Device restarting', settings_saved)
-                self.assertIn('Max-Age=0', settings_saved)
+                self.assertIn('Settings saved; restart when ready', settings_saved)
+                self.assertIn('action="/restart-device"', settings_saved)
+                self.assertNotIn('Max-Age=0', settings_saved)
                 self.assertEqual(changed_settings[0]['wifi_ssid'], 'new-network')
+
+                restart_status = await request(
+                    ('GET /api/restart-required HTTP/1.1\r\nCookie: ham_session=' +
+                     session_id + '\r\n\r\n').encode()
+                )
+                self.assertIn('"required": true', restart_status)
+                restart_body = ('csrf=' + csrf_token).encode()
+                restart_response = await request(
+                    ('POST /restart-device HTTP/1.1\r\nCookie: ham_session=' +
+                     session_id + '\r\nContent-Length: ' +
+                     str(len(restart_body)) + '\r\n\r\n').encode() + restart_body
+                )
+                self.assertIn('Device restarting', restart_response)
+                self.assertIn('Max-Age=0', restart_response)
+                self.assertEqual(restart_requests, [True])
 
                 expired = await request(
                     ('GET / HTTP/1.1\r\nCookie: ham_session=' + session_id +
@@ -1147,6 +1180,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertTrue(is_client_disconnect_error(OSError(-28288, 'MBEDTLS_ERR_SSL_BAD_PROTOCOL_VERSION')))
         self.assertTrue(is_client_disconnect_error(OSError(-30592, 'MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE')))
         self.assertTrue(is_client_disconnect_error(OSError('MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE')))
+        self.assertTrue(is_client_disconnect_error(OSError(113, 'ECONNABORTED')))
+        self.assertTrue(is_client_disconnect_error(OSError(104, 'ECONNRESET')))
         self.assertFalse(is_client_disconnect_error(OSError(12, 'ENOMEM')))
 
     def test_unhandled_portal_route_error_has_an_http_fallback(self):
@@ -1658,8 +1693,8 @@ class WebPortalTests(unittest.TestCase):
             make_tls_context('/tmp/missing-web.crt', '/tmp/missing-web.key')
 
     def test_make_tls_context_explains_invalid_key(self):
-        original_ssl = web_portal.ssl
-        original_open = web_portal.open if hasattr(web_portal, 'open') else open
+        original_ssl = portal_http.ssl
+        original_open = portal_http.open if hasattr(portal_http, 'open') else open
 
         class FakeContext:
             def load_cert_chain(self, cert_path, key_path):
@@ -1672,13 +1707,13 @@ class WebPortalTests(unittest.TestCase):
                 return FakeContext()
 
         try:
-            web_portal.ssl = FakeSsl()
-            web_portal.open = lambda path, mode='r': original_open(__file__, 'rb')
+            portal_http.ssl = FakeSsl()
+            portal_http.open = lambda path, mode='r': original_open(__file__, 'rb')
             with self.assertRaisesRegex(RuntimeError, 'traditional RSA key'):
                 make_tls_context('/tmp/web.crt', '/tmp/web.key')
         finally:
-            web_portal.ssl = original_ssl
-            web_portal.open = original_open
+            portal_http.ssl = original_ssl
+            portal_http.open = original_open
 
 
 if __name__ == '__main__':

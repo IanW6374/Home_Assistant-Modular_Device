@@ -7,26 +7,27 @@ from unittest import mock
 
 import api_security
 import certificate_manager
+import certificate_codec
 import device_api
 from device_api import DeviceAPI
 from runtime_health import HealthHistory
 
 
 def client_certificate(common_name='automation-client.local'):
-    original_time = certificate_manager.time
+    original_time = certificate_codec.time
 
     class FixedTime:
         @staticmethod
         def localtime():
             return (2026, 1, 1, 0, 0, 0, 0, 1)
 
-    certificate_manager.time = FixedTime()
+    certificate_codec.time = FixedTime()
     try:
         return certificate_manager._self_signed_certificate(
             bytes(range(1, 33)), common_name
         )
     finally:
-        certificate_manager.time = original_time
+        certificate_codec.time = original_time
 
 
 class FakeBroker:

@@ -1,7 +1,5 @@
 {
   "ha": {
-    "discovery_cleanup_legacy_identity": false,
-    "discovery_cleanup_legacy": false,
     "system_diagnostics": true
   },
   "web_portal": {

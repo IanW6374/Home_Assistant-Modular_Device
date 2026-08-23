@@ -51,6 +51,8 @@ ROUTES = {
     '/ntp-settings': ('administrator', 'system'),
     '/portal-settings': ('administrator', 'system'),
     '/reset-health-history': ('administrator', 'maintenance'),
+    '/restart-device': ('administrator', 'operations'),
+    '/api/restart-required': ('viewer', 'operations'),
     '/revoke-api-client': ('administrator', 'system'),
     '/secure-configuration-import-apply': ('administrator', 'maintenance'),
     '/secure-configuration-import-preview': ('administrator', 'maintenance'),

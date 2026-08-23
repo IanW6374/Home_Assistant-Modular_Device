@@ -150,19 +150,6 @@ class HelperTests(unittest.TestCase):
         self.assertNotIn('enabled_by_default', payload)
         self.assertNotIn('entity_registry_enabled_default', payload)
 
-    def test_discovery_cleanup_disabled_by_default(self):
-        driver = DeviceDriver(
-            {'name': 'Probe', 'uuid': '0001', 'type': {'class': 'sensor'}},
-            {}
-        )
-
-        original = base.device_settings.ha_discovery_cleanup_legacy
-        try:
-            base.device_settings.ha_discovery_cleanup_legacy = False
-            self.assertEqual(driver.discovery_cleanup_topics('abc', ['temperature']), [])
-        finally:
-            base.device_settings.ha_discovery_cleanup_legacy = original
-
     def test_publish_state_includes_health_after_mark_publish(self):
         driver = TestDriver(
             {'name': 'Probe', 'uuid': '0001', 'type': {'class': 'sensor'}},

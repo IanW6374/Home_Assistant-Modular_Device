@@ -6,6 +6,7 @@ import unittest
 import asyncio
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import app_update
 import credential_store
@@ -341,6 +342,54 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(state['version'], 'test-1')
         self.assertEqual(Path(app_update.BUNDLE_PATH).read_bytes(), payload)
 
+    def test_receive_bundle_reserves_only_the_uploaded_bundle(self):
+        self.make_bundle({'HA-Device.py': b'new'})
+        payload = Path(app_update.BUNDLE_PATH).read_bytes()
+        Path(app_update.BUNDLE_PATH).unlink()
+
+        class Reader:
+            def __init__(self, data):
+                self.data = data
+
+            async def read(self, size):
+                chunk = self.data[:size]
+                self.data = self.data[size:]
+                return chunk
+
+        with patch.object(update_support, 'require_free_space') as require:
+            asyncio.run(app_update.receive_bundle(Reader(payload), len(payload)))
+
+        require.assert_called_once_with(len(payload))
+
+    def test_activation_reclaims_inactive_slot_before_capacity_check(self):
+        self.make_bundle({'HA-Device.py': b'app-a'}, 'version-a')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.confirm_update()
+        self.make_bundle({'HA-Device.py': b'app-b'}, 'version-b')
+        app_update.stage_bundle()
+        app_update.activate_pending()
+        app_update.confirm_update()
+        self.assertEqual(app_update.active_slot(), 'b')
+        self.assertTrue(Path('.app-slots/a/HA-Device.py').exists())
+
+        self.make_bundle({'HA-Device.py': b'app-c'}, 'version-c')
+        app_update.stage_bundle()
+
+        def assert_inactive_reclaimed(_required):
+            self.assertFalse(Path('.app-slots/a').exists())
+            self.assertTrue(Path('.app-slots/b/HA-Device.py').exists())
+
+        with patch.object(
+            update_support, 'require_free_space',
+            side_effect=assert_inactive_reclaimed
+        ):
+            app_update.activate_pending()
+
+        self.assertEqual(
+            Path('.app-slots/a/HA-Device.py').read_bytes(), b'app-c'
+        )
+
     def test_receive_bundle_reports_verification_progress(self):
         self.make_bundle({'HA-Device.py': b'new application' * 200})
         payload = Path(app_update.BUNDLE_PATH).read_bytes()
@@ -394,6 +443,8 @@ class AppUpdateTests(unittest.TestCase):
             'settings_loader.py', 'hardware_platform.py', 'display.py',
             'web_portal_ui.py', 'web_portal.py',
             'release_update.py', 'certificate_manager.py',
+            'portal_http.py', 'portal_live_views.py',
+            'portal_presenters.py', 'portal_settings_views.py',
             'api_security.py', 'configuration_manager.py', 'device_api.py',
             'fleet_management.py', 'portal_auth.py', 'portal_contracts.py',
             'portal_routes.py', 'portal_view_models.py', 'portal_sessions.py',
@@ -408,6 +459,7 @@ class AppUpdateTests(unittest.TestCase):
             'lib/primitives/__init__.py', 'lib/primitives/encoder.py',
             'services/__init__.py', 'services/network_service.py',
             'services/messaging_service.py', 'services/portal_service.py',
+            'services/home_assistant_service.py',
             'services/update_service.py', 'services/event_service.py',
             'services/event_sinks.py', 'services/module_runtime.py',
             'application/__init__.py',

@@ -3,6 +3,56 @@
 All notable user-visible changes are recorded here. This project follows
 Semantic Versioning for product release labels.
 
+## [2.0.0-alpha.8] - 2026-08-23
+
+### Changed
+
+- Split portal HTTP helpers, live views, settings views and presenters into
+  bounded modules while retaining the existing portal contract.
+- Split the first-boot wizard into HTTP control, provisioning workflow and
+  pure view modules.
+- Split certificate codecs, credential validation, application-slot storage
+  and Modbus codecs from their lifecycle and transport owners.
+- Moved Home Assistant discovery and availability publishing behind an
+  explicit application service.
+- Removed clean-seed compatibility aliases and legacy Home Assistant identity
+  cleanup that are not required by v2 devices.
+- Added enforceable dependency, source-size and retired-compatibility
+  architecture gates to CI.
+
+### Fixed
+
+- Preserved all extracted runtime and frozen-core dependencies in application
+  and firmware build manifests.
+- Removed the recovery/update import cycle by sourcing installed API versions
+  directly from the frozen security contract.
+
+## [2.0.0-alpha.7] - 2026-08-23
+
+### Fixed
+
+- Corrected A/B application-update capacity accounting so the uploaded bundle
+  reserves one copy and activation reclaims the inactive slot before checking
+  space for its replacement.
+
+## [2.0.0-alpha.6] - 2026-08-23
+
+### Added
+
+- Added a persistent portal-banner action for activating configuration changes
+  from multiple tabs with one controlled restart.
+- Added estimated encrypted-backup validation progress with a confirmed
+  completion state.
+
+### Fixed
+
+- Corrected first-boot Wi-Fi scan heading and button proportions.
+- Removed a CPython-only string-title call that prevented the User page from
+  rendering under MicroPython.
+- Allowed restart responses additional time to cross TLS before resetting and
+  classified reset/aborted sockets as normal client disconnects.
+- Avoided arming a Wi-Fi rollback trial for unrelated settings changes.
+
 ## [2.0.0-alpha.5] - 2026-08-23
 
 ### Changed

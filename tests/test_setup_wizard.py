@@ -7,6 +7,8 @@ from unittest import mock
 import credential_security
 import credential_store
 import setup_wizard
+import setup_workflow
+import setup_wizard_views
 import web_portal_ui
 import wifi_recovery
 
@@ -56,6 +58,7 @@ class SetupWizardTests(unittest.TestCase):
             '.published-tile{border:1px solid var(--line);border-radius:9px;'
             'padding:9px 10px;background:var(--soft);min-width:0;text-align:center}',
             '.setup-main button,.setup-main .button{width:100%}',
+            '.setup-main .section-title button.compact{width:auto;',
             'input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]',
         ):
             self.assertIn(rule, setup_wizard.portal_ui.PORTAL_CSS)
@@ -199,12 +202,12 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('Default gateway', html)
         self.assertIn('id="wifi-static-settings" class="grid" hidden', html)
         self.assertIn('syncNetworkMode()', html)
-        original_preloaded = setup_wizard._preloaded_application_available
-        setup_wizard._preloaded_application_available = lambda: True
+        original_preloaded = setup_wizard_views._preloaded_application_available
+        setup_wizard_views._preloaded_application_available = lambda: True
         try:
             preloaded = setup_wizard._page('csrf-token')
         finally:
-            setup_wizard._preloaded_application_available = original_preloaded
+            setup_wizard_views._preloaded_application_available = original_preloaded
         self.assertIn('class="badge good tooltip-badge"', preloaded)
         self.assertIn('>Application ready</span>', preloaded)
         self.assertIn('data-tooltip="The factory-installed signed application is ready.', preloaded)
@@ -297,7 +300,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('window.location.replace(target)', portal)
 
     def test_certificate_completion_must_match_verified_installed_mode(self):
-        original_validate = setup_wizard._validate_certificates
+        original_validate = setup_workflow._validate_certificates
         original_details = setup_wizard.certificate_manager.certificate_details
         validation = []
 
@@ -313,7 +316,7 @@ class SetupWizardTests(unittest.TestCase):
                 }
             return {'installed': True, 'subject': 'CN=Home IoT CA', 'issuer': 'CN=Home IoT CA'}
 
-        setup_wizard._validate_certificates = validate
+        setup_workflow._validate_certificates = validate
         setup_wizard.certificate_manager.certificate_details = details
         config = {'certificate': {'mode': 'acme'}}
         try:
@@ -327,18 +330,18 @@ class SetupWizardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'self-issued'):
                 setup_wizard._validate_certificate_files('acme')
         finally:
-            setup_wizard._validate_certificates = original_validate
+            setup_workflow._validate_certificates = original_validate
             setup_wizard.certificate_manager.certificate_details = original_details
 
     def test_certificate_resume_uses_persisted_acme_mode(self):
-        original = setup_wizard._validate_certificate_selection
-        setup_wizard._validate_certificate_selection = lambda _config, mode: mode == 'acme'
+        original = setup_wizard_views._validate_certificate_selection
+        setup_wizard_views._validate_certificate_selection = lambda _config, mode: mode == 'acme'
         try:
             html = setup_wizard._certificate_resume_page('csrf-token', {
                 'certificate': {'mode': 'acme', 'hostname': 'whes01.local'},
             })
         finally:
-            setup_wizard._validate_certificate_selection = original
+            setup_wizard_views._validate_certificate_selection = original
         self.assertIn('ACME certificate files are installed and validated.', html)
         self.assertIn('name="certificate_mode" value="acme"', html)
         self.assertNotIn('Continue with self-signed certificate', html)
@@ -356,8 +359,8 @@ class SetupWizardTests(unittest.TestCase):
             setup_wizard._form_values(params)
 
     def test_portal_transport_defaults_to_https_when_certificate_is_present(self):
-        original = setup_wizard._file_exists
-        setup_wizard._file_exists = lambda _path: True
+        original = setup_wizard_views._file_exists
+        setup_wizard_views._file_exists = lambda _path: True
         try:
             config = {
                 'portal': {'transport': 'auto'},
@@ -373,7 +376,7 @@ class SetupWizardTests(unittest.TestCase):
                 'http://whes01.local:8080/',
             )
         finally:
-            setup_wizard._file_exists = original
+            setup_wizard_views._file_exists = original
 
     def test_setup_selects_self_signed_fallback_and_auto_transport(self):
         params = self.fields()
@@ -523,8 +526,8 @@ class SetupWizardTests(unittest.TestCase):
             def RTC():
                 return RTC()
 
-        original = setup_wizard.machine
-        setup_wizard.machine = Machine
+        original = setup_workflow.machine
+        setup_workflow.machine = Machine
         try:
             self.assertEqual(
                 setup_wizard._set_rtc_from_browser_time('2026-07-23T05:32:40.123Z'),
@@ -534,7 +537,7 @@ class SetupWizardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'outside the supported range'):
                 setup_wizard._set_rtc_from_browser_time('2001-01-01T00:00:00Z')
         finally:
-            setup_wizard.machine = original
+            setup_workflow.machine = original
 
     def test_setup_requires_a_single_label_mdns_hostname(self):
         params = self.fields()

@@ -87,9 +87,6 @@ _web_portal = _section(_settings, 'web_portal')
 local_display = _section(_settings, 'local_display')
 
 _reject_unknown(_ha, (
-    'discovery_cleanup_legacy_identity',
-    'discovery_cleanup_legacy',
-    'discovery_cleanup_legacy_count',
     'system_diagnostics',
 ), 'ha')
 _reject_unknown(_web_portal, (
@@ -202,21 +199,6 @@ ha_discovery = _preferences.get('ha_discovery', True) is True
 release_auto_download = _preferences.get('release_auto_download', False) is True
 release_auto_activate = _preferences.get('release_auto_activate', False) is True
 
-ha_discovery_cleanup_legacy_identity = _optional(
-    _ha, 'discovery_cleanup_legacy_identity', bool, False,
-    'ha.discovery_cleanup_legacy_identity'
-)
-ha_discovery_cleanup_legacy = _optional(
-    _ha, 'discovery_cleanup_legacy', bool, False, 'ha.discovery_cleanup_legacy'
-)
-ha_discovery_cleanup_legacy_count = _optional(
-    _ha, 'discovery_cleanup_legacy_count', int, 64,
-    'ha.discovery_cleanup_legacy_count'
-)
-_bounded(
-    ha_discovery_cleanup_legacy_count,
-    'ha.discovery_cleanup_legacy_count', 0
-)
 ha_system_diagnostics = _optional(
     _ha, 'system_diagnostics', bool, False, 'ha.system_diagnostics'
 )

@@ -7,11 +7,6 @@ device's MQTT ``/set`` topic and publishes replies to ``/response``.
 
 MODULE_VERSION = 1
 
-try:
-    from ustruct import unpack
-except ImportError:
-    from struct import unpack
-
 from machine import UART, Pin
 try:
     from .base import DeviceDriver
@@ -19,12 +14,22 @@ try:
     from .base import ha_response_topic
     from .base import sensor_discovery_payload
     from .logging import log_output
+    from .modbus_codec import (
+        crc as modbus_crc, crc_bytes as modbus_crc_bytes,
+        decode_registers, encode_registers, encode_value,
+        hex_bytes as modbus_hex,
+    )
 except ImportError:
     from base import DeviceDriver
     from base import ha_safe_id
     from base import ha_response_topic
     from base import sensor_discovery_payload
     from logging import log_output
+    from modbus_codec import (
+        crc as modbus_crc, crc_bytes as modbus_crc_bytes,
+        decode_registers, encode_registers, encode_value,
+        hex_bytes as modbus_hex,
+    )
 import asyncio
 import time
 
@@ -134,6 +139,12 @@ def create_driver(device, device_char):
 
 
 class ModbusRTUDriver(DeviceDriver):
+    _decode_registers = staticmethod(decode_registers)
+    _encode_registers = staticmethod(encode_registers)
+    _encode_value = staticmethod(encode_value)
+    _crc_bytes = staticmethod(modbus_crc_bytes)
+    _crc = staticmethod(modbus_crc)
+    _hex = staticmethod(modbus_hex)
     def __init__(self, device, device_char):
         super().__init__(device, device_char)
         self._publish_callable = None
@@ -793,92 +804,3 @@ class ModbusRTUDriver(DeviceDriver):
             'log': 'RS485 response: ' + self.device['name']
         }
         self._publish_callable(data, 0, False)
-
-    def _decode_registers(self, raw, data_type, byte_order, word_order):
-        if data_type == 'ascii':
-            return ''.join(chr(byte) for byte in raw if 32 <= byte <= 126).rstrip()
-
-        if byte_order == 'little':
-            words = []
-            for i in range(0, len(raw), 2):
-                words.append(bytes([raw[i + 1], raw[i]]))
-            raw = b''.join(words)
-
-        if len(raw) == 4 and word_order == 'little':
-            raw = raw[2:4] + raw[0:2]
-
-        if data_type == 'int16':
-            value = (raw[0] << 8) | raw[1]
-            return value - 65536 if value & 0x8000 else value
-        if data_type == 'uint32':
-            return (raw[0] << 24) | (raw[1] << 16) | (raw[2] << 8) | raw[3]
-        if data_type == 'int32':
-            value = (raw[0] << 24) | (raw[1] << 16) | (raw[2] << 8) | raw[3]
-            return value - 4294967296 if value & 0x80000000 else value
-        if data_type == 'float32':
-            return unpack('>f', raw)[0]
-
-        return (raw[0] << 8) | raw[1]
-
-    def _encode_registers(self, values, data_type, scale, offset, byte_order, word_order):
-        raw = b''
-        for value in values:
-            raw += self._encode_value(value, data_type, scale, offset)
-
-        if len(raw) == 4 and word_order == 'little':
-            raw = raw[2:4] + raw[0:2]
-
-        if byte_order == 'little':
-            words = []
-            for i in range(0, len(raw), 2):
-                words.append(bytes([raw[i + 1], raw[i]]))
-            raw = b''.join(words)
-
-        return raw
-
-    def _encode_value(self, value, data_type, scale, offset):
-        if data_type == 'ascii':
-            raise ValueError('ascii writes are not supported')
-
-        scale = scale or 1
-        value = int(round((float(value) - offset) / scale))
-
-        if data_type == 'int16':
-            if value < 0:
-                value += 65536
-            return bytes([(value >> 8) & 0xff, value & 0xff])
-        if data_type == 'uint32' or data_type == 'int32':
-            if value < 0:
-                value += 4294967296
-            return bytes([
-                (value >> 24) & 0xff,
-                (value >> 16) & 0xff,
-                (value >> 8) & 0xff,
-                value & 0xff
-            ])
-        if data_type == 'float32':
-            raise ValueError('float32 writes are not supported')
-
-        return bytes([(value >> 8) & 0xff, value & 0xff])
-
-    def _crc_bytes(self, payload):
-        crc = self._crc(payload)
-        return bytes([crc & 0xff, (crc >> 8) & 0xff])
-
-    def _crc(self, payload):
-        crc = 0xffff
-        for byte in payload:
-            crc ^= byte
-            for _ in range(8):
-                if crc & 1:
-                    crc = (crc >> 1) ^ 0xa001
-                else:
-                    crc >>= 1
-        return crc
-
-    def _hex(self, payload):
-        chars = '0123456789abcdef'
-        out = ''
-        for byte in payload:
-            out += chars[(byte >> 4) & 0x0f] + chars[byte & 0x0f]
-        return out

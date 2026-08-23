@@ -6,12 +6,6 @@
     "ha": {
       "type": "object",
       "properties": {
-        "discovery_cleanup_legacy_identity": {"type": "boolean"},
-        "discovery_cleanup_legacy": {"type": "boolean"},
-        "discovery_cleanup_legacy_count": {
-          "type": "integer",
-          "minimum": 0
-        },
         "system_diagnostics": {"type": "boolean"}
       },
       "additionalProperties": false

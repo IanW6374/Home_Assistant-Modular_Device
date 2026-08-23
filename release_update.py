@@ -241,11 +241,6 @@ def release_manifest_request_url(manifest_url, channel):
     return manifest_url + separator + 'channel=' + channel
 
 
-def _release_manifest_request_url(manifest_url, channel):
-    """Compatibility wrapper for integrations using the earlier private helper."""
-    return release_manifest_request_url(manifest_url, channel)
-
-
 async def _read_body(reader, length, maximum):
     payload = bytearray()
     if length is not None and length > maximum:

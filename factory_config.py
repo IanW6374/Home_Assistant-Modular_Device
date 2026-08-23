@@ -6,5 +6,3 @@
 # The result is the same release object used by normal portal updates.
 SETUP_RELEASE_MANIFEST_URL = ''
 SETUP_TRUST_CA_CERT_PATH = '/certs/trust/home-rca-root.der'
-# Compatibility alias for factory integrations built against the earlier name.
-SETUP_CA_CERT_PATH = SETUP_TRUST_CA_CERT_PATH

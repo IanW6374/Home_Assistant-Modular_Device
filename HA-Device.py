@@ -40,6 +40,7 @@ from services.event_sinks import LegacyLogSink
 from services.module_runtime import ModuleRuntime
 from services.network_service import NetworkService
 from services.messaging_service import MessagingService
+from services.home_assistant_service import HomeAssistantService
 from services.portal_service import PortalService
 from services.update_service import UpdateService
 from portal_contracts import PortalDependencies
@@ -137,7 +138,6 @@ ntp_servers = device_settings.ntp_servers
 timezone_offset_minutes = device_settings.timezone_offset_minutes
 timezone_name = device_settings.timezone_name
 ha_system_diagnostics = device_settings.ha_system_diagnostics
-ha_discovery_cleanup_legacy_identity = device_settings.ha_discovery_cleanup_legacy_identity
 
 loglevels = ['ERROR', 'INFO', 'DEBUG']
 loglevel = device_settings.loglevel
@@ -235,6 +235,7 @@ main_device_error = False
 failedModules = []
 pending_configuration_import = None
 pending_secure_configuration_import = None
+pending_restart_reasons = []
 
 
 def ticks_ms():
@@ -564,7 +565,7 @@ def _perform_scheduled_reset(_timer=None):
     hardware_platform.reset()
 
 
-def schedule_hardware_reset(name, delay_ms=2000):
+def schedule_hardware_reset(name, delay_ms=8000):
     """Schedule a reset independently of a busy uasyncio event loop."""
     global scheduled_reset_timer
     if Timer is not None:
@@ -591,6 +592,44 @@ def schedule_hardware_reset(name, delay_ms=2000):
         _perform_scheduled_reset()
 
     start_task(name, delayed_reset())
+
+
+def mark_restart_required(reason):
+    reason = str(reason or 'Configuration changed')
+    if reason not in pending_restart_reasons:
+        pending_restart_reasons.append(reason)
+    return pending_restart_status()
+
+
+def pending_restart_status():
+    return {
+        'required': bool(pending_restart_reasons),
+        'reason_count': len(pending_restart_reasons),
+        'reasons': list(pending_restart_reasons),
+    }
+
+
+def _configured_portal_login_url(settings=None):
+    settings = settings or credential_store.public_settings()
+    transport = settings.get('portal_transport', 'auto')
+    https = transport != 'http'
+    port = settings.get('portal_port')
+    if port is None:
+        port = 8443 if https else 8080
+    hostname = runtime_credentials.get('certificate', {}).get('hostname', '')
+    return (
+        ('https' if https else 'http') + '://' + hostname + ':' +
+        str(port) + '/login'
+        if hostname else '/login'
+    )
+
+
+def request_pending_restart():
+    schedule_hardware_reset('portal_requested_reboot')
+    return {
+        'message': 'Committed changes are being activated. The device is restarting.',
+        'login_url': _configured_portal_login_url(),
+    }
 
 
 def start_portal_task(name, coroutine, message):
@@ -644,7 +683,7 @@ def portal_task_progress(name):
         completed = int(completed or 0)
         portal_tasks[name] = {
             'phase': 'running',
-            'message': labels.get(str(phase), str(phase).replace('_', ' ').title()),
+            'message': labels.get(str(phase), str(phase).replace('_', ' ')),
             'percent': max(0, min(100, int(completed * 100 / total))) if total else 0,
         }
 
@@ -836,7 +875,7 @@ def portal_status():
     )
     slots = app_update.slot_status()
     storage = update_support.storage_status()
-    status['active_slot'] = slots.get('active', '') or 'legacy'
+    status['active_slot'] = slots.get('active', '') or 'unavailable'
     previous = app_update.previous_slot()
     status['previous_slot'] = previous
     status['previous_slot_version'] = slots.get('versions', {}).get(previous, '')
@@ -1159,8 +1198,8 @@ def apply_secure_configuration_import(token):
         'Selected encrypted backup sections restored: ' +
         ', '.join(pending.get('sections', ())), force=True, component='backup'
     )
-    schedule_hardware_reset('secure_configuration_restore_reboot', 5000)
-    return 'Complete encrypted backup restored. The device is restarting.'
+    mark_restart_required('Encrypted configuration restored')
+    return 'Complete encrypted backup restored. Restart the device to activate it.'
 
 
 def preview_configuration_import(payload):
@@ -1225,8 +1264,8 @@ def apply_configuration_import(token):
     runtime_health.record_event(
         'configuration_import', str(plan['change_count']) + ' changes', force=True
     )
-    schedule_hardware_reset('configuration_import_reboot', 5000)
-    return 'Configuration imported and validated. The device is restarting.'
+    mark_restart_required('Configuration restored')
+    return 'Configuration imported and validated. Restart the device to activate it.'
 
 
 def portal_settings():
@@ -1315,6 +1354,7 @@ async def certificate_alert_monitor():
 
 
 def update_portal_settings(params):
+    current_settings = credential_store.public_settings()
     ntp_servers = [
         server.strip() for server in str(params.get('ntp_servers', '')).split(',')
         if server.strip()
@@ -1375,26 +1415,30 @@ def update_portal_settings(params):
     if mqtt_password or clear_mqtt:
         values['mqtt_password'] = mqtt_password
 
-    updated = credential_store.update_operational_settings(values, network_trial=True)
-
-    schedule_hardware_reset('settings_reboot')
-    transport = updated.get('portal_transport', 'auto')
-    https = transport != 'http'
-    port = updated.get('portal_port')
-    if port is None:
-        port = 8443 if https else 8080
-    hostname = runtime_credentials.get('certificate', {}).get('hostname', '')
-    login_url = (
-        ('https' if https else 'http') + '://' + hostname + ':' +
-        str(port) + '/login'
-        if hostname else '/login'
+    candidate_network = dict(values)
+    candidate_network['portal_port'] = (
+        int(values['portal_port']) if values['portal_port'] else None
     )
-    message = 'Settings saved securely. The device is restarting.'
+    network_keys = (
+        'device_name', 'wifi_ssid', 'wifi_dhcp', 'wifi_ip_address',
+        'wifi_subnet_mask', 'wifi_gateway', 'wifi_dns_server',
+        'portal_transport', 'portal_port'
+    )
+    network_changed = bool(wifi_password or clear_wifi) or any(
+        candidate_network.get(key) != current_settings.get(key) for key in network_keys
+    )
+    updated = credential_store.update_operational_settings(
+        values, network_trial=network_changed
+    )
+
+    mark_restart_required('System settings changed')
+    login_url = _configured_portal_login_url(updated)
+    message = 'Settings saved securely. Restart the device when all changes are complete.'
     if updated.get('network_trial_pending'):
         message = (
-            'Network settings are being tested. Sign in to the portal within ' +
+            'Network settings saved. After restarting, sign in to the portal within ' +
             str(network_trial_timeout_s) +
-            ' seconds after restart or the previous network settings will be restored.'
+            ' seconds or the previous network settings will be restored.'
         )
     return {
         'message': message,
@@ -1472,8 +1516,8 @@ def update_module_settings(payload):
         stream.write(json.dumps(candidate))
     update_support.commit_file_with_backup(temporary, moduleSettingsFile)
 
-    schedule_hardware_reset('module_settings_reboot')
-    return 'Module settings saved and verified. The device is restarting.'
+    mark_restart_required('Module configuration changed')
+    return 'Module settings saved and verified. Restart the device to activate them.'
 
 
 async def upload_certificate_file(kind, reader, length):
@@ -1651,9 +1695,9 @@ def validate_uploaded_certificates():
         credential_store.update_certificate_settings('manual')
 
     if outbound_trust_changed:
-        schedule_hardware_reset('certificate_upload_reboot')
+        mark_restart_required('Outbound TLS trust changed')
         return {
-            'message': 'Outbound TLS trust validated. The device is restarting once to reload active client connections.',
+            'message': 'Outbound TLS trust validated. Restart the device to reload active client connections.',
             'restart': True,
         }
     reloaded = []
@@ -1763,7 +1807,7 @@ def system_info_payload():
         'recovery_api': update_security.installed_recovery_api(),
         'signed_updates': update_security.signing_status(),
         'storage_free_bytes': storage.get('free_bytes', 0),
-        'active_application_slot': app_update.active_slot() or 'legacy',
+        'active_application_slot': app_update.active_slot() or 'unavailable',
         'update_available': release_available.get('version', ''),
         'last_update_event': last_event.get('event', ''),
         'last_rollback_reason': (
@@ -1835,37 +1879,6 @@ def module_health_payload(driver):
     return payload
 
 
-def module_health_discovery(device):
-    payloads = {}
-    for key in ('module_last_ok', 'module_last_error', 'module_last_read_ms', 'module_last_publish_age_s', 'module_consecutive_errors'):
-        payloads[key] = {
-            '~': ha_device_topic(device['type']['class'], deviceid, device['uuid']),
-            'stat_t': '~/state',
-            'uniq_id': ha_unique_id(deviceid, device['uuid'], key),
-            'name': device['name'] + ' ' + key,
-            'value_template': "{{ value_json[" + repr(key) + "] }}",
-            'availability_topic': ha_availability_topic(deviceid),
-            'payload_available': 'online',
-            'payload_not_available': 'offline',
-            'entity_category': 'diagnostic',
-            'en': False,
-            'dev': homeassistant_device_info(deviceid, ha_devicename, device.get('_portal_url')),
-            'o': homeassistant_origin_info()
-        }
-    return payloads
-
-
-def legacy_identity_cleanup_topics(device, payload_discovery):
-    if not ha_discovery_cleanup_legacy_identity or hardware_deviceid == deviceid:
-        return []
-
-    topics = []
-    for entity_id, payload in payload_discovery.items():
-        component = payload.get('_component', device['type']['class'])
-        topics.append(ha_config_topic(component, hardware_deviceid, device['uuid'], entity_id))
-    return topics
-
-
 def portal_action(action, params):
     if action == 'discover':
         request_homeassistant_discovery()
@@ -1933,11 +1946,11 @@ def portal_action(action, params):
         credential_store.update_certificate_settings(
             'acme' if enabled else 'manual', directory_url, hostname
         )
-        schedule_hardware_reset('acme_settings_reboot')
+        mark_restart_required('ACME settings changed')
         return (
-            'ACME certificate management enabled. The device is restarting.'
+            'ACME certificate management enabled. Restart the device to activate it.'
             if enabled else
-            'ACME certificate management disabled. The installed certificate is retained.'
+            'ACME certificate management disabled. The installed certificate is retained; restart to activate the change.'
         )
 
     if action == 'ems-debug':
@@ -1973,7 +1986,7 @@ def portal_action(action, params):
         except Exception as exc:
             return 'Application update activation failed: ' + str(exc)
 
-        schedule_hardware_reset('application_update_reboot', 5000)
+        schedule_hardware_reset('application_update_reboot', 8000)
         return 'Application update staged; rebooting'
 
     if action == 'activate-firmware':
@@ -1985,7 +1998,7 @@ def portal_action(action, params):
         except Exception as exc:
             return 'Base firmware activation failed: ' + str(exc)
 
-        schedule_hardware_reset('firmware_update_reboot', 5000)
+        schedule_hardware_reset('firmware_update_reboot', 8000)
         return 'Base firmware staged; rebooting into trial partition'
 
     if action == 'activate-universal':
@@ -2000,7 +2013,7 @@ def portal_action(action, params):
             universal_update.activate_pending(maintenance_allowed)
         except Exception as exc:
             return 'Universal update activation failed: ' + str(exc)
-        schedule_hardware_reset('universal_update_reboot', 5000)
+        schedule_hardware_reset('universal_update_reboot', 8000)
         return 'Universal core and application update staged; rebooting into trial versions'
 
     if action == 'rollback-application':
@@ -2009,7 +2022,7 @@ def portal_action(action, params):
         except Exception as exc:
             return 'Application rollback failed: ' + str(exc)
 
-        schedule_hardware_reset('application_manual_rollback', 5000)
+        schedule_hardware_reset('application_manual_rollback', 8000)
         return (
             'Application switched to slot ' + str(result.get('active', '')) +
             '; rebooting'
@@ -2426,6 +2439,8 @@ async def start_admin_portal():
             'users.add': portal_auth.add_user,
             'users.update': portal_auth.update_user,
             'users.remove': portal_auth.remove_user,
+            'restart.status': pending_restart_status,
+            'restart.request': request_pending_restart,
         })
         web_portal_server = await portal_service.start(dependencies)
     except Exception as exc:
@@ -2582,195 +2597,11 @@ async def homeassistant_discovery():
     if not ha_discovery:
         logOutput('Local', 'HA Discovery', {'log': 'Skipped because ha_discovery is disabled'}, 'INFO')
         return
-
-    device_info_added = False
-    discovery_count = 0
-
-    logOutput('Local', 'HA Discovery', {'log': 'Started'}, 'INFO')
-
-    def find_device_char(uuid):
-        for d in outputDevices:
-            if d.get('uuid') == uuid:
-                return d
-        for d in inputDevices:
-            if d.get('uuid') == uuid:
-                return d
-        return None
-
-    for device in deviceObjects:
-        devicetype = find_device_type(device)
-
-        if device['uuid'] != '0000' and devicetype and devicetype['ha_discovery']:
-            payload_discovery = {}
-            payload_entities = {}
-
-            device_char = find_device_char(device['uuid'])
-            cleanup_topics = []
-            if device_char and 'driver' in device_char:
-                try:
-                    portal_url = web_portal_url()
-                    if portal_url:
-                        device['_portal_url'] = portal_url
-                    elif '_portal_url' in device:
-                        del device['_portal_url']
-                    if hasattr(device_char['driver'], 'prepare_discovery'):
-                        await device_char['driver'].prepare_discovery()
-                    payload_discovery, payload_entities = device_char['driver'].get_discovery_payloads(deviceid, ha_devicename)
-                    health_payload = module_health_payload(device_char['driver'])
-                    if health_payload:
-                        payload_entities.update(health_payload)
-                        payload_discovery.update(module_health_discovery(device))
-                        cleanup_topics.append(ha_config_topic(
-                            device['type']['class'],
-                            deviceid,
-                            device['uuid'],
-                            'module_last_publish_ms'
-                        ))
-                        if ha_discovery_cleanup_legacy_identity:
-                            cleanup_topics.append(ha_config_topic(
-                                device['type']['class'],
-                                hardware_deviceid,
-                                device['uuid'],
-                                'module_last_publish_ms'
-                            ))
-                    if hasattr(device_char['driver'], 'discovery_cleanup_topics'):
-                        cleanup_topics = device_char['driver'].discovery_cleanup_topics(
-                            deviceid,
-                            payload_discovery.keys()
-                        )
-                        if ha_discovery_cleanup_legacy_identity:
-                            cleanup_topics.extend(device_char['driver'].discovery_cleanup_topics(
-                                hardware_deviceid,
-                                payload_discovery.keys()
-                            ))
-                    cleanup_topics.extend(legacy_identity_cleanup_topics(device, payload_discovery))
-                except Exception as exc:
-                    logOutput(
-                        'Local',
-                        'HA Discovery',
-                        {'log': device['name'] + ' - ' + str(exc)},
-                        'ERROR'
-                    )
-                    payload_discovery = {}
-                    payload_entities = {}
-                    cleanup_topics = []
-            else:
-                logOutput(
-                    'Local',
-                    'HA Discovery',
-                    {'log': device['name'] + ' - no driver available for discovery'},
-                    'ERROR'
-                )
-
-            if not device_info_added and payload_discovery:
-                first_discovery_id = next(iter(payload_discovery))
-                if "dev" not in payload_discovery[first_discovery_id]:
-                    payload_discovery[first_discovery_id].update({
-                        "dev": homeassistant_device_info(deviceid, ha_devicename, device.get('_portal_url'))
-                    })
-                device_info_added = True
-
-            for topic in cleanup_topics:
-                data = {
-                    'payload': None,
-                    'topic': topic,
-                    'log': 'HA Discovery cleanup: ' + device['name'] + ' - ' + topic
-                }
-                await publish_message(data, 0, False, True)
-
-            device_discovery_count = 0
-            for i in payload_discovery:
-                payload = payload_discovery[i].copy()
-                topic = payload.pop('_topic', None)
-                component = payload.pop('_component', device['type']['class'])
-                if topic is None:
-                    topic = ha_config_topic(component, deviceid, device['uuid'], i)
-                data = {
-                    'payload': payload,
-                    'topic': topic,
-                    'log': 'HA Discovery entity: ' + device['name'] + ' ' + str(i)
-                }
-                await publish_message(data, 0, False, True)
-                discovery_count += 1
-                device_discovery_count += 1
-
-            if device_discovery_count:
-                logOutput(
-                    'Local',
-                    'HA Discovery',
-                    {'log': device['name'] + ' - ' + str(device_discovery_count) + ' config payloads'},
-                    'INFO'
-                )
-
-            await asyncio.sleep(1)
-
-            data = {
-                'payload': payload_entities,
-                'topic': ha_state_topic(device['type']['class'], deviceid, device['uuid']),
-                'log': 'HA Update: ' + device['name']
-            }
-            await publish_message(data, 0, False)
-
-    if ha_system_diagnostics:
-        system_discovery_count = 0
-        for key, payload in system_info_discovery().items():
-            if ha_discovery_cleanup_legacy_identity and hardware_deviceid != deviceid:
-                data = {
-                    'payload': None,
-                    'topic': ha_config_topic('sensor', hardware_deviceid, 'sys', key),
-                    'log': 'HA Discovery cleanup: system diagnostics - ' + str(key)
-                }
-                await publish_message(data, 0, False, True)
-            data = {
-                'payload': payload,
-                'topic': ha_config_topic('sensor', deviceid, 'sys', key),
-                'log': 'HA Discovery entity: system diagnostics ' + str(key)
-            }
-            await publish_message(data, 0, False, True)
-            discovery_count += 1
-            system_discovery_count += 1
-
-        data = {
-            'payload': system_info_payload(),
-            'topic': ha_state_topic('sensor', deviceid, 'sys'),
-            'log': 'HA Update: system diagnostics'
-        }
-        await publish_message(data, 0, False)
-        for key, payload in maintenance_discovery().items():
-            data = {
-                'payload': payload,
-                'topic': ha_config_topic('button', deviceid, 'maint', key),
-                'log': 'HA Discovery entity: maintenance ' + str(key)
-            }
-            await publish_message(data, 0, False, True)
-            discovery_count += 1
-            system_discovery_count += 1
-        logOutput(
-            'Local',
-            'HA Discovery',
-            {'log': 'system diagnostics - ' + str(system_discovery_count) + ' config payloads'},
-            'INFO'
-        )
-
-    last_discovery_count = discovery_count
-    logOutput('Local', 'HA Discovery', {'log': 'Completed with ' + str(discovery_count) + ' config payloads'}, 'INFO')
+    last_discovery_count = await home_assistant_service.publish_discovery()
 
 
 async def publish_availability(state):
-    if state == 'online' and ha_discovery_cleanup_legacy_identity and hardware_deviceid != deviceid:
-        data = {
-            'payload': 'offline',
-            'topic': ha_availability_topic(hardware_deviceid),
-            'log': 'Legacy availability: offline'
-        }
-        await publish_message(data, 0, True, True)
-
-    data = {
-        'payload': state,
-        'topic': ha_availability_topic(deviceid),
-        'log': 'Availability: ' + state
-    }
-    await publish_message(data, 0, False, True)
+    await home_assistant_service.publish_availability(state)
        
 def device_config(devicetype, uuid, command, payload):
     device = next((d for d in outputDevices if d['uuid'] == uuid), None)
@@ -2989,10 +2820,27 @@ messaging_service = MessagingService(
         'queue': mqtt_publish_queue.stats(),
     },
 )
+home_assistant_service = HomeAssistantService(
+    deviceid,
+    ha_devicename,
+    deviceObjects,
+    lambda: outputDevices + inputDevices,
+    find_device_type,
+    publish_message,
+    logOutput,
+    web_portal_url,
+    module_health_payload,
+    system_enabled=ha_system_diagnostics,
+    system_discovery=system_info_discovery,
+    system_state=system_info_payload,
+    maintenance_discovery=maintenance_discovery,
+)
 application_context.register('network', network_service)
 application_context.register('messaging', messaging_service)
+application_context.register('home_assistant', home_assistant_service)
 application_context.seal((
-    'events', 'modules', 'portal', 'updates', 'network', 'messaging'
+    'events', 'modules', 'portal', 'updates', 'network', 'messaging',
+    'home_assistant'
 ))
 
 
