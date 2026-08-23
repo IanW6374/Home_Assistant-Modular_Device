@@ -2,7 +2,7 @@
 
 ## Release intent
 
-`2.0.0-alpha.8` is a deliberately breaking clean-seed development release.
+`2.0.0-alpha.9` is a deliberately breaking clean-seed development release.
 Devices receive a complete v2 factory image; v1.9 configuration, API and
 universal-update compatibility are intentionally excluded. The v2 formats
 remain versioned so a compatibility policy can be frozen before v2 stable.

@@ -18,16 +18,16 @@ def _notice(message='', error=False):
         html_escape(message) + '</p>'
     )
 
-def render_login_page(username='admin', error=''):
+def render_login_page(username='', error=''):
     body = (
         '<section class="auth-card card"><span class="eyebrow">Secure device portal</span>'
         '<h1>Welcome back</h1><p class="lead">Sign in to manage this HAMD device.</p>' +
         _notice(error, True) +
         '<form id="login-form" action="/login" method="post">'
         '<label class="field">Username<input name="username" autocomplete="username" value="' +
-        html_escape(username) + '" required maxlength="64"></label>'
+        html_escape(username) + '" required maxlength="64" autofocus></label>'
         '<label class="field">Password<input name="password" type="password" '
-        'autocomplete="current-password" required maxlength="256" autofocus></label>'
+        'autocomplete="current-password" required maxlength="256"></label>'
         '<button id="login-button" type="submit">Sign in</button>'
         '<p id="auth-status" class="muted" role="status"></p></form></section>'
     )
@@ -746,14 +746,16 @@ def render_configuration_backup_page(csrf, message=''):
         '"Validating configuration · "+percent+"% (estimated)";}},700);}function stopValidationProgress(){'
         'if(validationTimer){clearInterval(validationTimer);validationTimer=null;}}'
         'function uploadBackup(url,type,body,label){return new Promise(function(resolve,reject){var x='
-        'new XMLHttpRequest();x.open("POST",url,true);x.setRequestHeader("Content-Type",type);x.setRequestHeader('
+        'new XMLHttpRequest();x.open("POST",url,true);x.timeout=180000;x.setRequestHeader("Content-Type",type);x.setRequestHeader('
         '"X-CSRF-Token",csrf);x.upload.onprogress=function(p){if(p.lengthComputable)label.textContent='
         '"Uploading backup "+Math.round(p.loaded*100/p.total)+"%";};x.upload.onload=function(){'
         'startValidationProgress(label);};x.onload=function(){stopValidationProgress();label.textContent='
         '"Validating configuration · 100%";if(x.status>=200&&x.status<300)resolve(x.responseText);'
         'else reject(new Error(x.responseText||"Configuration validation failed"));};x.onerror=function(){'
         'stopValidationProgress();reject('
-        'new Error("Connection lost during configuration upload"));};x.send(body);});}'
+        'new Error("Connection lost during configuration upload"));};x.ontimeout=function(){'
+        'stopValidationProgress();reject(new Error("Configuration validation timed out after 3 minutes"));};'
+        'x.send(body);});}'
         'encrypt.onchange=toggleExport;encryptedImport.onchange=function(){toggleImport();resetImportPreview();};'
         'importFile.onchange=resetImportPreview;importPassword.oninput=resetImportPreview;toggleExport();toggleImport();'
         'document.getElementById("backup-export").onclick=function(){var out=document.getElementById('

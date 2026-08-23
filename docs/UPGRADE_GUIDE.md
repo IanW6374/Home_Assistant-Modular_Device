@@ -747,13 +747,13 @@ done
 Generate release evidence beside the signed artifacts:
 
 ```sh
-python3 tools/generate_sbom.py --version 2.0.0-alpha.8 \
-  --output releases/hamd-2.0.0-alpha.8.cdx.json
-python3 tools/generate_provenance.py --version 2.0.0-alpha.8 \
-  --output releases/hamd-2.0.0-alpha.8.provenance.json \
-  releases/application-2.0.0-alpha.8.hamd \
-  releases/ham-core-2.0.0-alpha.8.hamf \
-  releases/universal-2.0.0-alpha.8.hamu
+python3 tools/generate_sbom.py --version 2.0.0-alpha.9 \
+  --output releases/hamd-2.0.0-alpha.9.cdx.json
+python3 tools/generate_provenance.py --version 2.0.0-alpha.9 \
+  --output releases/hamd-2.0.0-alpha.9.provenance.json \
+  releases/application-2.0.0-alpha.9.hamd \
+  releases/ham-core-2.0.0-alpha.9.hamf \
+  releases/universal-2.0.0-alpha.9.hamu
 ```
 
 Run `tools/hil_qualify.py` with the enrolled fleet mTLS identity to record the

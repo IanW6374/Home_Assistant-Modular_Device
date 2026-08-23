@@ -38,14 +38,23 @@ def display_release_version(value):
 def staged_version_text(status):
     application = str(status.get('update_version', '') or '')
     firmware = display_release_version(status.get('firmware_update_version', ''))
+    universal = str(status.get('universal_update_version', '') or '')
     application_ready = status.get('update_status') == 'ready' and application
     firmware_ready = status.get('firmware_update_status') == 'ready' and firmware
+    universal_ready = (
+        status.get('universal_update_status') == 'ready' and universal
+    )
+    if universal_ready:
+        return 'Universal — ' + universal
     if application_ready and firmware_ready:
-        return 'App ' + application + ' / Firmware ' + firmware
+        return (
+            'Application — ' + application +
+            ' / Core firmware — ' + firmware
+        )
     if firmware_ready:
-        return firmware
+        return 'Core firmware — ' + firmware
     if application_ready:
-        return application
+        return 'Application — ' + application
     return 'Not staged'
 
 def combined_update_status_text(status):
@@ -203,8 +212,10 @@ def render_modules_parts(modules, token):
     parts.append('</div></section>')
     return parts
 
-def render_modules_html(modules, token):
-    return ''.join(render_modules_parts(modules, token))
+def render_modules_html(modules, token, role='administrator'):
+    return portal_ui.restrict_actions(
+        ''.join(render_modules_parts(modules, token)), role
+    )
 
 def render_live_sections_parts(status, modules, token):
     parts = ['<div id="live-sections">', render_status_html(status or {})]
@@ -212,8 +223,10 @@ def render_live_sections_parts(status, modules, token):
     parts.append('</div>')
     return parts
 
-def render_live_sections_html(status, modules, token):
-    return ''.join(render_live_sections_parts(status, modules, token))
+def render_live_sections_html(status, modules, token, role='administrator'):
+    return portal_ui.restrict_actions(
+        ''.join(render_live_sections_parts(status, modules, token)), role
+    )
 
 def render_update_summary_html(status):
     status = status or {}
@@ -539,14 +552,15 @@ def render_logging_settings_page(token, settings, message='', error=False):
     )
     return portal_ui.shell('HAMD logging settings', 'logging_settings', body, token)
 
-def render_module_diagnostics_page(token, modules, value_refresh_ms=5000):
+def render_module_diagnostics_page(token, modules, value_refresh_ms=5000,
+                                   role='administrator'):
     body = (
         portal_ui.page_heading(
             'Module', 'Diagnostics',
             'Review live values, health information and controls for loaded modules.'
         ) +
         '<div id="module-diagnostics">' +
-        render_modules_html(modules or [], token) + '</div>'
+        render_modules_html(modules or [], token, role) + '</div>'
         '<div class="actions"><span></span><a class="button secondary" '
         'href="/download-diagnostics">Download diagnostics</a></div>'
     )

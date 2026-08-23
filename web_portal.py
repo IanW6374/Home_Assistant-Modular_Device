@@ -40,6 +40,26 @@ from portal_settings_views import *
 from portal_live_views import *
 from portal_presenters import *
 
+
+def parse_portal_body(route, headers, body):
+    """Parse a small form body without duplicating JSON upload payloads."""
+    content_type = str(headers.get('content-type', '')).split(';', 1)[0].strip()
+    if content_type == 'application/json':
+        if route == '/validate-configuration':
+            try:
+                return {'config_json': body.decode()}
+            except Exception:
+                return {'config_json': ''}
+        # Backup and API JSON endpoints consume ``body`` directly. Treating a
+        # large JSON document as a query string retains another full copy on
+        # memory-constrained devices and can stall encrypted restore preview.
+        return {}
+    try:
+        encoded = body.decode()
+    except Exception:
+        encoded = ''
+    return parse_query('?' + encoded) if encoded else {}
+
 async def start_web_portal(portal):
     """Start the portal transport from one explicit application contract."""
     if asyncio is None:
@@ -115,14 +135,14 @@ async def start_web_portal(portal):
     secure_cookie = settings.get('https', False)
     login_url = settings.get('login_url', '/login')
 
-    async def send_response(writer, status, body, content_type='text/html; charset=utf-8', extra_headers=None):
+    async def send_raw_response(writer, status, body, content_type='text/html; charset=utf-8', extra_headers=None):
         await write_buffered_response(writer, status, body, content_type, extra_headers)
 
     async def send_redirect(writer, location, extra_headers=None):
         headers = [('Location', location)]
         if extra_headers:
             headers.extend(extra_headers)
-        await send_response(
+        await send_raw_response(
             writer,
             '303 See Other',
             'Redirecting',
@@ -165,6 +185,19 @@ async def start_web_portal(portal):
         progress_id = ''
         progress_record = upload_progress
         peer_address = request_peer_address(reader, writer)
+        session_role = ''
+        session_username = ''
+
+        async def send_response(writer, status, body,
+                                content_type='text/html; charset=utf-8',
+                                extra_headers=None):
+            if content_type.startswith('text/html') and session_username:
+                body = portal_ui.personalise_page(
+                    body, session_username, session_role
+                )
+            await send_raw_response(
+                writer, status, body, content_type, extra_headers
+            )
 
         async def report_upload_progress(phase, completed=0, total=0):
             nonlocal progress_response_started, progress_percent, progress_phase
@@ -317,14 +350,7 @@ async def start_web_portal(portal):
                     )
                     if length else b''
                 )
-                try:
-                    encoded = body.decode()
-                except Exception:
-                    encoded = ''
-                if is_json_validation:
-                    form_params = {'config_json': encoded}
-                elif encoded:
-                    form_params = parse_query('?' + encoded)
+                form_params = parse_portal_body(route, headers, body)
                 form_csrf = form_params.get('csrf', '')
                 header_csrf = headers.get('x-csrf-token', '')
                 csrf_error = False if is_login else (
@@ -376,7 +402,7 @@ async def start_web_portal(portal):
                         '/user' if password_change_required else '/'
                     )
                 else:
-                    await send_response(writer, '200 OK', render_login_page(username))
+                    await send_response(writer, '200 OK', render_login_page())
             elif is_login and method == 'POST':
                 params = form_params
                 identity = (
@@ -433,11 +459,14 @@ async def start_web_portal(portal):
                     await asyncio.sleep(min(2, login_failures * 0.25))
                     await send_response(
                         writer, '401 Unauthorized',
-                        render_login_page(username, 'Invalid username or password.')
+                        render_login_page(
+                            params.get('username', ''),
+                            'Invalid username or password.'
+                        )
                     )
             elif not session_valid:
                 await send_response(
-                    writer, '401 Unauthorized', render_login_page(username)
+                    writer, '401 Unauthorized', render_login_page()
                 )
             elif csrf_error:
                 await send_response(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
@@ -755,7 +784,8 @@ async def start_web_portal(portal):
                     render_module_diagnostics_page(
                         csrf_token,
                         module_getter() if module_getter else [],
-                        value_refresh_ms or 5000
+                        value_refresh_ms or 5000,
+                        session_role
                     )
                 )
             elif method == 'GET' and is_logging:
@@ -1198,7 +1228,8 @@ async def start_web_portal(portal):
             elif path.startswith('/api/module-diagnostics'):
                 body = json.dumps({
                     'modules': render_modules_html(
-                        module_getter() if module_getter else [], csrf_token
+                        module_getter() if module_getter else [], csrf_token,
+                        session_role
                     )
                 })
                 await send_response(writer, '200 OK', body, 'application/json')
@@ -1208,11 +1239,15 @@ async def start_web_portal(portal):
                     'live_sections': render_live_sections_html(
                         current_status,
                         module_getter() if module_getter else [],
-                        csrf_token
+                        csrf_token,
+                        session_role
                     ),
                     'update_summary': render_update_summary_html(current_status),
-                    'update_actions': render_update_actions_html(
-                        current_status, csrf_token
+                    'update_actions': portal_ui.restrict_actions(
+                        render_update_actions_html(
+                            current_status, csrf_token
+                        ),
+                        session_role
                     )
                 }
                 body = json.dumps(payload)

@@ -3,6 +3,32 @@
 All notable user-visible changes are recorded here. This project follows
 Semantic Versioning for product release labels.
 
+## [2.0.0-alpha.9] - 2026-08-23
+
+### Added
+
+- Added a signed-in user and role badge to the portal banner.
+- Added role-aware disabled states for portal forms, action links and dynamic
+  module controls.
+
+### Changed
+
+- Identified staged upgrades as application, core firmware or universal when
+  the components share the same product version.
+- Left the login username empty by default while retaining a submitted name
+  after an unsuccessful sign-in attempt.
+
+### Fixed
+
+- Allowed viewer sessions to sign out while retaining server-side protection
+  for all other restricted POST actions.
+- Prevented viewer module calibration and debug controls from navigating to a
+  plain-text authorization response.
+- Avoided parsing large JSON configuration backups as URL-encoded forms,
+  reducing peak memory use during restore preview.
+- Added a bounded configuration-validation timeout instead of leaving the
+  browser indefinitely at an estimated 95 percent.
+
 ## [2.0.0-alpha.8] - 2026-08-23
 
 ### Changed

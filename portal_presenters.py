@@ -8,7 +8,7 @@ FRIENDLY_LABELS = {
     'mqtt': 'MQTT status', 'config': 'Configuration',
     'loglevel': 'Log level', 'uptime_s': 'Uptime (s)',
     'discovery_count': 'HA discovery count',
-    'update_status': 'Update status', 'update_version': 'Staged version',
+    'update_status': 'Update status', 'update_version': 'Staged update',
     'running_version': 'Application version',
     'base_version': 'MicroPython version', 'platform': 'Platform',
     'runtime_version': 'MicroPython version',

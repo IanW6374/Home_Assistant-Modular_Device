@@ -5,6 +5,7 @@ overwriting the recovery-owned ``portal_ui.py`` frozen into core firmware.
 """
 
 import component_versions
+from portal_routes import required_role, role_allows
 
 
 ASSET_VERSION = str(component_versions.RUNTIME_VERSION)
@@ -29,6 +30,10 @@ PORTAL_CSS = (
     'font-size:.68rem;font-weight:850;letter-spacing:.04em;background:linear-gradient('
     '145deg,var(--accent),var(--accent2))}.brand-copy{min-width:0}.brand-copy>.eyebrow{display:none}'
     '.brand-title{display:block;font-weight:800;white-space:nowrap}.nav-toggle{display:none}'
+    '.portal-identity{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;'
+    'padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--bg);'
+    'color:var(--ink);font-size:.76rem;font-weight:750}.portal-identity-role{color:var(--muted);'
+    'font-size:.68rem;text-transform:capitalize}.portal-identity-separator{color:#a3b0b5}'
     '.nav-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:wrap}'
     '.nav-link{display:inline-flex;align-items:center;padding:7px 10px;border-radius:8px;'
     'color:var(--muted);font-size:.9rem;font-weight:650}.nav-link:hover,.nav-link[aria-current="page"]{'
@@ -84,6 +89,8 @@ PORTAL_CSS = (
     '.compact,button.compact{padding:7px 10px;font-size:.82rem}.danger,button.danger{'
     'background:var(--bad);border-color:var(--bad);color:#fff}button:disabled{cursor:not-allowed;'
     'border-color:#d3dde1;background:#e7ecee;color:#7b8a91;opacity:1}'
+    '.button[aria-disabled="true"],.nav-link[aria-disabled="true"]{cursor:not-allowed;'
+    'pointer-events:none;border-color:#d3dde1;background:#e7ecee;color:#7b8a91;opacity:1}'
     '.check{display:flex;align-items:center;gap:9px;font-weight:550;margin:9px 0}'
     '.check input{width:1rem;height:1rem;box-shadow:none}.notice,.error,.warning{'
     'border-radius:10px;padding:12px 15px;margin:17px 0;border:1px solid var(--line);'
@@ -301,8 +308,128 @@ def brand():
     return (
         '<div class="brand"><span class="brand-mark">HA</span><span class="brand-copy">'
         '<span class="eyebrow">HAMD</span><span class="brand-title">'
-        'Home Assistant Modular Device</span></span></div>'
+        'Home Assistant Modular Device</span></span></div><!--portal-identity-->'
     )
+
+
+def identity_badge(username, role):
+    """Render the authenticated identity without trusting either value."""
+    if not username:
+        return ''
+    return (
+        '<div class="portal-identity" aria-label="Signed in as ' +
+        escape(username) + ', ' + escape(role) + '"><span>' +
+        escape(username) + '</span><span class="portal-identity-separator" '
+        'aria-hidden="true">·</span><span class="portal-identity-role">' +
+        escape(role) + '</span></div>'
+    )
+
+
+def _attribute(tag, name):
+    """Return a quoted HTML attribute from a trusted renderer tag."""
+    marker = str(name) + '='
+    offset = tag.find(marker)
+    if offset < 0:
+        return ''
+    offset += len(marker)
+    if offset >= len(tag) or tag[offset] not in ('"', "'"):
+        return ''
+    quote = tag[offset]
+    end = tag.find(quote, offset + 1)
+    return '' if end < 0 else tag[offset + 1:end]
+
+
+def _disable_controls(fragment, required):
+    explanation = 'Requires ' + str(required).capitalize() + ' privileges'
+    for element in ('button', 'input', 'select', 'textarea'):
+        marker = '<' + element
+        offset = 0
+        while True:
+            offset = fragment.find(marker, offset)
+            if offset < 0:
+                break
+            end = fragment.find('>', offset)
+            if end < 0:
+                break
+            tag = fragment[offset:end + 1]
+            if ' disabled' not in tag:
+                tooltip = (
+                    '' if ' title=' in tag else
+                    ' title="' + escape(explanation) + '"'
+                )
+                replacement = (
+                    tag[:-1] + ' disabled aria-disabled="true"' + tooltip + '>'
+                )
+                fragment = fragment[:offset] + replacement + fragment[end + 1:]
+                offset += len(replacement)
+            else:
+                offset = end + 1
+    return fragment
+
+
+def restrict_actions(page, role):
+    """Disable rendered actions that the current portal role cannot perform."""
+    page = str(page)
+    if str(role) == 'administrator':
+        return page
+    offset = 0
+    while True:
+        start = page.find('<form', offset)
+        if start < 0:
+            break
+        tag_end = page.find('>', start)
+        form_end = page.find('</form>', tag_end)
+        if tag_end < 0 or form_end < 0:
+            break
+        tag = page[start:tag_end + 1]
+        action = _attribute(tag, 'action')
+        required = required_role('POST', action)
+        if action and not role_allows(role, required):
+            inner = _disable_controls(page[tag_end + 1:form_end], required)
+            page = page[:tag_end + 1] + inner + page[form_end:]
+            form_end = tag_end + 1 + len(inner)
+        offset = form_end + len('</form>')
+
+    # Button-styled links and menu entries are actions too. Removing href keeps
+    # keyboard and pointer users from reaching a plain-text authorization page.
+    offset = 0
+    while True:
+        start = page.find('<a ', offset)
+        if start < 0:
+            break
+        end = page.find('>', start)
+        if end < 0:
+            break
+        tag = page[start:end + 1]
+        href = _attribute(tag, 'href')
+        required = required_role('GET', href)
+        if href.startswith('/') and not role_allows(role, required):
+            href_token = ' href="' + href + '"'
+            replacement = tag.replace(href_token, '', 1)
+            if replacement == tag:
+                href_token = " href='" + href + "'"
+                replacement = tag.replace(href_token, '', 1)
+            tooltip = (
+                '' if ' title=' in replacement else
+                ' title="Requires ' + escape(str(required).capitalize()) +
+                ' privileges"'
+            )
+            replacement = replacement[:-1] + (
+                ' aria-disabled="true"' + tooltip + '>'
+            )
+            page = page[:start] + replacement + page[end + 1:]
+            offset = start + len(replacement)
+        else:
+            offset = end + 1
+    return page
+
+
+def personalise_page(page, username, role):
+    """Add request-local identity and permission presentation to portal HTML."""
+    page = str(page).replace(
+        '<!--portal-identity-->', identity_badge(username, role), 1
+    )
+    return restrict_actions(page, role)
 
 
 def navigation(active, csrf):

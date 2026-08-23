@@ -80,6 +80,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Uploading backup ', backup)
         self.assertIn('Validating configuration · "+percent+"% (estimated)', backup)
         self.assertIn('Validating configuration · 100%', backup)
+        self.assertIn('x.timeout=180000', backup)
+        self.assertIn('Configuration validation timed out after 3 minutes', backup)
         self.assertIn('id="configuration-preview-panel" hidden', backup)
         self.assertIn('diffRows=p.changes||[]', backup)
         self.assertIn('label.textContent="Preview ready"', backup)
@@ -235,6 +237,41 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('value="portal-admin"', html)
         self.assertIn('Invalid username or password.', html)
         self.assertIn('Signing in…', html)
+
+    def test_login_page_does_not_prepopulate_administrator_username(self):
+        html = render_login_page()
+
+        self.assertIn('name="username" autocomplete="username" value=""', html)
+        self.assertNotIn('value="admin"', html)
+        self.assertIn('maxlength="64" autofocus', html)
+        password = html.split('name="password"', 1)[1].split('</label>', 1)[0]
+        self.assertNotIn('autofocus', password)
+
+    def test_json_backup_body_is_not_parsed_as_a_form(self):
+        body = b'{"ciphertext":"a+b%2Fc","nested":{"value":"x=y&z"}}'
+
+        self.assertEqual(
+            web_portal.parse_portal_body(
+                '/secure-configuration-import-preview',
+                {'content-type': 'application/json; charset=utf-8'}, body
+            ),
+            {}
+        )
+        self.assertEqual(
+            web_portal.parse_portal_body(
+                '/validate-configuration',
+                {'content-type': 'application/json'}, body
+            ),
+            {'config_json': body.decode()}
+        )
+        self.assertEqual(
+            web_portal.parse_portal_body(
+                '/calibrate',
+                {'content-type': 'application/x-www-form-urlencoded'},
+                b'csrf=token&uuid=0001'
+            ),
+            {'csrf': 'token', 'uuid': '0001'}
+        )
 
     def test_portal_pages_share_the_same_visual_identity(self):
         pages = (
@@ -779,6 +816,10 @@ class WebPortalTests(unittest.TestCase):
                 unauthorized = await request(b'GET / HTTP/1.1\r\n\r\n')
                 self.assertIn('401 Unauthorized', unauthorized)
                 self.assertIn('name="password" type="password"', unauthorized)
+                self.assertIn(
+                    'name="username" autocomplete="username" value=""',
+                    unauthorized
+                )
 
                 body = b'username=admin&password=Correct-Cedar-47%21River'
                 login = await request(
@@ -855,6 +896,9 @@ class WebPortalTests(unittest.TestCase):
                 )
                 self.assertIn('200 OK', authorized)
                 self.assertIn('Sign out', authorized)
+                self.assertIn(
+                    'aria-label="Signed in as admin, administrator"', authorized
+                )
                 self.assertIn('Controller', authorized)
                 self.assertIn('<h1>Overview</h1>', authorized)
                 self.assertNotIn('initial portal log', authorized)
@@ -1096,6 +1140,75 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('Factory reset armed', reset_response)
                 self.assertIn('Max-Age=0', reset_response)
                 self.assertEqual(factory_resets, ['Setup-Maple-53!Harbour'])
+
+                async def viewer_authenticator(login_username, login_password):
+                    if (
+                        login_username == 'viewer' and
+                        login_password == 'Viewer-Cedar-47!River'
+                    ):
+                        return {'username': 'viewer', 'role': 'viewer'}
+                    return None
+
+                await web_portal.start_web_portal(PortalDependencies(
+                    {
+                        'username': 'admin', 'authenticator': viewer_authenticator,
+                        'https': True, 'password_change_required': False,
+                    },
+                    {
+                        'logs.get': lambda: [],
+                        'logs.level.get': lambda: 'INFO',
+                        'logs.level.set': lambda level: None,
+                        'events.log': lambda *args: None,
+                        'status.get': lambda: {'device_name': 'Controller'},
+                        'modules.list': lambda: [{
+                            'uuid': '0001', 'name': 'AC voltage',
+                            'type': 'Grove-AC-Voltage', 'state': {},
+                            'diagnostics': {'module_last_ok': True},
+                            'calibratable': True,
+                        }],
+                        'actions.apply': handle_action,
+                    }
+                ))
+                viewer_body = (
+                    b'username=viewer&password=Viewer-Cedar-47%21River'
+                )
+                viewer_login = await request(
+                    b'POST /login HTTP/1.1\r\nContent-Length: ' +
+                    str(len(viewer_body)).encode() + b'\r\n\r\n' + viewer_body
+                )
+                viewer_session = next(
+                    line for line in viewer_login.split('\r\n')
+                    if line.startswith('Set-Cookie: ham_session=')
+                ).split('ham_session=', 1)[1].split(';', 1)[0]
+                viewer_page = await request(
+                    ('GET /diagnostics HTTP/1.1\r\nCookie: ham_session=' +
+                     viewer_session + '\r\n\r\n').encode()
+                )
+                self.assertIn(
+                    'aria-label="Signed in as viewer, viewer"', viewer_page
+                )
+                viewer_logout_form = viewer_page.split(
+                    'action="/logout"', 1
+                )[1].split('</form>', 1)[0]
+                self.assertNotIn('disabled', viewer_logout_form)
+                viewer_csrf = viewer_logout_form.split(
+                    'name="csrf" value="', 1
+                )[1].split('"', 1)[0]
+                viewer_logout_body = ('csrf=' + viewer_csrf).encode()
+                viewer_logout = await request(
+                    ('POST /logout HTTP/1.1\r\nCookie: ham_session=' +
+                     viewer_session + '\r\nContent-Length: ' +
+                     str(len(viewer_logout_body)) + '\r\n\r\n').encode() +
+                    viewer_logout_body
+                )
+                self.assertIn('303 See Other', viewer_logout)
+                self.assertIn('Location: /login', viewer_logout)
+                self.assertIn('Max-Age=0', viewer_logout)
+                viewer_expired = await request(
+                    ('GET /diagnostics HTTP/1.1\r\nCookie: ham_session=' +
+                     viewer_session + '\r\n\r\n').encode()
+                )
+                self.assertIn('401 Unauthorized', viewer_expired)
             finally:
                 web_portal.asyncio.start_server = original_start_server
                 web_portal.make_tls_context = original_tls
@@ -1317,6 +1430,56 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('name="enabled" value="false"', html)
         self.assertIn('Disable debug frames', html)
         self.assertNotIn('Enable debug frames', html)
+
+    def test_viewer_module_actions_are_visible_but_disabled(self):
+        html = web_portal.render_modules_html([{
+            'uuid': '0001',
+            'name': 'AC voltage',
+            'type': 'Grove-AC-Voltage',
+            'state': {},
+            'diagnostics': {'module_last_ok': True},
+            'calibratable': True,
+            'debug_frames': False,
+        }], 'csrf', 'viewer')
+
+        self.assertIn('action="/calibrate"', html)
+        self.assertIn('action="/ems-debug"', html)
+        self.assertEqual(html.count('disabled aria-disabled="true"'), 8)
+        self.assertIn('<button type="submit" title="Calculate a new in-memory calibration multiplier for this module." disabled aria-disabled="true"', html)
+
+    def test_operator_module_actions_remain_enabled(self):
+        html = web_portal.render_modules_html([{
+            'uuid': '0001', 'name': 'AC voltage',
+            'type': 'Grove-AC-Voltage', 'state': {},
+            'diagnostics': {}, 'calibratable': True,
+        }], 'csrf', 'operator')
+
+        calibration = html.split('action="/calibrate"', 1)[1].split(
+            '</form>', 1
+        )[0]
+        self.assertNotIn('disabled', calibration)
+
+    def test_personalised_page_shows_identity_and_restricts_actions(self):
+        html = portal_ui.shell(
+            'Test', 'module_diagnostics',
+            '<form action="/calibrate" method="post"><button>Calibrate</button></form>'
+            '<a class="button" href="/download-diagnostics">Download</a>',
+            'csrf'
+        )
+        personalised = portal_ui.personalise_page(
+            html, 'viewer&lt;unsafe', 'viewer'
+        )
+
+        self.assertIn('viewer&amp;lt;unsafe', personalised)
+        self.assertIn('portal-identity-role">viewer</span>', personalised)
+        self.assertIn('<button disabled aria-disabled="true"', personalised)
+        self.assertIn('>Download</a>', personalised)
+        self.assertNotIn('href="/download-diagnostics"', personalised)
+        self.assertIn('action="/logout"', personalised)
+        logout = personalised.split('action="/logout"', 1)[1].split(
+            '</form>', 1
+        )[0]
+        self.assertNotIn('disabled', logout)
 
     def test_render_page_has_auto_refresh_and_scrollable_logs(self):
         status = {
@@ -1549,7 +1712,9 @@ class WebPortalTests(unittest.TestCase):
         self.assertNotIn('Base firmware update', staged_html)
         self.assertNotIn('id="firmware-upload-form"', staged_html)
         self.assertIn('Activate firmware and reboot', staged_html)
-        self.assertIn('App 1.1 / Firmware mp-1.28.0', staged_html)
+        self.assertIn(
+            'Application — 1.1 / Core firmware — mp-1.28.0', staged_html
+        )
         self.assertIn('<span>OTA firmware availability</span>', staged_html)
         self.assertIn('class="update-summary"', staged_html)
         self.assertIn('metric ota-availability good', staged_html)
@@ -1559,7 +1724,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn("isFirmware?'/firmware-upload':'/update-upload'", staged_html)
         app_position = staged_html.index('<span>App version</span>')
         base_position = staged_html.index('<span>MicroPython version</span>')
-        staged_position = staged_html.index('<span>Staged version</span>')
+        staged_position = staged_html.index('<span>Staged update</span>')
         status_position = staged_html.index('<span>Update status</span>')
         software_position = staged_html.index('<h2>Software update</h2>')
         self.assertLess(app_position, base_position)
@@ -1574,7 +1739,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('.metric.version-app{grid-column:5;grid-row:2}', staged_html)
         self.assertIn('.metric.version-base{grid-column:6;grid-row:2}', staged_html)
         status_panel = staged_html.split('<h2>Status</h2>', 1)[1].split('</section>', 1)[0]
-        self.assertNotIn('Staged version', status_panel)
+        self.assertNotIn('Staged update', status_panel)
         self.assertNotIn('Update status', status_panel)
         self.assertNotIn('OTA firmware availability', status_panel)
 
@@ -1591,7 +1756,7 @@ class WebPortalTests(unittest.TestCase):
             }, [], '', 12000
         )
         self.assertIn(
-            '<span>Staged version</span><strong title="micropython-1.28.0">micropython-1.28.0</strong>',
+            '<span>Staged update</span><strong title="Core firmware — micropython-1.28.0">Core firmware — micropython-1.28.0</strong>',
             firmware_only_html
         )
         self.assertIn(
@@ -1610,6 +1775,26 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('<span>Last automatic check</span>', idle_html)
         self.assertIn('No newer release — 2026-07-22 05:17:26', idle_html)
         self.assertIn('metric release-check good', idle_html)
+        application_only_html = web_portal.render_update_summary_html({
+            'update_status': 'ready',
+            'update_version': '2.0.0-alpha.8',
+            'firmware_update_status': 'idle',
+        })
+        self.assertIn(
+            'Application — 2.0.0-alpha.8', application_only_html
+        )
+        universal_html = web_portal.render_update_summary_html({
+            'update_status': 'ready',
+            'update_version': '2.0.0-alpha.8',
+            'firmware_update_status': 'ready',
+            'firmware_update_version': 'ham-core-2.0.0-alpha.8-mpy1.28.0',
+            'universal_update_status': 'ready',
+            'universal_update_version': '2.0.0-alpha.8',
+        })
+        self.assertIn('Universal — 2.0.0-alpha.8', universal_html)
+        self.assertNotIn(
+            'Application — 2.0.0-alpha.8 / Core firmware', universal_html
+        )
         self.assertIn('refresh paused', html)
         self.assertIn('id="refresh-toggle"', html)
         self.assertIn('id="log-refresh-toggle"', html)

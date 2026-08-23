@@ -3,12 +3,18 @@
 
 ROLE_LEVELS = {'viewer': 10, 'operator': 20, 'administrator': 30}
 
+# These session actions must remain available to every authenticated role.
+# Other routes whose base permission is ``viewer`` are deliberately promoted
+# to administrator for POST requests so that read-only pages stay read-only.
+VIEWER_POST_ROUTES = ('/logout',)
+
 ROUTES = {
     '/': ('viewer', 'status'),
     '/partials': ('viewer', 'status'),
     '/diagnostics': ('viewer', 'modules'),
     '/logging': ('viewer', 'maintenance'),
     '/logs': ('viewer', 'maintenance'),
+    '/logout': ('viewer', 'session'),
     '/health-history': ('viewer', 'maintenance'),
     '/task-status': ('viewer', 'operations'),
     '/update-progress': ('viewer', 'operations'),
@@ -74,6 +80,8 @@ def role_allows(role, required):
 
 def required_role(method, route):
     route = str(route).split('?', 1)[0]
+    if str(method).upper() == 'POST' and route in VIEWER_POST_ROUTES:
+        return 'viewer'
     metadata = ROUTES.get(route)
     if metadata is None:
         return 'administrator'
