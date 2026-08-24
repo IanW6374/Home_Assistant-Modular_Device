@@ -1,35 +1,28 @@
 # Security policy
 
-## Supported versions
+## Supported version
 
-Security fixes are provided for the current stable release. Release candidates
-and development snapshots are supported only while they remain the active test
-line. Older releases should be upgraded before a report is investigated.
+Security fixes are provided for the latest v2 production release. Upgrade an
+older device before requesting investigation unless the upgrade itself is the
+reported issue.
 
-## Reporting a vulnerability
+## Reporting
 
-Do not disclose a suspected vulnerability in a public issue, discussion, log,
-diagnostic archive, or support bundle. Use this repository's private GitHub
-security-advisory reporting facility when available. Otherwise contact the
-repository owner privately and request a secure reporting channel.
+Use this repository's private GitHub Security Advisory facility. Do not place
+vulnerabilities, credentials, certificates, private keys, diagnostics or
+unredacted logs in a public issue.
 
-Include the affected version and hardware, the minimum reproduction steps,
-expected impact, and whether update-signing, Secure Boot, flash encryption,
-portal authentication, API mutual TLS, certificate material, or recovery mode
-is involved. Remove passwords, private keys, certificates containing private
-identifiers, and live network addresses.
+Include the affected version and hardware, minimum reproduction steps, impact
+and whether the issue involves signing, Secure Boot, flash encryption, portal
+authentication, API mutual TLS or recovery.
 
-The maintainer will acknowledge a report, assess severity and affected
-versions, coordinate a fix and release, and credit the reporter if requested.
-Please allow a reasonable remediation period before coordinated disclosure.
+## Operator responsibilities
 
-## Operational security
+- Keep release-signing and Secure Boot private keys offline and backed up.
+- Use HTTPS and mutual TLS; HTTP is for isolated recovery scenarios only.
+- Treat encrypted complete backups as sensitive key material.
+- Never publish setup passwords, credentials, factory images or private keys.
+- Do not bypass signature, anti-rollback, clean-tree or secure-build checks.
 
-- Keep update-signing and Secure Boot private keys offline and backed up.
-- Use HTTPS and mutual TLS; explicit HTTP mode is for isolated trusted networks.
-- Treat encrypted complete backups as sensitive even though they are
-  password-protected.
-- Do not publish factory setup passwords, device credentials, private keys,
-  diagnostics, or unredacted logs.
-- Never bypass signature, anti-rollback, clean-tree, dependency-pin, or secure
-  firmware-build checks for a production release.
+See [security operations](docs/SECURITY_OPERATIONS.md) for rotation and incident
+response.

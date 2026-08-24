@@ -1,114 +1,60 @@
 # HAMD v2 architecture
 
-HAMD v2 is a clean-seed platform. New devices are provisioned from a complete
-signed image; runtime compatibility with v1 application layouts and state files
-is not an architectural requirement.
-
-## Dependency direction
+HAMD v2 is a clean-seed ESP32-S3 platform. Dependencies point inward:
 
 ```text
-immutable platform -> application domain <- application services <- transports
+frozen platform -> application domain <- services <- portal/API/MQTT/display
                                                ^
                                                |
-                                      runtime composition root
-
-external fleet service -> versioned mTLS device API -> application services
+                                      runtime composition
 ```
 
-Dependencies point inward. Portal, API, MQTT, display, and fleet transports do
-not manipulate hardware, update files, credentials, or health persistence
-directly. They call application services assembled by the composition root.
+## Frozen platform
 
-## Immutable platform
+The signed core owns boot supervision, watchdog recovery, Secure Boot, flash
+encryption, credential storage, TLS primitives, update verification, OTA
+partitions and first-run setup. It can recover a device when the replaceable
+application is absent or unhealthy.
 
-The frozen core owns boot supervision, watchdog recovery, Secure Boot and flash
-encryption integration, encrypted credential storage, trust roots, TLS
-primitives, signed update verification, OTA partitions, and first-run setup.
-It must remain able to recover a device when the replaceable application is
-missing or unhealthy.
+The production build is Wi-Fi-only and CI rejects excessive core-slot use.
 
-The immutable platform may depend on ESP-IDF/MicroPython facilities but never on
-portal pages, Home Assistant discovery, fleet presentation, or a particular
-device driver.
+## Application and services
 
-The shipping ESP32-S3 profile is Wi-Fi-only. Bluetooth/NimBLE, PPP and SPI
-Ethernet are excluded, the native build is size-optimised, and CI rejects a
-core image at 85% OTA-slot occupancy. This keeps the dual 2 MiB core slots and
-3.875 MiB encrypted application filesystem balanced without relying on a
-partition change. Repartitioning remains a clean-seed factory operation and is
-considered only if the minimal core cannot remain below that budget.
+The application domain owns module contracts, resource allocation, state,
+commands, diagnostics, events and configuration semantics. Services expose
+these use cases without depending on HTTP, MQTT or display transports.
 
-## Application domain
+Drivers declare GPIO, ADC, UART, SPI and chip-select requirements before setup.
+Exclusive resources cannot have multiple owners; shared buses must use
+compatible electrical configuration.
 
-The application domain owns versioned module contracts, resource allocation,
-commands, state, diagnostics, structured events, configuration semantics, and
-update transaction states. Domain code is transport-neutral and bounded for
-ESP32-S3 memory and flash constraints.
+`ApplicationContext` is the runtime service registry. Its supervisor owns
+background tasks and routes critical failures into device health.
 
-Module drivers declare hardware resources before setup. Exclusive resources
-such as GPIO, ADC channels, UARTs, and chip-select pins cannot have multiple
-owners. Shared buses are accepted only when their electrical configuration is
-identical.
+## Transports
 
-## Application services
+The portal, Device API, MQTT and local display consume application services.
+The portal and API retain independent TLS listeners because their identity and
+authorization models differ. Portal routes declare their required role; API v2
+requires mutual TLS and scoped client certificates.
 
-Services expose use cases to all transports:
+## Updates and persistence
 
-- module inventory, state, diagnostics, and commands;
-- network status, scans, and network-trial confirmation;
-- MQTT/Home Assistant publication;
-- structured events, health, audit, and telemetry sinks;
-- update upload, verification, staging, activation, and progress;
-- configuration and certificate administration;
-- fleet policy and bounded remote commands.
-
-The `ApplicationContext` is the only runtime service registry. Background work
-is owned by its task supervisor so failures are observable and critical task
-failures enter the device health boundary.
-
-## Transport adapters
-
-The authenticated portal, mTLS API, MQTT, and local display have independent
-transport policy but share application services. Portal routes are registered
-with an explicit role and controller. Rendering consumes view models and must
-not contain persistence or hardware operations.
-
-The portal and API retain separate TLS listeners because they have different
-identity and authorization models. Their HTTP parsing and response primitives
-may be shared.
-
-## Updates
-
-Every update enters one transaction coordinator:
+All update transports use one transaction model:
 
 ```text
-source -> resumable artifact -> verify -> stage -> activate -> trial
-                                                       |          |
-                                                       +-- rollback/confirm
+upload -> verify -> stage -> activate -> trial -> confirm
+                         |                 |
+                         +------ rollback-+
 ```
 
-Application, firmware, and universal installers remain separate platform
-adapters. Upload sessions, progress, error reporting, cleanup, audit, and
-transaction status are shared. A transport never invokes an installer
-directly.
+Application, core and universal installers are bounded adapters. Structured
+events feed logs, audit, health, update progress, syslog and fleet telemetry.
+Persistent records are versioned, transactional and bounded.
 
-## Events and persistence
+## Verification
 
-Operational logging, audit, health, update progress, syslog, MQTT diagnostics,
-and fleet telemetry begin as structured events. Sinks independently decide
-format and retention. Persistent device repositories use versioned,
-transactional, bounded records; partial writes must be recoverable.
-
-## Fleet service
-
-Fleet management is independently versioned from device firmware. The Home
-Assistant add-on uses SQLite repositories, durable jobs, idempotent commands,
-bounded event retention, and per-device backoff. It never holds the release or
-Secure Boot signing keys; fleet policy uses its own trust domain.
-
-## Verification gates
-
-Changes must pass CPython unit/contract tests, MicroPython compilation and API
-compatibility checks, schema/documentation/accessibility checks, and hardware
-qualification for boot, storage pressure, TLS, interrupted update, watchdog,
-trial confirmation, and rollback paths.
+Production changes must pass host tests, MicroPython compilation, schema,
+documentation, accessibility and architecture checks, secure core builds and
+hardware qualification covering TLS, storage pressure, interrupted updates,
+watchdog recovery, trial confirmation and rollback.

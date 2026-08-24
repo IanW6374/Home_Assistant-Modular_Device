@@ -23,7 +23,7 @@ jobs:
       - run: python tools/check_micropython_compat.py
       - run: python -m unittest discover -s tests -v
       - name: Compile host-only Python
-        run: python -m py_compile tools/*.py tests/*.py home_assistant_addons/hamd_fleet/rootfs/app/*.py
+        run: python -m py_compile tools/*.py tests/*.py
       - uses: actions/checkout@v4
         with:
           repository: micropython/micropython

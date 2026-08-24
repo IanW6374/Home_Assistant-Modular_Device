@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record the reproducible one-device v2 alpha hardware qualification."""
+"""Record the reproducible HAMD v2 hardware qualification."""
 
 import argparse
 import json

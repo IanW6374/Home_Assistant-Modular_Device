@@ -20,7 +20,7 @@ FORBIDDEN_TRANSPORT_IMPORTS = {
 }
 
 # These ceilings prevent the former monoliths from silently growing back.
-# They are deliberately just above the alpha.8 baselines and should only move
+# They are deliberately just above the v2 baselines and should only move
 # down as responsibilities are extracted; increasing one requires an explicit
 # architecture review.
 LINE_LIMITS = {
@@ -120,19 +120,6 @@ def architecture_errors(root=ROOT):
                 relative + ' bypasses application services: ' +
                 ', '.join(sorted(forbidden))
             )
-    fleet_app = (root / 'home_assistant_addons/hamd_fleet/rootfs/app/fleet_app.py')
-    fleet_tree = ast.parse(fleet_app.read_text(), filename=str(fleet_app))
-    forbidden_classes = {
-        node.name for node in fleet_tree.body
-        if isinstance(node, ast.ClassDef) and node.name in (
-            'DeviceClient', 'FleetController', 'FleetRepository', 'PolicySigner'
-        )
-    }
-    if forbidden_classes:
-        errors.append(
-            'fleet_app.py contains service/repository classes: ' +
-            ', '.join(sorted(forbidden_classes))
-        )
     device_api = (root / 'device_api.py').read_text()
     if '/api/v1/' in device_api:
         errors.append('device_api.py exposes the retired v1 namespace')

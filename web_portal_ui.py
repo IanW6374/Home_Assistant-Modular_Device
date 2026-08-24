@@ -30,10 +30,11 @@ PORTAL_CSS = (
     'font-size:.68rem;font-weight:850;letter-spacing:.04em;background:linear-gradient('
     '145deg,var(--accent),var(--accent2))}.brand-copy{min-width:0}.brand-copy>.eyebrow{display:none}'
     '.brand-title{display:block;font-weight:800;white-space:nowrap}.nav-toggle{display:none}'
-    '.portal-identity{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;'
-    'padding:4px 9px;border:1px solid var(--line);border-radius:999px;background:var(--bg);'
-    'color:var(--ink);font-size:.76rem;font-weight:750}.portal-identity-role{color:var(--muted);'
-    'font-size:.68rem;text-transform:capitalize}.portal-identity-separator{color:#a3b0b5}'
+    '.portal-identity{display:inline-grid;place-items:center;position:relative;width:32px;height:32px;'
+    'padding:0;flex:0 0 32px;border:1px solid var(--accent);border-radius:50%;background:var(--bg);'
+    'color:var(--accent2);font-size:.7rem;font-weight:850;letter-spacing:.035em;cursor:help}'
+    '.portal-identity:hover{background:#e2f2f4}.portal-identity:focus-visible{outline:3px solid '
+    'rgba(8,126,139,.22);outline-offset:2px}'
     '.nav-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:wrap}'
     '.nav-link{display:inline-flex;align-items:center;padding:7px 10px;border-radius:8px;'
     'color:var(--muted);font-size:.9rem;font-weight:650}.nav-link:hover,.nav-link[aria-current="page"]{'
@@ -308,7 +309,7 @@ def brand():
     return (
         '<div class="brand"><span class="brand-mark">HA</span><span class="brand-copy">'
         '<span class="eyebrow">HAMD</span><span class="brand-title">'
-        'Home Assistant Modular Device</span></span></div><!--portal-identity-->'
+        'Home Assistant Modular Device</span></span></div>'
     )
 
 
@@ -316,12 +317,29 @@ def identity_badge(username, role):
     """Render the authenticated identity without trusting either value."""
     if not username:
         return ''
+    tokens = []
+    token = ''
+    for character in str(username).strip():
+        if character.isalnum():
+            token += character
+        elif token:
+            tokens.append(token)
+            token = ''
+    if token:
+        tokens.append(token)
+    if len(tokens) > 1:
+        initials = tokens[0][0] + tokens[-1][0]
+    elif tokens:
+        initials = tokens[0][:2]
+    else:
+        initials = '??'
+    role_label = str(role).strip().capitalize() or 'Unknown'
+    description = str(username) + ' · ' + role_label + ' privileges'
     return (
-        '<div class="portal-identity" aria-label="Signed in as ' +
-        escape(username) + ', ' + escape(role) + '"><span>' +
-        escape(username) + '</span><span class="portal-identity-separator" '
-        'aria-hidden="true">·</span><span class="portal-identity-role">' +
-        escape(role) + '</span></div>'
+        '<div class="portal-identity" tabindex="0" aria-label="Signed in as ' +
+        escape(username) + ', ' + escape(role) + '" title="' +
+        escape(description) + '"><span aria-hidden="true">' +
+        escape(initials.upper()) + '</span></div>'
     )
 
 
@@ -459,7 +477,7 @@ def navigation(active, csrf):
         '<button id="nav-toggle" class="nav-toggle secondary compact" type="button" '
         'aria-controls="portal-nav" aria-expanded="false">Menu</button>'
         '<nav id="portal-nav" class="nav-actions" aria-label="Primary">' +
-        ''.join(links) + logout + '</nav>'
+        ''.join(links) + logout + '<!--portal-identity--></nav>'
     )
 
 

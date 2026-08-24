@@ -23,7 +23,7 @@ def build_statement(root, artifacts, version):
     except Exception:
         build_lock = {}
     dependencies = [{
-        'uri': 'git+https://github.com/ianwalton/Home_Assistant-Modular_Device',
+        'uri': 'git+https://github.com/IanW6374/Home_Assistant-Modular_Device',
         'digest': {'gitCommit': revision},
     }]
     for name, uri in (
@@ -42,7 +42,7 @@ def build_statement(root, artifacts, version):
         'predicateType': 'https://slsa.dev/provenance/v1',
         'predicate': {
             'buildDefinition': {
-                'buildType': 'https://hamd.example/build/v2-alpha',
+                'buildType': 'https://hamd.example/build/v2',
                 'externalParameters': {'version': version},
                 'internalParameters': {},
                 'resolvedDependencies': dependencies,

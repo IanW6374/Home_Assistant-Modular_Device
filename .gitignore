@@ -30,6 +30,7 @@ env/
 # Build and packaging output
 build/
 dist/
+/releases/
 *.egg-info/
 
 # Local secrets and device-specific overrides

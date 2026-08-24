@@ -1,56 +1,36 @@
 # HAMD fleet protocol v1
 
-## Transport and identity
+The independently released
+[HAMD Fleet Manager](https://github.com/IanW6374/HAMD-Home-Assistant-Addons)
+uses the device's `/api/v2` endpoints over mandatory mutual TLS.
 
-The Home Assistant add-on connects to `/api/v2` over HTTPS with mandatory
-mutual TLS. A client certificate is enrolled with `fleet:read` and, when
-remote management is wanted, `fleet:write` scopes. Device identity is the
-factory device identifier plus the certificate fingerprint; editable hostnames
-are display attributes only.
+## Identity and inventory
 
-Fleet policies use a dedicated P-256 trust domain. The add-on holds the fleet
-policy private key in protected add-on storage and each managed device holds
-only `.fleet-verification-key`. This key is independent of the offline release
-signing and Secure Boot keys. `tools/generate_fleet_signing_key.py` creates the
-initial pair; the public half is provisioned during device enrolment.
+Fleet clients use dedicated certificates with `fleet:read` and optional
+`fleet:write` scopes. Device identity is the immutable factory identifier plus
+certificate identity; hostnames are display and routing attributes.
 
-## Inventory document
-
-Inventory contains product, application, core and MicroPython versions;
-release sequences; board; capabilities; configured driver metadata; network
-quality; update state; clock quality; and an event cursor. Secrets, private
-keys, password verifiers and Wi-Fi credentials are never returned.
+Inventory reports product, application/core versions, release sequences,
+board, capabilities, drivers, health, clock and update state. It never returns
+credentials, private keys or password verifiers.
 
 ## Signed policy
 
-A policy is accepted only when its ECDSA P-256 signature is valid, its sequence
-is newer than the stored sequence, its device/cohort target matches, and its
-validity period can be evaluated with a synchronised clock.
+Fleet policy has an independent ECDSA P-256 key. The manager stores the private
+key and devices store only the 64-byte public key. A policy binds:
 
-Format 1 fields are:
+- sequence, issue time, validity window, device/cohort and target board;
+- local maintenance days, start time and duration;
+- update channel, download/activation controls and failure threshold;
+- telemetry interval/severity and bounded command identifiers.
 
-- `format_version`, `target_board`, `policy_sequence`, `issued_at`, `not_before`, `expires_at`
-- `target_device`, `target_cohort`
-- `maintenance`: allowed weekdays, local start minute and duration
-- `updates`: channel, automatic download, automatic activation and maximum
-  consecutive failures
-- `telemetry`: enabled, minimum interval and event severities
-- `commands`: bounded requested actions, each with a unique identifier
-- `signature_scheme`, `signature`
+Devices reject invalid signatures, replayed sequences, incorrect targets,
+expired policies, unknown fields and policies requiring an unsynchronised
+clock. Fleet policy can select signed releases but cannot create firmware.
 
-Policies never carry credentials or arbitrary code. Unknown fields are
-rejected in alpha so misspellings cannot silently weaken a control.
+## Events and rollouts
 
-## Rollout model
-
-The add-on assigns a release to ordered cohorts. It advances only after the
-current cohort has remained healthy for its observation interval. A configured
-absolute or percentage failure threshold pauses the rollout. Rollback is a
-separate signed request referencing the release and the last confirmed slot.
-
-## Event synchronisation
-
-Events are fetched using a monotonically increasing cursor. Devices retain a
-bounded local window; the add-on provides longer retention. A cursor gap is
-reported explicitly so absence of records is not confused with absence of
-events.
+Events use a monotonic cursor and explicitly report retention gaps. Rollouts
+advance through ordered cohorts only after required success results and stop at
+their configured failure threshold. Rollback references a previously confirmed
+signed release.

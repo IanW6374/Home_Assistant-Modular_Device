@@ -1471,7 +1471,9 @@ class WebPortalTests(unittest.TestCase):
         )
 
         self.assertIn('viewer&amp;lt;unsafe', personalised)
-        self.assertIn('portal-identity-role">viewer</span>', personalised)
+        self.assertIn('title="viewer&amp;lt;unsafe · Viewer privileges"', personalised)
+        self.assertIn('<span aria-hidden="true">VU</span>', personalised)
+        self.assertIn('class="portal-identity" tabindex="0"', personalised)
         self.assertIn('<button disabled aria-disabled="true"', personalised)
         self.assertIn('>Download</a>', personalised)
         self.assertNotIn('href="/download-diagnostics"', personalised)
@@ -1480,6 +1482,20 @@ class WebPortalTests(unittest.TestCase):
             '</form>', 1
         )[0]
         self.assertNotIn('disabled', logout)
+        self.assertLess(
+            personalised.index('action="/logout"'),
+            personalised.index('class="portal-identity"')
+        )
+        navigation = personalised.split(
+            '<nav id="portal-nav"', 1
+        )[1].split('</nav>', 1)[0]
+        self.assertIn('class="portal-identity"', navigation)
+
+    def test_identity_badge_uses_first_letters_of_username_words(self):
+        badge = portal_ui.identity_badge('Ian Walton', 'administrator')
+
+        self.assertIn('<span aria-hidden="true">IW</span>', badge)
+        self.assertIn('title="Ian Walton · Administrator privileges"', badge)
 
     def test_render_page_has_auto_refresh_and_scrollable_logs(self):
         status = {

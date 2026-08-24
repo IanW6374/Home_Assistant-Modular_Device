@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Structural accessibility checks for rendered portal and add-on HTML."""
+"""Structural accessibility checks for rendered device portal HTML."""
 
 from html.parser import HTMLParser
-from pathlib import Path
-import os
 import sys
-import tempfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -45,29 +43,16 @@ def check(name, html):
         failures.append(name + ': image missing alt text')
     if not audit.viewport:
         failures.append(name + ': viewport metadata missing')
-    # Existing portal pages predate v2 language metadata. Flag it in alpha CI
-    # only after every renderer has migrated, while requiring it for new UI.
-    if name == 'fleet add-on' and not audit.language:
-        failures.append(name + ': document language missing')
     return failures
 
 
 def main():
     import web_portal
-    addon = ROOT / 'home_assistant_addons/hamd_fleet/rootfs/app/fleet_app.py'
-    with tempfile.TemporaryDirectory() as temporary:
-        os.environ['HAMD_FLEET_DATA'] = temporary
-        namespace = {
-            '__name__': 'hamd_fleet_accessibility', '__file__': str(addon)
-        }
-        exec(compile(addon.read_text(), str(addon), 'exec'), namespace)
-        pages = {
-            'portal overview': web_portal.render_page('csrf', 'INFO', ('INFO',), [], 5000),
-            'portal upgrades': web_portal.render_updates_page('csrf'),
-            'portal backup': web_portal.render_configuration_backup_page('csrf'),
-            'fleet add-on': namespace['HTML'],
-        }
-        namespace['STORE'].close()
+    pages = {
+        'portal overview': web_portal.render_page('csrf', 'INFO', ('INFO',), [], 5000),
+        'portal upgrades': web_portal.render_updates_page('csrf'),
+        'portal backup': web_portal.render_configuration_backup_page('csrf'),
+    }
     failures = []
     for name, html in pages.items():
         failures.extend(check(name, html))
