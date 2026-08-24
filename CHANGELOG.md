@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.6 - 2026-08-24
+
+### Changed
+
+- Renamed Maintenance Log viewer to Device log throughout the portal.
+
 ## 2.0.5 - 2026-08-24
 
 ### Added

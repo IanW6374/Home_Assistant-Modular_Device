@@ -161,7 +161,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertNotIn('last update result</span>', page)
         self.assertNotIn('&#x27;result&#x27;', page)
         self.assertIn('/reset-health-history', page)
-        self.assertNotIn('href="/logging">Open log viewer</a>', page)
+        self.assertNotIn('href="/logging">Open device log</a>', page)
 
     def test_overview_shows_device_api_status(self):
         overview = web_portal.render_overview_status({'api': 'online'})
@@ -574,7 +574,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('href="/updates">Upgrades</a>', maintenance_menu)
         self.assertNotIn('/updates?check=1', maintenance_menu)
         self.assertIn('href="/certificates">Certificates</a>', maintenance_menu)
-        self.assertIn('href="/logging" aria-current="page">Log viewer</a>', maintenance_menu)
+        self.assertIn('href="/logging" aria-current="page">Device log</a>', maintenance_menu)
+        self.assertIn('<h1>Device log</h1>', html)
         self.assertIn('href="/audit-log">Audit log</a>', maintenance_menu)
         self.assertIn('href="/device-control">Device control</a>', maintenance_menu)
         self.assertNotIn('href="/diagnostics">Diagnostics</a>', maintenance_menu)
@@ -986,7 +987,7 @@ class WebPortalTests(unittest.TestCase):
                     ('GET /logging HTTP/1.1\r\nCookie: ham_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
-                self.assertIn('<h1>Logging</h1>', logging)
+                self.assertIn('<h1>Device log</h1>', logging)
                 self.assertIn('initial portal log', logging)
                 self.assertIn('name="level"', logging)
 
@@ -1389,7 +1390,7 @@ class WebPortalTests(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / 'web_portal.py').read_text()
         self.assertIn("'500 Internal Server Error'", source)
         self.assertIn(
-            'Portal request failed. See Maintenance > Log viewer for details.',
+            'Portal request failed. See Maintenance > Device log for details.',
             source,
         )
 
@@ -1648,7 +1649,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('action="/ems-debug"', diagnostics)
         self.assertIn('fetch("/api/module-diagnostics"', diagnostics)
 
-        self.assertIn('<h1>Logging</h1>', logging)
+        self.assertIn('<h1>Device log</h1>', logging)
         self.assertIn('id="logs"', logging)
         self.assertIn('hello', logging)
         self.assertIn('name="level"', logging)

@@ -484,7 +484,7 @@ def render_logging_page(token, current_loglevel, levels, logs,
     )
     body = (
         portal_ui.page_heading(
-            'Maintenance', 'Logging',
+            'Maintenance', 'Device log',
             'Review live device logs and adjust runtime verbosity.'
         ) + _notice(message) +
         '<section class="card"><div class="section-title"><h2>Logs</h2>'
@@ -516,7 +516,7 @@ def render_logging_page(token, current_loglevel, levels, logs,
         'if(t!==null&&t!==undefined&&e.textContent!==t){e.textContent=t;if(b)e.scrollTop=e.scrollHeight;}})'
         '.catch(function(){});}setInterval(refreshLogs,' + str(interval) + ');updateLogRefresh();'
     )
-    return portal_ui.shell('HAMD logging', 'logging', body, token, script)
+    return portal_ui.shell('HAMD device log', 'logging', body, token, script)
 
 def render_audit_logging_page(token, logs, log_refresh_ms=5000):
     body = (

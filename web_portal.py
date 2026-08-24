@@ -1429,7 +1429,7 @@ async def start_web_portal(portal):
             try:
                 await send_response(
                     writer, '500 Internal Server Error',
-                    'Portal request failed. See Maintenance > Log viewer for details.',
+                    'Portal request failed. See Maintenance > Device log for details.',
                     'text/plain'
                 )
             except Exception:

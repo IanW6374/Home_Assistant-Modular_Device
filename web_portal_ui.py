@@ -289,7 +289,7 @@ NAVIGATION = (
         ('certificates', '/certificates', 'Certificates'),
         ('configuration_backup', '/configuration-backup', 'Configuration backup'),
         ('health_history', '/health-history', 'Health history'),
-        ('logging', '/logging', 'Log viewer'),
+        ('logging', '/logging', 'Device log'),
         ('audit_logging', '/audit-log', 'Audit log'),
         ('device_control', '/device-control', 'Device control'),
     )),
