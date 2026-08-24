@@ -620,7 +620,7 @@ def render_certificate_page(csrf, message='', certificates=None):
         'function configureCertificateImport(){var d=descriptions[type.value];primaryLabel.firstChild.nodeValue=d[0];'
         'secondaryLabel.firstChild.nodeValue=d[1];secondaryLabel.hidden=!d[1];primary.multiple='
         'type.value==="api-client-ca"||type.value==="api-client-cert"||type.value==="fleet-client-cert";'
-        'secondary.required=!!d[1];help.textContent=d[2];}'
+        'secondary.disabled=!d[1];secondary.required=!!d[1];if(!d[1])secondary.value="";help.textContent=d[2];}'
         'type.onchange=configureCertificateImport;configureCertificateImport();'
         'document.getElementById("acme-enabled").onchange=function(){document.getElementById('
         '"acme-fields").disabled=!this.checked;};'
@@ -660,11 +660,11 @@ def render_device_control_page(csrf, error=''):
         ) + _notice(error, True) +
         '<section class="card"><div class="section-title"><h2>Power controls</h2></div>'
         '<p class="muted">Restart and shutdown retain all settings, certificates, logs and '
-        'installed software.</p><div class="actions">'
+        'installed software.</p><div class="actions power-actions">'
         '<form action="/restart-device" method="post"><input type="hidden" name="csrf" value="' +
         html_escape(csrf) + '"><button class="secondary" type="submit">Restart device</button></form>'
         '<form action="/shutdown-device" method="post"><input type="hidden" name="csrf" value="' +
-        html_escape(csrf) + '"><button class="secondary" type="submit">Shut down device</button></form>'
+        html_escape(csrf) + '"><button class="danger" type="submit">Shut down device</button></form>'
         '</div><p class="muted">Shutdown enters deep sleep. Power-cycle or externally reset '
         'the device to start it again.</p></section>'
         '<section class="card"><div class="section-title"><h2>Factory default</h2></div>'

@@ -1,7 +1,7 @@
 """Shared, dependency-free UI shell for setup and the authenticated portal."""
 
 
-ASSET_VERSION = '9'
+ASSET_VERSION = '10'
 
 
 PORTAL_CSS = (
@@ -323,12 +323,21 @@ def restart_page(target, message='Settings saved. The device is restarting.'):
         escape(target) + '">Open login page</a></div></section>'
     )
     script = (
-        'var t=document.getElementById("restart-target").href,n=0,u=new URL(t,location.href);'
-        'function go(){window.location.replace(t);}function ready(){fetch(t,{mode:"no-cors",'
-        'cache:"no-store",credentials:"omit"}).then(go).catch(function(){n++;setTimeout(ready,'
-        'Math.min(5000,1500+n*350));});}if(u.origin===location.origin){setTimeout(ready,2500);}'
-        'else{document.querySelector("#restart-progress .status-text").textContent="Reconnecting…";'
-        'setTimeout(go,6000);}'
+        'var t=document.getElementById("restart-target").href,a=new URL("/assets/portal.css",t).href,'
+        'same=new URL(t).origin===location.origin,offline=false,failures=0,'
+        'status=document.querySelector("#restart-progress .status-text");'
+        'function go(){var join=t.indexOf("?")<0?"?":"&";window.location.replace('
+        't+join+"reconnect="+Date.now());}function probe(url,marker){return fetch(url,{'
+        'mode:same?"same-origin":"no-cors",cache:"no-store",credentials:"omit"}).then(function(r){'
+        'if(!same)return true;if(!r.ok)return false;return r.text().then(function(body){'
+        'return body.indexOf(marker)>=0;});});}function retry(){setTimeout(ready,offline?2000:500);}'
+        'function ready(){if(!offline){probe(t,"id=\\\"login-form\\\"").then(function(ok){if(!ok)throw Error();failures=0;'
+        'status.textContent="Waiting for device to restart…";retry();}).catch(function(){failures++;'
+        'if(failures>=2){offline=true;status.textContent="Device offline — reconnecting…";}retry();});'
+        'return;}Promise.all([probe(t,"id=\\\"login-form\\\""),probe(a,":root{")]).then(function(ok){'
+        'if(ok[0]&&ok[1]){status.textContent="Portal ready — opening login…";setTimeout(go,500);return;}'
+        'status.textContent="Portal starting — reconnecting…";retry();}).catch(function(){retry();});}'
+        'setTimeout(ready,1000);'
     )
     return shell('HAMD restarting', '', body, script=script, authenticated=False)
 

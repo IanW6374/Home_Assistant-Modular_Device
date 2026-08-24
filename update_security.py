@@ -16,7 +16,7 @@ except ImportError:
 
 
 RECOVERY_API_VERSION = 6
-CORE_API_VERSION = 8
+CORE_API_VERSION = 9
 CONFIG_API_VERSION = 3
 VERIFICATION_KEY_PATH = '.update-verification-key'
 SIGNATURE_SCHEME = 'ecdsa-p256-sha256'

@@ -75,8 +75,20 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Daylight-saving changes are applied automatically', ntp)
         self.assertIn('name="log_buffer_lines"', logging)
         self.assertIn('name="syslog_transport"', logging)
+        self.assertLess(
+            logging.index('name="syslog_transport"'),
+            logging.index('name="syslog_port"')
+        )
+        self.assertIn('id="syslog-transport"', logging)
+        self.assertIn('id="syslog-port"', logging)
+        self.assertIn('this.value==="tls"?"6514":"514"', logging)
         self.assertIn('name="syslog_enabled"', logging)
         self.assertIn('name="syslog_audit_enabled"', logging)
+        tls_default = web_portal.render_logging_settings_page(
+            'csrf', {'syslog_transport': 'tls'}
+        )
+        self.assertIn('name="syslog_port" type="number"', tls_default)
+        self.assertIn('required value="6514"', tls_default)
         self.assertIn('Encrypt backup and include secrets', backup)
         self.assertIn('id="export-encryption" class="conditional-fields" disabled', backup)
         self.assertIn('Uploading backup ', backup)
@@ -122,9 +134,23 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('accept="application/json,.json" required', backup)
         self.assertIn('portalInvalid(confirmField', backup)
         self.assertIn('portalRequire(primary', certificates)
+        self.assertIn('secondary.disabled=!d[1]', certificates)
+        self.assertIn('if(!d[1])secondary.value=""', certificates)
+        self.assertIn('.field[hidden]{display:none}', portal_ui.PORTAL_CSS)
         self.assertIn('portalRequire(input', update)
         self.assertIn('input[aria-invalid="true"]', portal_ui.PORTAL_CSS)
         self.assertIn('document.addEventListener("invalid"', portal_ui.PORTAL_JS)
+
+    def test_restart_page_waits_for_complete_login_assets(self):
+        page = portal_ui.restart_page('/login')
+
+        self.assertIn('failures>=2', page)
+        self.assertIn('if(!ok)throw Error()', page)
+        self.assertIn('offline?2000:500', page)
+        self.assertIn('id=\\"login-form\\"', page)
+        self.assertIn('probe(a,":root{")', page)
+        self.assertIn('Portal ready — opening login…', page)
+        self.assertIn('"reconnect="+Date.now()', page)
 
     def test_health_history_groups_protocols_formats_values_and_can_reset(self):
         page = web_portal.render_health_history_page('csrf', {
@@ -1218,6 +1244,8 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('<h1>Device control</h1>', control_page)
                 self.assertIn('action="/restart-device"', control_page)
                 self.assertIn('action="/shutdown-device"', control_page)
+                self.assertIn('class="actions power-actions"', control_page)
+                self.assertIn('class="danger" type="submit">Shut down device', control_page)
                 self.assertIn('<h2>Factory default</h2>', control_page)
                 shutdown_csrf = control_page.split(
                     'name="csrf" value="', 1

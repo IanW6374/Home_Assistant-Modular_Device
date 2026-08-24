@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.0.8 - 2026-08-24
+
+### Changed
+
+- Reordered the remote syslog Transport and Port fields and select port 514
+  for UDP or 6514 for TLS when the administrator changes transport, while
+  retaining support for a subsequent custom port override.
+- Aligned the restart and shutdown controls on the right and emphasized the
+  physical-recovery implications of shutdown with a danger action.
+- Restart pages now wait until the portal has gone offline, then retry every
+  two seconds and return to login only after the restarted portal responds.
+
+### Fixed
+
+- Hide and disable the private-key file control for certificate types that
+  require only one or more certificate files.
+- Restore shutdown through the hardware deep-sleep capability supplied by the
+  matching core firmware release.
+
+### Upgrade order
+
+- The universal `.hamu` release activates core firmware before the application.
+- When installing the component files manually, install the `.hamf` first and
+  the `.hamd` second so the shutdown capability is available to the portal.
+
 ## 2.0.7 - 2026-08-24
 
 ### Changed

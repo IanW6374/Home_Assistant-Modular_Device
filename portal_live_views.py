@@ -553,6 +553,10 @@ def render_audit_logging_page(token, logs, log_refresh_ms=5000):
 
 def render_logging_settings_page(token, settings, message='', error=False):
     settings = settings or {}
+    syslog_transport = settings.get('syslog_transport', 'udp')
+    syslog_port = settings.get(
+        'syslog_port', 6514 if syslog_transport == 'tls' else 514
+    )
     body = (
         portal_ui.page_heading(
             'System', 'Logging',
@@ -579,18 +583,25 @@ def render_logging_settings_page(token, settings, message='', error=False):
         '>Forward audit log events to the remote syslog server</label><div class="grid">'
         '<label class="field">Syslog server<input name="syslog_host" maxlength="253" value="' +
         html_escape(settings.get('syslog_host', '')) + '"></label>'
-        '<label class="field">Port<input name="syslog_port" type="number" min="1" max="65535" '
-        'required value="' + html_escape(settings.get('syslog_port', 514)) + '"></label>'
-        '<label class="field">Transport<select name="syslog_transport">'
-        '<option value="udp"' + (' selected' if settings.get('syslog_transport', 'udp') == 'udp' else '') +
+        '<label class="field">Transport<select id="syslog-transport" name="syslog_transport">'
+        '<option value="udp"' + (' selected' if syslog_transport == 'udp' else '') +
         '>UDP (standard)</option><option value="tls"' +
-        (' selected' if settings.get('syslog_transport') == 'tls' else '') +
-        '>TLS (encrypted)</option></select></label></div>'
+        (' selected' if syslog_transport == 'tls' else '') +
+        '>TLS (encrypted)</option></select></label>'
+        '<label class="field">Port<input id="syslog-port" name="syslog_port" type="number" min="1" max="65535" '
+        'required value="' + html_escape(syslog_port) + '"></label></div>'
         '<p class="muted">TLS uses the dedicated Syslog CA installed under Certificates. '
         'Changes take effect after the pending device restart.</p><div class="actions"><span></span>'
         '<button type="submit">Save logging settings</button></div></form></section>'
     )
-    return portal_ui.shell('HAMD logging settings', 'logging_settings', body, token)
+    script = (
+        'var syslogTransport=document.getElementById("syslog-transport"),'
+        'syslogPort=document.getElementById("syslog-port");'
+        'syslogTransport.onchange=function(){syslogPort.value=this.value==="tls"?"6514":"514";};'
+    )
+    return portal_ui.shell(
+        'HAMD logging settings', 'logging_settings', body, token, script
+    )
 
 def render_module_diagnostics_page(token, modules, value_refresh_ms=5000,
                                    role='administrator'):

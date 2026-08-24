@@ -428,6 +428,10 @@ class UpdateSecurityTests(unittest.TestCase):
         self.assertIn("schedule_hardware_shutdown('portal_requested_shutdown')", application_source)
         self.assertNotIn('async def reboot_with_new_modules', application_source)
 
+    def test_core_shutdown_release_advances_core_api(self):
+        self.assertEqual(recovery_boot.CORE_API_VERSION, 9)
+        self.assertEqual(update_security.CORE_API_VERSION, 9)
+
     def test_signed_release_descriptor_detects_metadata_tampering(self):
         descriptor = {
             'format_version': 2, 'target_board': 'esp32-s3',
