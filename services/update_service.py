@@ -20,6 +20,7 @@ class UpdateService:
         self.store = resumable_store
         self.receivers = {}
         self._status_getter = status_getter
+        self._installing = False
         self.maximum_chunk_bytes = max(1024, int(maximum_chunk_bytes))
         for kind, receiver in (receivers or {}).items():
             if receiver is not None:
@@ -37,6 +38,8 @@ class UpdateService:
     def begin(self, request):
         if not isinstance(request, dict):
             raise ValueError('resumable upload request is invalid')
+        if self._installing:
+            raise ValueError('another update is already being installed')
         kind = str(request.get('kind', ''))
         self.receiver(kind)
         return self.store.begin(
@@ -60,19 +63,27 @@ class UpdateService:
         return self.store.append(identifier, offset, payload)
 
     async def complete(self, identifier, progress_callback=None):
-        artifact = self.store.complete(identifier)
-        reader = _ArtifactReader(artifact['path'])
+        if self._installing:
+            raise ValueError('another update is already being installed')
+        self._installing = True
+        reader = None
         try:
+            artifact = self.store.complete(identifier)
+            reader = _ArtifactReader(artifact['path'])
             installer = self.receiver(artifact['kind'])
             return await installer(
                 reader, artifact['total_bytes'],
                 {'_progress': progress_callback}
             )
         finally:
-            reader.close()
+            if reader is not None:
+                reader.close()
             self.store.remove(identifier)
+            self._installing = False
 
     def discard(self, identifier):
+        if self._installing:
+            raise ValueError('another update is already being installed')
         return self.store.remove(identifier)
 
     def snapshot(self):

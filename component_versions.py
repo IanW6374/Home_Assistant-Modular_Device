@@ -4,8 +4,8 @@ Increment ``RUNTIME_VERSION`` for changes outside one isolated device driver.
 Each production driver owns its own ``MODULE_VERSION`` integer.
 """
 
-PRODUCT_VERSION = '2.0.0'
-RUNTIME_VERSION = 48
+PRODUCT_VERSION = '2.0.1'
+RUNTIME_VERSION = 49
 DRIVER_API_VERSION = 2
 EVENT_API_VERSION = 2
 FLEET_API_VERSION = 1

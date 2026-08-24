@@ -24,6 +24,7 @@ except ImportError:
 FORMAT_VERSION = 1
 ALLOWED_KINDS = ('application', 'firmware', 'universal')
 MAX_CHUNK_BYTES = 64 * 1024
+DEFAULT_STORAGE_RESERVE_BYTES = 96 * 1024
 
 
 def _hex_digest(hasher):
@@ -50,10 +51,12 @@ def _mkdir(path):
 
 class ResumableUploadStore:
     def __init__(self, directory='.update-uploads', maximum_bytes=7 * 1024 * 1024,
-                 maximum_sessions=2):
+                 maximum_sessions=2,
+                 storage_reserve_bytes=DEFAULT_STORAGE_RESERVE_BYTES):
         self.directory = str(directory).rstrip('/')
         self.maximum_bytes = max(1, int(maximum_bytes))
         self.maximum_sessions = max(1, int(maximum_sessions))
+        self.storage_reserve_bytes = max(0, int(storage_reserve_bytes))
         _mkdir(self.directory)
 
     def _paths(self, identifier):
@@ -129,6 +132,37 @@ class ResumableUploadStore:
         except OSError:
             return []
 
+    def _discard_other_sessions(self, identifier):
+        """Keep one resumable artifact and reclaim abandoned upload storage."""
+        try:
+            names = os.listdir(self.directory)
+        except OSError:
+            return
+        suffixes = ('.json.tmp', '.part.reconcile', '.json', '.part')
+        for name in names:
+            for suffix in suffixes:
+                if name.endswith(suffix):
+                    session = name[:-len(suffix)]
+                    if session and session != identifier:
+                        try:
+                            os.remove(self.directory + '/' + name)
+                        except OSError:
+                            pass
+                    break
+
+    def _require_upload_space(self, required):
+        required = max(0, int(required)) + self.storage_reserve_bytes
+        try:
+            values = os.statvfs(self.directory)
+            free = int(values[0]) * int(values[4])
+        except Exception:
+            return
+        if free < required:
+            raise ValueError(
+                'insufficient storage for resumable upload: need ' +
+                str(required) + ' bytes, have ' + str(free)
+            )
+
     def begin(self, identifier, kind, total_bytes, sha256):
         identifier = _safe_identifier(identifier)
         kind = str(kind)
@@ -150,11 +184,30 @@ class ResumableUploadStore:
                 int(current.get('total_bytes', 0)) == total_bytes and
                 current.get('sha256') == sha256
             ):
-                return self.status(identifier)
-            self.remove(identifier)
-            existing.remove(identifier)
+                self._discard_other_sessions(identifier)
+                try:
+                    self._require_upload_space(
+                        total_bytes - int(current.get('received_bytes', 0))
+                    )
+                except ValueError:
+                    # A partial artifact that cannot accept its remaining
+                    # bytes is not resumable in practice. Reclaim it and
+                    # evaluate a clean restart instead of wedging the device.
+                    self.remove(identifier)
+                    existing.remove(identifier)
+                else:
+                    return self.status(identifier)
+            else:
+                self.remove(identifier)
+                existing.remove(identifier)
+        # A device can only install one update at a time. Selecting a different
+        # artifact is therefore an explicit replacement of any interrupted
+        # upload, and must reclaim its payload before accepting new bytes.
+        self._discard_other_sessions(identifier)
+        existing = self._session_names()
         if identifier not in existing and len(existing) >= self.maximum_sessions:
             raise ValueError('too many update uploads are active')
+        self._require_upload_space(total_bytes)
         metadata_path, payload_path = self._paths(identifier)
         value = {
             'format_version': FORMAT_VERSION,

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.1 - 2026-08-24
+
+### Fixed
+
+- Stream universal `.hamu` upgrades directly into the transactional installers
+  instead of caching the complete container on constrained device storage.
+- Reclaim superseded or unfinishable resumable uploads automatically and reject
+  uploads that cannot fit before they consume the remaining filesystem space.
+
 ## 2.0.0 - 2026-08-24
 
 HAMD v2 is the first production release of the clean-seed ESP32-S3 platform.

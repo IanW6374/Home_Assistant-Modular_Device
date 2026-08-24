@@ -77,6 +77,60 @@ class ResumableUploadTests(unittest.TestCase):
 
         self.assertTrue(complete['complete'])
 
+    def test_selecting_different_artifact_reclaims_incomplete_session(self):
+        self.store.begin('session-first', 'firmware', 20, '1' * 64)
+        self.store.append('session-first', 0, b'partial')
+
+        second = self.store.begin(
+            'session-second', 'application', len(self.payload), self.digest
+        )
+
+        self.assertEqual(second['received_bytes'], 0)
+        self.assertFalse((Path(self.temp.name) / 'session-first.json').exists())
+        self.assertFalse((Path(self.temp.name) / 'session-first.part').exists())
+
+    def test_begin_rejects_before_writing_when_storage_is_too_small(self):
+        values = (4096, 4096, 10, 1, 1, 0, 0, 0, 255)
+        store = ResumableUploadStore(
+            self.temp.name, maximum_bytes=8192, storage_reserve_bytes=1024
+        )
+        with mock.patch.object(resumable_upload.os, 'statvfs', return_value=values):
+            with self.assertRaisesRegex(ValueError, 'insufficient storage'):
+                store.begin('session-storage', 'firmware', 4096, self.digest)
+        self.assertFalse((Path(self.temp.name) / 'session-storage.part').exists())
+
+    def test_resuming_same_artifact_preserves_committed_bytes(self):
+        self.store.begin('session-resume', 'application', len(self.payload), self.digest)
+        self.store.append('session-resume', 0, self.payload[:8])
+
+        resumed = self.store.begin(
+            'session-resume', 'application', len(self.payload), self.digest
+        )
+
+        self.assertEqual(resumed['received_bytes'], 8)
+
+    def test_unfinishable_resume_is_reclaimed_and_restarted(self):
+        store = ResumableUploadStore(
+            self.temp.name, maximum_bytes=1024, storage_reserve_bytes=0
+        )
+        store.begin('session-restart', 'application', len(self.payload), self.digest)
+        store.append('session-restart', 0, self.payload[:8])
+        low_space = (4096, 4096, 10, 0, 0, 0, 0, 0, 255)
+        recovered_space = (4096, 4096, 10, 10, 10, 0, 0, 0, 255)
+
+        with mock.patch.object(
+            resumable_upload.os, 'statvfs',
+            side_effect=(low_space, recovered_space)
+        ):
+            restarted = store.begin(
+                'session-restart', 'application', len(self.payload), self.digest
+            )
+
+        self.assertEqual(restarted['received_bytes'], 0)
+        self.assertEqual(
+            (Path(self.temp.name) / 'session-restart.part').stat().st_size, 0
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
