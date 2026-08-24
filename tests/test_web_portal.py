@@ -613,6 +613,13 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('name="log_buffer_lines"', settings)
         self.assertIn('name="syslog_enabled"', settings)
         self.assertIn('name="syslog_audit_enabled"', settings)
+        self.assertIn(
+            'Forward device logs to the remote syslog server', settings
+        )
+        self.assertNotIn('Forward system logs', settings)
+        self.assertIn(
+            'Forward audit log events to the remote syslog server', settings
+        )
 
         diagnostics = web_portal.render_module_diagnostics_page('csrf', [])
         self.assertIn('href="/download-diagnostics"', diagnostics)

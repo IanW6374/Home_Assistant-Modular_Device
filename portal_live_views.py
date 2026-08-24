@@ -556,7 +556,7 @@ def render_logging_settings_page(token, settings, message='', error=False):
     body = (
         portal_ui.page_heading(
             'System', 'Logging',
-            'Configure local log retention and optional remote syslog forwarding.'
+            'Configure Device log and Audit log retention and remote syslog forwarding.'
         ) + _notice(message, error) +
         '<section class="card"><div class="section-title"><h2>Retention and forwarding</h2></div>'
         '<form action="/logging-settings" method="post"><input type="hidden" name="csrf" value="' +
@@ -566,17 +566,17 @@ def render_logging_settings_page(token, settings, message='', error=False):
                        'syslog_transport')
         ) + '<input type="hidden" name="syslog_enabled" value="false">'
         '<input type="hidden" name="syslog_audit_enabled" value="false">'
-        '<label class="field">Local log entries (0–500)<input name="log_buffer_lines" '
+        '<label class="field">Device log entries retained locally (0–500)<input name="log_buffer_lines" '
         'type="number" min="0" max="500" required value="' +
         html_escape(settings.get('log_buffer_lines', 200)) + '"></label>'
         '<label class="check"><input name="syslog_enabled" type="checkbox" value="true"' +
         (' checked' if settings.get('syslog_enabled') else '') +
-        '>Forward system logs to the remote syslog server</label>'
+        '>Forward device logs to the remote syslog server</label>'
         '<label class="check"><input name="syslog_audit_enabled" type="checkbox" value="true"' +
         (' checked' if settings.get(
             'syslog_audit_enabled', settings.get('syslog_enabled', False)
         ) else '') +
-        '>Forward audit events to the remote syslog server</label><div class="grid">'
+        '>Forward audit log events to the remote syslog server</label><div class="grid">'
         '<label class="field">Syslog server<input name="syslog_host" maxlength="253" value="' +
         html_escape(settings.get('syslog_host', '')) + '"></label>'
         '<label class="field">Port<input name="syslog_port" type="number" min="1" max="65535" '

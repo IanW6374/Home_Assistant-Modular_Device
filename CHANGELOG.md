@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.7 - 2026-08-24
+
+### Changed
+
+- Standardized Logging configuration terminology on Device log entries and
+  Audit log events, replacing the former system logs and audit events labels.
+
 ## 2.0.6 - 2026-08-24
 
 ### Changed
@@ -37,7 +44,7 @@
 
 - Added a dedicated administrator Audit log under Maintenance for portal
   authentication, authorization and mTLS API connection events.
-- Added independent remote-syslog forwarding controls for system logs and
+- Added independent remote-syslog forwarding controls for device logs and
   audit events.
 
 ### Changed
