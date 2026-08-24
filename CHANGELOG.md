@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.4 - 2026-08-24
+
+### Changed
+
+- Positioned the authenticated user badge before the Sign out button in the
+  portal tab banner.
+
 ## 2.0.3 - 2026-08-24
 
 ### Fixed

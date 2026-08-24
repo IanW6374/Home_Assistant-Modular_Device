@@ -493,7 +493,7 @@ def navigation(active, csrf):
         '<button id="nav-toggle" class="nav-toggle secondary compact" type="button" '
         'aria-controls="portal-nav" aria-expanded="false">Menu</button>'
         '<nav id="portal-nav" class="nav-actions" aria-label="Primary">' +
-        ''.join(links) + logout + '<!--portal-identity--></nav>'
+        ''.join(links) + '<!--portal-identity-->' + logout + '</nav>'
     )
 
 

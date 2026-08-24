@@ -1529,8 +1529,8 @@ class WebPortalTests(unittest.TestCase):
         )[0]
         self.assertNotIn('disabled', logout)
         self.assertLess(
-            personalised.index('action="/logout"'),
-            personalised.index('class="portal-identity"')
+            personalised.index('class="portal-identity"'),
+            personalised.index('action="/logout"')
         )
         navigation = personalised.split(
             '<nav id="portal-nav"', 1
