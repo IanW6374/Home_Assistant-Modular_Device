@@ -52,6 +52,7 @@ jobs:
           ref: e0e9fbb17ed6fd06bb76e266ae554784c9c80804
           path: .ci-micropython
           submodules: recursive
+          fetch-depth: 0
       - name: Create ephemeral CI signing material
         shell: bash
         run: |
