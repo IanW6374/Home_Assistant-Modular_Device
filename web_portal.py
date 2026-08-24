@@ -2,7 +2,6 @@ try:
     import ssl
 except ImportError:
     ssl = None
-
 try:
     import asyncio
 except ImportError:
@@ -106,6 +105,7 @@ async def start_web_portal(portal):
     resumable_complete = portal.get('updates.upload.complete')
     restart_status_getter = portal.get('restart.status')
     restart_request_handler = portal.get('restart.request')
+    shutdown_request_handler = portal.get('shutdown.request')
 
     username = settings.get('username', 'admin') or 'admin'
     password_verifier = settings.get('password_verifier', '')
@@ -321,6 +321,7 @@ async def start_web_portal(portal):
             is_diagnostics = route == '/diagnostics'
             is_logging = route == '/logging'
             is_audit_logging = route == '/audit-log'
+            is_device_control = route in ('/device-control', '/factory-default')
             is_factory_default = route == '/factory-default'
             is_configuration_backup = route == '/configuration-backup'
             is_health_history = route == '/health-history'
@@ -521,24 +522,24 @@ async def start_web_portal(portal):
                 await send_response(
                     writer, '200 OK', json.dumps(status), 'application/json'
                 )
-            elif method == 'POST' and route == '/restart-device':
-                if restart_request_handler is None:
+            elif method == 'POST' and route in ('/restart-device', '/shutdown-device'):
+                shutting_down = route == '/shutdown-device'
+                transition_handler = shutdown_request_handler if shutting_down else restart_request_handler
+                if transition_handler is None:
                     await send_response(
-                        writer, '503 Service Unavailable',
-                        'Restart control is unavailable', 'text/plain'
+                        writer, '503 Service Unavailable', ('Shutdown' if shutting_down else 'Restart') +
+                        ' control is unavailable', 'text/plain'
                     )
                 else:
-                    result = restart_request_handler()
-                    target = result.get('login_url', login_url)
-                    message = result.get(
-                        'message', 'The device is restarting.'
-                    )
+                    result = transition_handler()
+                    message = result.get('message', 'The device is shutting down.' if shutting_down else 'The device is restarting.')
                     sessions.revoke(session_id)
                     await send_response(
-                        writer, '200 OK', portal_ui.restart_page(target, message),
-                        extra_headers=((
-                            'Set-Cookie', session_cookie('', secure_cookie, True)
-                        ),)
+                        writer, '200 OK', render_shutdown_complete_page(message)
+                        if shutting_down else portal_ui.restart_page(
+                            result.get('login_url', login_url), message
+                        ),
+                        extra_headers=(('Set-Cookie', session_cookie('', secure_cookie, True)),)
                     )
             elif method == 'POST' and is_password_change:
                 params = form_params
@@ -617,10 +618,10 @@ async def start_web_portal(portal):
                     )
                 else:
                     await send_redirect(writer, '/user')
-            elif method == 'GET' and is_factory_default:
+            elif method == 'GET' and is_device_control:
                 await send_response(
                     writer, '200 OK',
-                    render_factory_default_page(csrf_token)
+                    render_device_control_page(csrf_token)
                 )
             elif method == 'POST' and is_factory_default:
                 current_password = form_params.get('current_password', '')
@@ -641,7 +642,7 @@ async def start_web_portal(portal):
                 if reset_error:
                     await send_response(
                         writer, '400 Bad Request',
-                        render_factory_default_page(csrf_token, reset_error)
+                        render_device_control_page(csrf_token, reset_error)
                     )
                 else:
                     try:
@@ -651,7 +652,7 @@ async def start_web_portal(portal):
                     except Exception as exc:
                         await send_response(
                             writer, '400 Bad Request',
-                            render_factory_default_page(csrf_token, str(exc))
+                            render_device_control_page(csrf_token, str(exc))
                         )
                     else:
                         log_output(

@@ -576,7 +576,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('href="/certificates">Certificates</a>', maintenance_menu)
         self.assertIn('href="/logging" aria-current="page">Log viewer</a>', maintenance_menu)
         self.assertIn('href="/audit-log">Audit log</a>', maintenance_menu)
-        self.assertIn('href="/factory-default">Factory default</a>', maintenance_menu)
+        self.assertIn('href="/device-control">Device control</a>', maintenance_menu)
         self.assertNotIn('href="/diagnostics">Diagnostics</a>', maintenance_menu)
         self.assertNotIn('href="/download-diagnostics"', html)
         self.assertIn('id="log-refresh-toggle"', html)
@@ -770,6 +770,7 @@ class WebPortalTests(unittest.TestCase):
                 network_confirmations = []
                 factory_resets = []
                 restart_requests = []
+                shutdown_requests = []
 
                 def get_settings():
                     return {
@@ -830,6 +831,11 @@ class WebPortalTests(unittest.TestCase):
                         restart_requests.append(True) or {
                             'message': 'Committed changes are being activated.',
                             'login_url': '/login',
+                        }
+                    ),
+                    'shutdown.request': lambda: (
+                        shutdown_requests.append(True) or {
+                            'message': 'The device is shutting down.',
                         }
                     ),
                     }
@@ -1161,7 +1167,9 @@ class WebPortalTests(unittest.TestCase):
                     ('GET /factory-default HTTP/1.1\r\nCookie: ham_session=' +
                      reset_session + '\r\n\r\n').encode()
                 )
-                self.assertIn('<h1>Factory default</h1>', reset_page)
+                self.assertIn('<h1>Device control</h1>', reset_page)
+                self.assertIn('action="/restart-device"', reset_page)
+                self.assertIn('action="/shutdown-device"', reset_page)
                 self.assertIn('name="reset_confirmation"', reset_page)
                 self.assertIn('The signed core, active application', reset_page)
                 self.assertIn('>WiFi AP Password<input', reset_page)
@@ -1186,6 +1194,40 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('Factory reset armed', reset_response)
                 self.assertIn('Max-Age=0', reset_response)
                 self.assertEqual(factory_resets, ['Setup-Maple-53!Harbour'])
+
+                shutdown_login = await request(
+                    b'POST /login HTTP/1.1\r\nContent-Length: ' +
+                    str(len(relogin_body)).encode() + b'\r\n\r\n' + relogin_body
+                )
+                shutdown_session = next(
+                    line for line in shutdown_login.split('\r\n')
+                    if line.startswith('Set-Cookie: ham_session=')
+                ).split('ham_session=', 1)[1].split(';', 1)[0]
+                control_page = await request(
+                    ('GET /device-control HTTP/1.1\r\nCookie: ham_session=' +
+                     shutdown_session + '\r\n\r\n').encode()
+                )
+                self.assertIn('<h1>Device control</h1>', control_page)
+                self.assertIn('action="/restart-device"', control_page)
+                self.assertIn('action="/shutdown-device"', control_page)
+                self.assertIn('<h2>Factory default</h2>', control_page)
+                shutdown_csrf = control_page.split(
+                    'name="csrf" value="', 1
+                )[1].split('"', 1)[0]
+                shutdown_body = ('csrf=' + shutdown_csrf).encode()
+                shutdown_response = await request(
+                    ('POST /shutdown-device HTTP/1.1\r\nCookie: ham_session=' +
+                     shutdown_session + '\r\nContent-Length: ' +
+                     str(len(shutdown_body)) + '\r\n\r\n').encode() +
+                    shutdown_body
+                )
+                self.assertIn('Device shutting down', shutdown_response)
+                self.assertIn(
+                    'No configuration or installed software is erased.',
+                    shutdown_response
+                )
+                self.assertIn('Max-Age=0', shutdown_response)
+                self.assertEqual(shutdown_requests, [True])
 
                 async def viewer_authenticator(login_username, login_password):
                     if (

@@ -22,7 +22,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         for route in (
             '/settings', '/wifi-settings', '/mqtt', '/device-api',
             '/certificates', '/configuration-backup', '/updates', '/logs',
-            '/api/restart-required', '/restart-device',
+            '/api/restart-required', '/restart-device', '/shutdown-device',
         ):
             self.assertIn(route, ROUTES)
 

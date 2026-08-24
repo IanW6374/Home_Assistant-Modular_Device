@@ -4,6 +4,32 @@ import hardware_platform
 
 
 class HardwarePlatformTests(unittest.TestCase):
+    def test_shutdown_enters_deep_sleep(self):
+        calls = []
+
+        class Machine:
+            @staticmethod
+            def deepsleep():
+                calls.append(True)
+
+        original = hardware_platform.machine
+        try:
+            hardware_platform.machine = Machine
+            hardware_platform.shutdown()
+        finally:
+            hardware_platform.machine = original
+
+        self.assertEqual(calls, [True])
+
+    def test_shutdown_reports_unsupported_runtime(self):
+        original = hardware_platform.machine
+        try:
+            hardware_platform.machine = object()
+            with self.assertRaisesRegex(RuntimeError, 'shutdown is unavailable'):
+                hardware_platform.shutdown()
+        finally:
+            hardware_platform.machine = original
+
     def test_firmware_ota_reports_missing_inactive_partition(self):
         class RunningPartition:
             def info(self):

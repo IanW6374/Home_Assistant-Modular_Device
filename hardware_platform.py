@@ -132,6 +132,14 @@ def reset():
         machine.reset()
 
 
+def shutdown():
+    """Enter deep sleep until an external wake, reset, or power cycle."""
+    if machine and hasattr(machine, 'deepsleep'):
+        machine.deepsleep()
+        return
+    raise RuntimeError('hardware shutdown is unavailable')
+
+
 def reset_cause():
     if not machine or not hasattr(machine, 'reset_cause'):
         return 'unknown'

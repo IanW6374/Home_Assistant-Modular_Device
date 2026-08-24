@@ -146,7 +146,7 @@ watchdog = None
 ntp_synced = False
 web_portal_server = None
 device_api_server = None
-scheduled_reset_timer = None
+scheduled_control_timer = None
 web_portal_enabled = device_settings.web_portal_enabled
 web_portal_host = device_settings.web_portal_host
 web_portal_username = runtime_credentials['portal']['username']
@@ -580,39 +580,38 @@ def start_task(name, coroutine, main_device_task=False):
     )
 
 
-def _perform_scheduled_reset(_timer=None):
-    hardware_platform.reset()
-
-
-def schedule_hardware_reset(name, delay_ms=8000):
-    """Schedule a reset independently of a busy uasyncio event loop."""
-    global scheduled_reset_timer
+def _schedule_hardware_action(name, action, label, delay_ms=8000):
+    global scheduled_control_timer
+    def perform(_timer=None):
+        action()
     if Timer is not None:
         try:
-            scheduled_reset_timer = Timer(-1)
-            scheduled_reset_timer.init(
-                mode=Timer.ONE_SHOT,
-                period=max(1, int(delay_ms)),
-                callback=_perform_scheduled_reset,
+            scheduled_control_timer = Timer(-1)
+            scheduled_control_timer.init(
+                mode=Timer.ONE_SHOT, period=max(1, int(delay_ms)), callback=perform
             )
             return
         except Exception as exc:
             logOutput(
-                'Local', 'Reset',
-                {'log': 'Hardware timer unavailable; using event loop - ' + str(exc)},
-                'ERROR'
+                'Local', label, {'log': 'Hardware timer unavailable; using event loop - ' +
+                 str(exc)}, 'ERROR'
             )
-
-    async def delayed_reset():
+    async def delayed_action():
         if hasattr(asyncio, 'sleep_ms'):
             await asyncio.sleep_ms(max(1, int(delay_ms)))
         else:
             await asyncio.sleep(max(1, int(delay_ms)) / 1000)
-        _perform_scheduled_reset()
-
-    start_task(name, delayed_reset())
-
-
+        perform()
+    start_task(name, delayed_action())
+def schedule_hardware_reset(name, delay_ms=8000):
+    _schedule_hardware_action(name, hardware_platform.reset, 'Reset', delay_ms)
+def _shutdown_hardware():
+    try:
+        outputDevices[0]['output']['0'](0)
+    except Exception: pass
+    hardware_platform.shutdown()
+def schedule_hardware_shutdown(name, delay_ms=8000):
+    _schedule_hardware_action(name, _shutdown_hardware, 'Shutdown', delay_ms)
 def mark_restart_required(reason):
     reason = str(reason or 'Configuration changed')
     if reason not in pending_restart_reasons:
@@ -644,10 +643,23 @@ def _configured_portal_login_url(settings=None):
 
 
 def request_pending_restart():
+    logOutput('Local', 'Device control', {'log': 'Authenticated restart requested', 'force': True, 'audit': True}, 'INFO')
     schedule_hardware_reset('portal_requested_reboot')
     return {
         'message': 'Committed changes are being activated. The device is restarting.',
         'login_url': _configured_portal_login_url(),
+    }
+
+
+def request_device_shutdown():
+    logOutput(
+        'Local', 'Device control', {'log': 'Authenticated shutdown requested',
+        'force': True, 'audit': True}, 'INFO'
+    )
+    schedule_hardware_shutdown('portal_requested_shutdown')
+    return {
+        'message': 'The device is shutting down into deep sleep. Power-cycle '
+        'or externally reset it to start again.',
     }
 
 
@@ -2464,6 +2476,7 @@ async def start_admin_portal():
             'users.remove': portal_auth.remove_user,
             'restart.status': pending_restart_status,
             'restart.request': request_pending_restart,
+            'shutdown.request': request_device_shutdown,
         })
         web_portal_server = await portal_service.start(dependencies)
     except Exception as exc:

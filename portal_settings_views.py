@@ -652,13 +652,22 @@ def render_certificate_page(csrf, message='', certificates=None):
     )
     return portal_ui.shell('HAMD certificates', 'certificates', body, csrf, script)
 
-def render_factory_default_page(csrf, error=''):
+def render_device_control_page(csrf, error=''):
     body = (
         portal_ui.page_heading(
-            'Maintenance', 'Factory default',
-            'Erase user configuration and restart the protected first-boot setup wizard.'
+            'Maintenance', 'Device control',
+            'Restart, shut down, or return this device to factory defaults.'
         ) + _notice(error, True) +
-        '<section class="card"><div class="section-title"><h2>Reset this device</h2></div>'
+        '<section class="card"><div class="section-title"><h2>Power controls</h2></div>'
+        '<p class="muted">Restart and shutdown retain all settings, certificates, logs and '
+        'installed software.</p><div class="actions">'
+        '<form action="/restart-device" method="post"><input type="hidden" name="csrf" value="' +
+        html_escape(csrf) + '"><button class="secondary" type="submit">Restart device</button></form>'
+        '<form action="/shutdown-device" method="post"><input type="hidden" name="csrf" value="' +
+        html_escape(csrf) + '"><button class="secondary" type="submit">Shut down device</button></form>'
+        '</div><p class="muted">Shutdown enters deep sleep. Power-cycle or externally reset '
+        'the device to start it again.</p></section>'
+        '<section class="card"><div class="section-title"><h2>Factory default</h2></div>'
         '<p class="warning"><strong>This cannot be undone.</strong> Network, MQTT, portal, '
         'Home Assistant, module, certificate, ACME and log-history data will be erased. '
         'The signed core, active application and update verification key are retained.</p>'
@@ -679,7 +688,12 @@ def render_factory_default_page(csrf, error=''):
         '<span></span><button class="danger" type="submit">Erase settings and restart</button>'
         '</div></form></section>'
     )
-    return portal_ui.shell('HAMD factory default', 'factory_default', body, csrf)
+    return portal_ui.shell('HAMD device control', 'device_control', body, csrf)
+
+
+def render_factory_default_page(csrf, error=''):
+    """Compatibility alias for callers using the former page name."""
+    return render_device_control_page(csrf, error)
 
 def render_configuration_backup_page(csrf, message=''):
     body = (
@@ -968,4 +982,17 @@ def render_factory_default_complete_page(csrf):
         'access point with the setup password you just chose and browse to '
         '<strong>http://192.168.4.1</strong>.</p></section>'
     )
-    return portal_ui.shell('HAMD factory reset', 'factory_default', body, csrf)
+    return portal_ui.shell('HAMD factory reset', 'device_control', body, csrf)
+
+
+def render_shutdown_complete_page(message):
+    body = (
+        portal_ui.page_heading(
+            'Maintenance', 'Device shutting down',
+            'The device will stop network and application services.'
+        ) + '<section class="card"><p class="notice">' + html_escape(message) +
+        '</p><p>No configuration or installed software is erased.</p></section>'
+    )
+    return portal_ui.shell(
+        'HAMD device shutdown', 'device_control', body, authenticated=False
+    )

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.5 - 2026-08-24
+
+### Added
+
+- Replaced the Maintenance Factory default tab with Device control, adding
+  non-destructive restart and deep-sleep shutdown actions while retaining the
+  factory reset workflow in a separate danger section.
+- Added audit events for authenticated restart and shutdown requests.
+
 ## 2.0.4 - 2026-08-24
 
 ### Changed

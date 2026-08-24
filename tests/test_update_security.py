@@ -421,10 +421,11 @@ class UpdateSecurityTests(unittest.TestCase):
 
     def test_portal_restarts_use_hardware_timer(self):
         application_source = (Path(self.previous_cwd) / 'HA-Device.py').read_text()
-        self.assertIn('scheduled_reset_timer = Timer(-1)', application_source)
+        self.assertIn('scheduled_control_timer = Timer(-1)', application_source)
         self.assertIn('mode=Timer.ONE_SHOT', application_source)
         self.assertIn("mark_restart_required('Module configuration changed')", application_source)
         self.assertIn("schedule_hardware_reset('portal_requested_reboot')", application_source)
+        self.assertIn("schedule_hardware_shutdown('portal_requested_shutdown')", application_source)
         self.assertNotIn('async def reboot_with_new_modules', application_source)
 
     def test_signed_release_descriptor_detects_metadata_tampering(self):

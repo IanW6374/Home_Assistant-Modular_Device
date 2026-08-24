@@ -291,7 +291,7 @@ NAVIGATION = (
         ('health_history', '/health-history', 'Health history'),
         ('logging', '/logging', 'Log viewer'),
         ('audit_logging', '/audit-log', 'Audit log'),
-        ('factory_default', '/factory-default', 'Factory default'),
+        ('device_control', '/device-control', 'Device control'),
     )),
 )
 
