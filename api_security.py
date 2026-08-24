@@ -216,7 +216,7 @@ class ClientRegistry:
         self._save(value)
         return True
 
-    def authenticate(self, certificate_der, required_scope='read'):
+    def identify(self, certificate_der):
         fingerprint = certificate_fingerprint(certificate_der)
         client = next(
             (item for item in self._load()['clients']
@@ -225,6 +225,10 @@ class ClientRegistry:
         )
         if client is None:
             raise PermissionError('client certificate is not enrolled')
+        return dict(client)
+
+    def authenticate(self, certificate_der, required_scope='read'):
+        client = self.identify(certificate_der)
         if required_scope not in client.get('scopes', ()):
             raise PermissionError('client certificate does not have ' + required_scope + ' scope')
-        return dict(client)
+        return client

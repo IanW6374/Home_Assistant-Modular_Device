@@ -54,6 +54,19 @@ class DeviceAPI:
         self.fleet = fleet
         self.support_getter = support_getter
 
+    def connection_opened(self, identity, peer='unknown'):
+        client = self.registry.identify(identity)
+        if self.log_output:
+            self.log_output(
+                'API', 'Connection',
+                {'log': (
+                    'Accepted ' + str(client.get('label', 'client')) +
+                    ' from ' + str(peer)
+                ), 'force': True, 'audit': True},
+                'INFO'
+            )
+        return client
+
     def dispatch(self, method, path, body, identity):
         route = str(path).split('?', 1)[0]
         is_fleet = route.startswith('/api/v2/fleet')
@@ -183,7 +196,7 @@ class DeviceAPI:
         if self.log_output:
             self.log_output(
                 'API', 'Request',
-                {'log': label + ' ' + str(method) + ' ' + str(route)}, 'INFO'
+                {'log': label + ' ' + str(method) + ' ' + str(route)}, 'DEBUG'
             )
 
     def _module_not_found(self, client, uuid):
@@ -203,7 +216,7 @@ class DeviceAPI:
                 {'log': (
                     str(client.get('label', 'client')) + ' requested module ' +
                     str(uuid) + ' operation ' + str(operation_id)
-                )},
+                ), 'force': True, 'audit': True},
                 'INFO'
             )
 
@@ -240,12 +253,33 @@ def _peer_certificate(reader):
     return value
 
 
+def _peer_address(reader, writer=None):
+    for stream in (reader, writer):
+        getter = getattr(stream, 'get_extra_info', None)
+        if getter:
+            try:
+                value = getter('peername')
+                if value:
+                    return str(value[0] if isinstance(value, tuple) else value)
+            except Exception:
+                pass
+        socket_value = getattr(stream, 's', None)
+        if socket_value is not None and hasattr(socket_value, 'getpeername'):
+            try:
+                value = socket_value.getpeername()
+                return str(value[0] if isinstance(value, tuple) else value)
+            except Exception:
+                pass
+    return 'unknown'
+
+
 async def start_device_api(settings, api):
     if not settings.get('enabled'):
         return None
     maximum = int(settings.get('max_body_bytes', 8192))
 
     async def handle(reader, writer):
+        peer = _peer_address(reader, writer)
         try:
             # MicroPython's TLS server defers the handshake until the first
             # stream read. Inspecting the certificate before that read resets
@@ -257,6 +291,7 @@ async def start_device_api(settings, api):
                     return
                 if identity is None:
                     identity = _peer_certificate(reader)
+                    api.connection_opened(identity, peer)
                 parts = line.decode().strip().split()
                 if len(parts) != 3:
                     raise ValueError('invalid HTTP request line')
@@ -280,7 +315,12 @@ async def start_device_api(settings, api):
             if api.health:
                 api.health.increment('api_failures')
             if api.log_output:
-                api.log_output('API', 'Rejected', {'log': str(exc)}, 'ERROR')
+                api.log_output(
+                    'API', 'Connection',
+                    {'log': 'Rejected from ' + peer + ': ' + str(exc),
+                     'force': True, 'audit': True},
+                    'ERROR'
+                )
             await _write_response(writer, 403, {'error': str(exc)})
         except KeyError as exc:
             await _write_response(writer, 404, {'error': str(exc)})

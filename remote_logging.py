@@ -47,14 +47,23 @@ class RemoteSyslog:
     def enabled(self):
         return self.settings.get('enabled') is True
 
-    def enqueue(self, timestamp, message, severity='INFO'):
-        if not self.enabled:
+    @property
+    def audit_enabled(self):
+        return self.settings.get('audit_enabled', self.enabled) is True
+
+    @property
+    def active(self):
+        return self.enabled or self.audit_enabled
+
+    def enqueue(self, timestamp, message, severity='INFO', audit=False):
+        if not (self.audit_enabled if audit else self.enabled):
             return False
         if len(self.queue) >= self.queue_limit:
             self.queue.pop(0)
             self.dropped += 1
         self.queue.append(rfc5424_message(
-            timestamp, self.hostname, 'HAMD', message, severity
+            timestamp, self.hostname, 'HAMD-Audit' if audit else 'HAMD',
+            message, severity
         ))
         return True
 
@@ -95,7 +104,7 @@ class RemoteSyslog:
     async def run(self):
         tls_reader = None
         tls_writer = None
-        while self.enabled:
+        while self.active:
             if not self.queue:
                 await asyncio.sleep_ms(100) if hasattr(asyncio, 'sleep_ms') else await asyncio.sleep(0.1)
                 continue

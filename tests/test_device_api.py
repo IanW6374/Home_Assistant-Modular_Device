@@ -109,6 +109,31 @@ class DeviceAPITests(unittest.TestCase):
         self.assertEqual(self.broker.commands[0][1]['operation'], 'write')
         self.assertEqual(self.broker.commands[0][2], 'api')
 
+    def test_connection_and_commands_are_audit_but_requests_are_debug(self):
+        logs = []
+        api = DeviceAPI(
+            self.broker, self.health, self.registry,
+            lambda: {'device_name': 'test'},
+            lambda *args: logs.append(args)
+        )
+        self.registry.enrol(self.cert, 'controller', ('read', 'write'))
+
+        api.connection_opened(self.cert, '192.0.2.10')
+        api.dispatch('GET', '/api/v2/modules', b'', self.cert)
+        api.dispatch(
+            'POST', '/api/v2/modules/0001/commands',
+            b'{"request_id":"audit-1","operation":"write"}', self.cert
+        )
+
+        connection = next(item for item in logs if item[1] == 'Connection')
+        request = next(item for item in logs if item[1] == 'Request')
+        command = next(item for item in logs if item[1] == 'Module command')
+        self.assertTrue(connection[2]['audit'])
+        self.assertIn('192.0.2.10', connection[2]['log'])
+        self.assertEqual(request[3], 'DEBUG')
+        self.assertNotIn('audit', request[2])
+        self.assertTrue(command[2]['audit'])
+
     def test_unenrolled_certificate_is_rejected(self):
         with self.assertRaisesRegex(PermissionError, 'not enrolled'):
             self.api.dispatch('GET', '/api/v2/device/inventory', b'', self.cert)

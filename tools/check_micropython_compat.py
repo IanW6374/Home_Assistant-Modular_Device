@@ -9,6 +9,9 @@ from build_update import collect_files
 
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_IMPORTS = {'dataclasses', 'pathlib', 'subprocess', 'multiprocessing'}
+FORBIDDEN_METHODS = {
+    'isalnum': 'MicroPython str does not provide isalnum()',
+}
 
 
 def compatibility_errors(path):
@@ -17,6 +20,15 @@ def compatibility_errors(path):
     errors = []
     hash_objects = set()
     for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call) and
+            isinstance(node.func, ast.Attribute) and
+            node.func.attr in FORBIDDEN_METHODS
+        ):
+            errors.append(
+                FORBIDDEN_METHODS[node.func.attr] + ' at line ' +
+                str(node.lineno)
+            )
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name.split('.', 1)[0] in FORBIDDEN_IMPORTS:

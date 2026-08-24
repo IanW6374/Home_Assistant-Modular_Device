@@ -652,6 +652,7 @@ class SetupWizardTests(unittest.TestCase):
             'log_buffer_lines': 300,
             'portal_session_timeout_s': 1800,
             'syslog_enabled': True,
+            'syslog_audit_enabled': False,
             'syslog_host': 'logs.local',
             'syslog_port': 6514,
             'syslog_transport': 'tls',
@@ -668,6 +669,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertEqual(public['log_buffer_lines'], 300)
         self.assertEqual(public['portal_session_timeout_s'], 1800)
         self.assertEqual(public['syslog_transport'], 'tls')
+        self.assertFalse(public['syslog_audit_enabled'])
         self.assertEqual(public['release_check_schedule'], 'weekly')
         self.assertEqual(public['release_check_time'], '04:30')
         self.assertEqual(public['release_check_weekday'], 6)

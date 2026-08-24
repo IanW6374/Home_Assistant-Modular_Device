@@ -518,6 +518,39 @@ def render_logging_page(token, current_loglevel, levels, logs,
     )
     return portal_ui.shell('HAMD logging', 'logging', body, token, script)
 
+def render_audit_logging_page(token, logs, log_refresh_ms=5000):
+    body = (
+        portal_ui.page_heading(
+            'Maintenance', 'Audit log',
+            'Review security-relevant portal authentication and API connection events.'
+        ) +
+        '<section class="card"><div class="section-title"><h2>Audit events</h2>'
+        '<div class="actions"><a class="button secondary compact" '
+        'href="/download-audit-logs">Download audit log</a>' +
+        render_refresh_controls_html('audit-refresh-toggle', 'audit') +
+        '</div></div><pre id="audit-logs" class="log-view">' +
+        render_logs_html(logs or []) + '</pre></section>'
+    )
+    interval = max(1000, int(log_refresh_ms or 5000))
+    script = (
+        'var auditRefreshPaused=false,auditRefreshButton=document.getElementById("audit-refresh-toggle"),'
+        'auditRefreshState=document.querySelector(".refresh-status");'
+        'function updateAuditRefresh(){auditRefreshButton.textContent=auditRefreshPaused?"Resume":"Pause";'
+        'auditRefreshState.textContent=auditRefreshPaused?"refresh paused":"auto refresh";'
+        'auditRefreshState.className=auditRefreshPaused?"badge warn refresh-status":"badge good refresh-status";}'
+        'auditRefreshButton.onclick=function(){auditRefreshPaused=!auditRefreshPaused;updateAuditRefresh();'
+        'if(!auditRefreshPaused)refreshAuditLogs();};'
+        'function auditNearBottom(e){return e.scrollHeight-e.scrollTop-e.clientHeight<48;}'
+        'function refreshAuditLogs(){if(auditRefreshPaused)return;var e=document.getElementById("audit-logs"),'
+        'b=auditNearBottom(e);fetch("/audit-logs",{cache:"no-store",credentials:"same-origin"}).then(function(r){'
+        'if(r.status===401){location.replace("/login");return null;}return r.text();}).then(function(t){'
+        'if(t!==null&&t!==undefined&&e.textContent!==t){e.textContent=t;if(b)e.scrollTop=e.scrollHeight;}})'
+        '.catch(function(){});}setInterval(refreshAuditLogs,' + str(interval) + ');updateAuditRefresh();'
+    )
+    return portal_ui.shell(
+        'HAMD audit log', 'audit_logging', body, token, script
+    )
+
 def render_logging_settings_page(token, settings, message='', error=False):
     settings = settings or {}
     body = (
@@ -528,15 +561,22 @@ def render_logging_settings_page(token, settings, message='', error=False):
         '<section class="card"><div class="section-title"><h2>Retention and forwarding</h2></div>'
         '<form action="/logging-settings" method="post"><input type="hidden" name="csrf" value="' +
         html_escape(token) + '">' + render_operational_hidden_fields(
-            settings, ('log_buffer_lines', 'syslog_enabled', 'syslog_host',
-                       'syslog_port', 'syslog_transport')
+            settings, ('log_buffer_lines', 'syslog_enabled',
+                       'syslog_audit_enabled', 'syslog_host', 'syslog_port',
+                       'syslog_transport')
         ) + '<input type="hidden" name="syslog_enabled" value="false">'
+        '<input type="hidden" name="syslog_audit_enabled" value="false">'
         '<label class="field">Local log entries (0–500)<input name="log_buffer_lines" '
         'type="number" min="0" max="500" required value="' +
         html_escape(settings.get('log_buffer_lines', 200)) + '"></label>'
         '<label class="check"><input name="syslog_enabled" type="checkbox" value="true"' +
         (' checked' if settings.get('syslog_enabled') else '') +
-        '>Forward logs to a remote syslog server</label><div class="grid">'
+        '>Forward system logs to the remote syslog server</label>'
+        '<label class="check"><input name="syslog_audit_enabled" type="checkbox" value="true"' +
+        (' checked' if settings.get(
+            'syslog_audit_enabled', settings.get('syslog_enabled', False)
+        ) else '') +
+        '>Forward audit events to the remote syslog server</label><div class="grid">'
         '<label class="field">Syslog server<input name="syslog_host" maxlength="253" value="' +
         html_escape(settings.get('syslog_host', '')) + '"></label>'
         '<label class="field">Port<input name="syslog_port" type="number" min="1" max="65535" '

@@ -290,6 +290,7 @@ NAVIGATION = (
         ('configuration_backup', '/configuration-backup', 'Configuration backup'),
         ('health_history', '/health-history', 'Health history'),
         ('logging', '/logging', 'Log viewer'),
+        ('audit_logging', '/audit-log', 'Audit log'),
         ('factory_default', '/factory-default', 'Factory default'),
     )),
 )
@@ -320,7 +321,14 @@ def identity_badge(username, role):
     tokens = []
     token = ''
     for character in str(username).strip():
-        if character.isalnum():
+        # MicroPython's compact ``str`` implementation does not provide
+        # ``isalnum()``.  Portal usernames are ASCII by contract, so keep the
+        # badge tokenizer explicit and portable across the supported cores.
+        if (
+            '0' <= character <= '9' or
+            'A' <= character <= 'Z' or
+            'a' <= character <= 'z'
+        ):
             token += character
         elif token:
             tokens.append(token)

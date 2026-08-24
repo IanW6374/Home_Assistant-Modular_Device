@@ -75,6 +75,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Daylight-saving changes are applied automatically', ntp)
         self.assertIn('name="log_buffer_lines"', logging)
         self.assertIn('name="syslog_transport"', logging)
+        self.assertIn('name="syslog_enabled"', logging)
+        self.assertIn('name="syslog_audit_enabled"', logging)
         self.assertIn('Encrypt backup and include secrets', backup)
         self.assertIn('id="export-encryption" class="conditional-fields" disabled', backup)
         self.assertIn('Uploading backup ', backup)
@@ -573,6 +575,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertNotIn('/updates?check=1', maintenance_menu)
         self.assertIn('href="/certificates">Certificates</a>', maintenance_menu)
         self.assertIn('href="/logging" aria-current="page">Log viewer</a>', maintenance_menu)
+        self.assertIn('href="/audit-log">Audit log</a>', maintenance_menu)
         self.assertIn('href="/factory-default">Factory default</a>', maintenance_menu)
         self.assertNotIn('href="/diagnostics">Diagnostics</a>', maintenance_menu)
         self.assertNotIn('href="/download-diagnostics"', html)
@@ -584,6 +587,21 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('name="log_buffer_lines"', html)
         self.assertIn('>Stored lines <input', html)
 
+        audit = web_portal.render_audit_logging_page(
+            'csrf', ['portal login', 'API connection']
+        )
+        audit_menu = audit.split(
+            'aria-label="Maintenance submenu"', 1
+        )[1].split('</div>', 1)[0]
+        self.assertIn(
+            'href="/audit-log" aria-current="page">Audit log</a>', audit_menu
+        )
+        self.assertIn('<h1>Audit log</h1>', audit)
+        self.assertIn('portal login', audit)
+        self.assertIn('API connection', audit)
+        self.assertIn('href="/download-audit-logs"', audit)
+        self.assertIn('fetch("/audit-logs"', audit)
+
         settings = web_portal.render_logging_settings_page('csrf', {
             'log_buffer_lines': 200, 'syslog_transport': 'udp'
         })
@@ -592,6 +610,8 @@ class WebPortalTests(unittest.TestCase):
         )[1].split('</div>', 1)[0]
         self.assertIn('href="/logging-settings" aria-current="page">Logging</a>', system_menu)
         self.assertIn('name="log_buffer_lines"', settings)
+        self.assertIn('name="syslog_enabled"', settings)
+        self.assertIn('name="syslog_audit_enabled"', settings)
 
         diagnostics = web_portal.render_module_diagnostics_page('csrf', [])
         self.assertIn('href="/download-diagnostics"', diagnostics)
@@ -746,6 +766,7 @@ class WebPortalTests(unittest.TestCase):
                 changed_verifiers = []
                 changed_settings = []
                 portal_actions = []
+                portal_events = []
                 network_confirmations = []
                 factory_resets = []
                 restart_requests = []
@@ -787,9 +808,10 @@ class WebPortalTests(unittest.TestCase):
                     },
                     {
                     'logs.get': lambda: ['initial portal log'],
+                    'audit.get': lambda: ['successful login', 'API connection'],
                     'logs.level.get': lambda: 'INFO',
                     'logs.level.set': lambda level: None,
-                    'events.log': lambda *args: None,
+                    'events.log': lambda *args: portal_events.append(args),
                     'status.get': lambda: {'device_name': 'Controller'},
                     'actions.apply': handle_action,
                     'settings.get': get_settings,
@@ -829,6 +851,12 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('303 See Other', login)
                 self.assertIn('Location: /user', login)
                 self.assertEqual(network_confirmations, [True])
+                login_event = next(
+                    event for event in portal_events
+                    if event[1] == 'Portal authentication'
+                )
+                self.assertTrue(login_event[2]['audit'])
+                self.assertEqual(login_event[3], 'INFO')
                 cookie_header = next(
                     line for line in login.split('\r\n')
                     if line.startswith('Set-Cookie: ham_session=')
@@ -955,6 +983,24 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('<h1>Logging</h1>', logging)
                 self.assertIn('initial portal log', logging)
                 self.assertIn('name="level"', logging)
+
+                audit_logging = await request(
+                    ('GET /audit-log HTTP/1.1\r\nCookie: ham_session=' +
+                     session_id + '\r\n\r\n').encode()
+                )
+                self.assertIn('<h1>Audit log</h1>', audit_logging)
+                self.assertIn('successful login', audit_logging)
+                audit_feed = await request(
+                    ('GET /audit-logs HTTP/1.1\r\nCookie: ham_session=' +
+                     session_id + '\r\n\r\n').encode()
+                )
+                self.assertIn('successful login\nAPI connection', audit_feed)
+                request_event = next(
+                    event for event in portal_events
+                    if event[1] == 'Web portal request'
+                )
+                self.assertEqual(request_event[3], 'DEBUG')
+                self.assertNotIn('audit', request_event[2])
 
                 home_assistant = await request(
                     ('GET /home-assistant HTTP/1.1\r\nCookie: ham_session=' +
@@ -1496,6 +1542,11 @@ class WebPortalTests(unittest.TestCase):
 
         self.assertIn('<span aria-hidden="true">IW</span>', badge)
         self.assertIn('title="Ian Walton · Administrator privileges"', badge)
+
+        punctuation = portal_ui.identity_badge(
+            'portal-admin_2', 'administrator'
+        )
+        self.assertIn('<span aria-hidden="true">P2</span>', punctuation)
 
     def test_render_page_has_auto_refresh_and_scrollable_logs(self):
         status = {

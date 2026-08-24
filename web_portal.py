@@ -67,6 +67,7 @@ async def start_web_portal(portal):
 
     settings = portal.settings
     log_getter = portal.require('logs.get')
+    audit_log_getter = portal.get('audit.get') or (lambda: [])
     loglevel_getter = portal.require('logs.level.get')
     loglevel_setter = portal.require('logs.level.set')
     log_output = portal.require('events.log')
@@ -137,6 +138,12 @@ async def start_web_portal(portal):
 
     async def send_raw_response(writer, status, body, content_type='text/html; charset=utf-8', extra_headers=None):
         await write_buffered_response(writer, status, body, content_type, extra_headers)
+
+    async def send_log_download(writer, lines, filename):
+        await send_raw_response(
+            writer, '200 OK', render_log_text(lines), 'text/plain; charset=utf-8',
+            (('Content-Disposition', 'attachment; filename="' + filename + '"'),)
+        )
 
     async def send_redirect(writer, location, extra_headers=None):
         headers = [('Location', location)]
@@ -313,6 +320,7 @@ async def start_web_portal(portal):
             is_updates = route == '/updates'
             is_diagnostics = route == '/diagnostics'
             is_logging = route == '/logging'
+            is_audit_logging = route == '/audit-log'
             is_factory_default = route == '/factory-default'
             is_configuration_backup = route == '/configuration-backup'
             is_health_history = route == '/health-history'
@@ -363,6 +371,7 @@ async def start_web_portal(portal):
                 '/assets/portal.css', '/assets/portal.js', '/logs', '/partials',
                 '/api/status', '/api/overview', '/api/module-diagnostics',
                 '/update-progress', '/task-status', '/resumable-upload-status',
+                '/audit-logs',
                 '/api/restart-required'
             )
             session_valid = session is not None
@@ -371,13 +380,11 @@ async def start_web_portal(portal):
                 session_valid
             ):
                 log_output(
-                    'Local', 'Web portal audit',
-                    {'log': peer_address + ' ' + str(method) + ' ' + str(route), 'force': True}, 'INFO'
-                )
-            if session_valid and not is_login and route not in quiet_audit_routes:
-                log_output(
-                    'Local', 'Web portal audit identity',
-                    {'log': session_username + ' (' + session_role + ')', 'force': False},
+                    'Local', 'Web portal request',
+                    {'log': (
+                        session_username + ' (' + session_role + ') from ' +
+                        peer_address + ' ' + str(method) + ' ' + str(route)
+                    )},
                     'DEBUG'
                 )
 
@@ -426,10 +433,10 @@ async def start_web_portal(portal):
                     cached_page['body'] = None
                     login_failures = 0
                     log_output(
-                        'Local', 'Web portal audit',
+                        'Local', 'Portal authentication',
                         {'log': 'Successful login for ' + str(session_username) +
                          ' (' + str(session_role) + ') from ' + peer_address,
-                         'force': True},
+                         'force': True, 'audit': True},
                         'INFO'
                     )
                     if network_trial_confirmer:
@@ -451,9 +458,9 @@ async def start_web_portal(portal):
                 else:
                     login_failures += 1
                     log_output(
-                        'Local', 'Web portal audit',
+                        'Local', 'Portal authentication',
                         {'log': 'Rejected login for ' + str(params.get('username', '')) +
-                         ' from ' + peer_address, 'force': True},
+                         ' from ' + peer_address, 'force': True, 'audit': True},
                         'ERROR'
                     )
                     await asyncio.sleep(min(2, login_failures * 0.25))
@@ -469,14 +476,22 @@ async def start_web_portal(portal):
                     writer, '401 Unauthorized', render_login_page()
                 )
             elif csrf_error:
+                log_output(
+                    'Local', 'Portal authorization',
+                    {'log': (
+                        'Rejected invalid CSRF token for ' + session_username +
+                        ' from ' + peer_address + ' on ' + method + ' ' + route
+                    ), 'force': True, 'audit': True},
+                    'ERROR'
+                )
                 await send_response(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
             elif not portal_auth.role_allows(
                 session_role, portal_auth.required_role(method, route)
             ):
                 log_output(
-                    'Local', 'Web portal audit',
+                    'Local', 'Portal authorization',
                     {'log': 'Denied ' + session_username + ' ' + method + ' ' + route,
-                     'force': True}, 'ERROR'
+                     'force': True, 'audit': True}, 'ERROR'
                 )
                 await send_response(
                     writer, '403 Forbidden', 'Your portal role cannot perform this action.',
@@ -486,8 +501,11 @@ async def start_web_portal(portal):
                 await send_response(writer, '404 Not Found', 'Not found', 'text/plain')
             elif method == 'POST' and route == '/logout':
                 log_output(
-                    'Local', 'Web portal audit',
-                    {'log': 'Authenticated session logged out', 'force': True}, 'INFO'
+                    'Local', 'Portal authentication',
+                    {'log': (
+                        'Logout for ' + session_username + ' (' + session_role +
+                        ') from ' + peer_address
+                    ), 'force': True, 'audit': True}, 'INFO'
                 )
                 sessions.revoke(session_id)
                 cached_page['body'] = None
@@ -794,6 +812,13 @@ async def start_web_portal(portal):
                     render_logging_page(
                         csrf_token, loglevel_getter(), levels, log_getter(),
                         log_refresh_ms, settings_getter() if settings_getter else {}
+                    )
+                )
+            elif method == 'GET' and is_audit_logging:
+                await send_response(
+                    writer, '200 OK',
+                    render_audit_logging_page(
+                        csrf_token, audit_log_getter(), log_refresh_ms
                     )
                 )
             elif method == 'POST' and is_logging:
@@ -1164,18 +1189,18 @@ async def start_web_portal(portal):
                         writer, '200 OK', json.dumps(wifi_scan_getter()),
                         'application/json'
                     )
+            elif path.startswith('/audit-logs'):
+                body = render_log_text(audit_log_getter())
+                await send_response(writer, '200 OK', body, 'text/plain')
             elif path.startswith('/logs'):
                 body = render_log_text(log_getter())
                 await send_response(writer, '200 OK', body, 'text/plain')
-            elif path.startswith('/download-logs'):
-                body = render_log_text(log_getter())
-                await send_response(
-                    writer,
-                    '200 OK',
-                    body,
-                    'text/plain; charset=utf-8',
-                    (('Content-Disposition', 'attachment; filename="ha-device-logs.txt"'),)
+            elif path.startswith('/download-audit-logs'):
+                await send_log_download(
+                    writer, audit_log_getter(), 'ha-device-audit-logs.txt'
                 )
+            elif path.startswith('/download-logs'):
+                await send_log_download(writer, log_getter(), 'ha-device-logs.txt')
             elif path.startswith('/download-diagnostics'):
                 safe_logs = []
                 for line in list(log_getter())[-100:]:

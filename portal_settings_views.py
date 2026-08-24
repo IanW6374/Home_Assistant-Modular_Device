@@ -93,6 +93,9 @@ def render_operational_hidden_fields(settings, excluded=()):
         ('ha_discovery', 'true' if settings.get('ha_discovery') else 'false'),
         ('log_buffer_lines', settings.get('log_buffer_lines', 200)),
         ('syslog_enabled', 'true' if settings.get('syslog_enabled') else 'false'),
+        ('syslog_audit_enabled', 'true' if settings.get(
+            'syslog_audit_enabled', settings.get('syslog_enabled', False)
+        ) else 'false'),
         ('syslog_host', settings.get('syslog_host', '')),
         ('syslog_port', settings.get('syslog_port', 514)),
         ('syslog_transport', settings.get('syslog_transport', 'udp')),

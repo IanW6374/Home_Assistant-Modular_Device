@@ -399,6 +399,9 @@ def build_configuration(values, portal_password, recovery_password):
         },
         'syslog': {
             'enabled': bool(values.get('syslog_enabled', False)),
+            'audit_enabled': bool(values.get(
+                'syslog_audit_enabled', values.get('syslog_enabled', False)
+            )),
             'host': str(values.get('syslog_host', '')).strip(),
             'port': int(values.get('syslog_port', 514)),
             'transport': str(values.get('syslog_transport', 'udp')),
@@ -482,6 +485,9 @@ def public_settings():
         'api_port': config.get('api', {}).get('port', 8444),
         'api_auth': config.get('api', {}).get('auth', 'mtls'),
         'syslog_enabled': syslog.get('enabled', False),
+        'syslog_audit_enabled': syslog.get(
+            'audit_enabled', syslog.get('enabled', False)
+        ),
         'syslog_host': syslog.get('host', ''),
         'syslog_port': syslog.get('port', 514),
         'syslog_transport': syslog.get('transport', 'udp'),
@@ -575,11 +581,14 @@ def _apply_operational_settings(config, values):
     if 'api_port' in values:
         config['api']['port'] = int(values['api_port'])
     if any(key in values for key in (
-        'syslog_enabled', 'syslog_host', 'syslog_port', 'syslog_transport'
+        'syslog_enabled', 'syslog_audit_enabled', 'syslog_host',
+        'syslog_port', 'syslog_transport'
     )):
         syslog = config.setdefault('syslog', {})
         if 'syslog_enabled' in values:
             syslog['enabled'] = bool(values['syslog_enabled'])
+        if 'syslog_audit_enabled' in values:
+            syslog['audit_enabled'] = bool(values['syslog_audit_enabled'])
         if 'syslog_host' in values:
             syslog['host'] = str(values['syslog_host']).strip()
         if 'syslog_port' in values:

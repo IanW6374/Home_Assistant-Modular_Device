@@ -26,6 +26,34 @@ class RemoteLoggingTests(unittest.TestCase):
         self.assertEqual(client.dropped, 1)
         self.assertNotIn(b'one', client.queue[0])
 
+    def test_system_and_audit_forwarding_are_independent(self):
+        audit_only = RemoteSyslog({
+            'enabled': False, 'audit_enabled': True,
+            'host': 'logs.local', 'port': 514, 'transport': 'udp'
+        })
+
+        self.assertFalse(audit_only.enqueue('-', 'system event'))
+        self.assertTrue(audit_only.enqueue('-', 'login accepted', audit=True))
+        self.assertTrue(audit_only.active)
+        self.assertIn(b'HAMD-Audit', audit_only.queue[0])
+
+        system_only = RemoteSyslog({
+            'enabled': True, 'audit_enabled': False,
+            'host': 'logs.local', 'port': 514, 'transport': 'udp'
+        })
+        self.assertTrue(system_only.enqueue('-', 'system event'))
+        self.assertFalse(system_only.enqueue('-', 'login accepted', audit=True))
+        self.assertNotIn(b'HAMD-Audit', system_only.queue[0])
+
+    def test_existing_syslog_configuration_forwards_audit_by_default(self):
+        client = RemoteSyslog({
+            'enabled': True, 'host': 'logs.local', 'port': 514,
+            'transport': 'udp'
+        })
+
+        self.assertTrue(client.audit_enabled)
+        self.assertTrue(client.enqueue('-', 'legacy audit event', audit=True))
+
 
 if __name__ == '__main__':
     unittest.main()

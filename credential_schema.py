@@ -218,9 +218,16 @@ def validate(config, require_provisioned=False):
         raise ValueError('portal timeout must be between 300 and 86400 seconds')
     if not isinstance(syslog.get('enabled', False), bool):
         raise ValueError('syslog enabled setting must be true or false')
+    if not isinstance(
+        syslog.get('audit_enabled', syslog.get('enabled', False)), bool
+    ):
+        raise ValueError('syslog audit setting must be true or false')
     syslog_host = _text(
         syslog.get('host', ''), 'syslog server',
-        1 if syslog.get('enabled', False) else 0, 253
+        1 if (
+            syslog.get('enabled', False) or
+            syslog.get('audit_enabled', syslog.get('enabled', False))
+        ) else 0, 253
     )
     syslog_port = syslog.get('port', 6514 if syslog.get('transport') == 'tls' else 514)
     if (
@@ -230,7 +237,10 @@ def validate(config, require_provisioned=False):
         raise ValueError('syslog port must be between 1 and 65535')
     if syslog.get('transport', 'udp') not in ('udp', 'tls'):
         raise ValueError('syslog transport must be udp or tls')
-    if syslog.get('enabled') and not syslog_host:
+    if (
+        syslog.get('enabled') or
+        syslog.get('audit_enabled', syslog.get('enabled', False))
+    ) and not syslog_host:
         raise ValueError('syslog server is required when remote logging is enabled')
     if not isinstance(api.get('enabled', False), bool):
         raise ValueError('device API enabled setting must be true or false')

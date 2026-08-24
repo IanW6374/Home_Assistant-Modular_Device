@@ -224,6 +224,7 @@ release_automatic_last_checked = ''
 web_log_buffer_lines = device_settings.web_log_buffer_lines
 web_log_line_max_chars = device_settings.web_log_line_max_chars
 log_buffer = []
+audit_log_buffer = []
 remote_syslog = RemoteSyslog(
     runtime_credentials.get('syslog', {}), ha_devicename,
     device_settings.syslog_ca_path
@@ -455,7 +456,8 @@ def logOutput(mode, action, data, logtype):
     
     timestamp = "{:04}{:02}{:02} {:02}{:02}{:02}".format(current_time[0], current_time[1], current_time[2], current_time[3], current_time[4], current_time[5])
     
-    if data.get('force') or loglevels.index(logtype) <= loglevels.index(loglevel):
+    is_audit = data.get('audit') is True
+    if is_audit or data.get('force') or loglevels.index(logtype) <= loglevels.index(loglevel):
         
         log = timestamp + '  ' + mode + ': ' + action + ' - ' + data['log']
         
@@ -477,13 +479,16 @@ def logOutput(mode, action, data, logtype):
             
             print (log)
 
-        remember_log(log)
+        if is_audit:
+            remember_audit_log(log)
+        else:
+            remember_log(log)
         remote_syslog.enqueue(
             '{:04}-{:02}-{:02}T{:02}:{:02}:{:02}'.format(
                 utc_time[0], utc_time[1], utc_time[2],
                 utc_time[3], utc_time[4], utc_time[5]
             ),
-            log, logtype
+            log, logtype, audit=is_audit
         )
 
 
@@ -516,6 +521,18 @@ def get_log_buffer():
     return list(log_buffer)
 
 
+def remember_audit_log(log):
+    if len(log) > web_log_line_max_chars:
+        log = log[:web_log_line_max_chars] + '...'
+    audit_log_buffer.append(log)
+    while len(audit_log_buffer) > web_log_buffer_lines:
+        audit_log_buffer.pop(0)
+
+
+def get_audit_log_buffer():
+    return list(audit_log_buffer)
+
+
 def get_loglevel():
     return loglevel
 
@@ -541,6 +558,8 @@ def set_log_buffer_lines(line_count):
     web_log_buffer_lines = line_count
     while len(log_buffer) > web_log_buffer_lines:
         log_buffer.pop(0)
+    while len(audit_log_buffer) > web_log_buffer_lines:
+        audit_log_buffer.pop(0)
     try:
         current = credential_store.public_settings()
         if current.get('log_buffer_lines') != line_count:
@@ -1392,6 +1411,9 @@ def update_portal_settings(params):
         'syslog_enabled': str(params.get('syslog_enabled', '')).lower() in (
             '1', 'true', 'on'
         ),
+        'syslog_audit_enabled': str(
+            params.get('syslog_audit_enabled', '')
+        ).lower() in ('1', 'true', 'on'),
         'syslog_host': str(params.get('syslog_host', '')).strip(),
         'syslog_port': int(params.get('syslog_port', 514)),
         'syslog_transport': str(params.get('syslog_transport', 'udp')).strip(),
@@ -2399,6 +2421,7 @@ async def start_admin_portal():
         wifi_recovery.schedule_wifi_scan()
         dependencies = PortalDependencies(settings, {
             'logs.get': get_log_buffer,
+            'audit.get': get_audit_log_buffer,
             'logs.level.get': get_loglevel,
             'logs.level.set': set_loglevel,
             'logs.limit.set': set_log_buffer_lines,
@@ -2954,7 +2977,7 @@ async def main(client):
     application_context.lifecycle.transition('services-ready')
     application_context.state.set('api', 'ready')
     start_task('fleet_policy_monitor', fleet_policy_monitor())
-    if remote_syslog.enabled:
+    if remote_syslog.active:
         start_task('remote_syslog', remote_syslog.run())
     start_task('certificate_alerts', certificate_alert_monitor())
 

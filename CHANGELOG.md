@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.2 - 2026-08-24
+
+### Added
+
+- Added a dedicated administrator Audit log under Maintenance for portal
+  authentication, authorization and mTLS API connection events.
+- Added independent remote-syslog forwarding controls for system logs and
+  audit events.
+
+### Changed
+
+- Moved routine authenticated portal page requests and API request traces to
+  DEBUG-level system logging instead of emitting them as INFO audit messages.
+
+### Fixed
+
+- Restored authenticated portal rendering on MicroPython cores whose compact
+  string implementation does not provide `str.isalnum()`.
+- Added a MicroPython compatibility check that rejects unsupported
+  `str.isalnum()` calls before an application bundle is built.
+
 ## 2.0.1 - 2026-08-24
 
 ### Fixed
