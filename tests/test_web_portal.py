@@ -1548,6 +1548,16 @@ class WebPortalTests(unittest.TestCase):
         )
         self.assertIn('<span aria-hidden="true">P2</span>', punctuation)
 
+    def test_portal_labels_do_not_require_cpython_capitalize(self):
+        self.assertEqual(portal_ui.capitalized('aDmInIsTrAtOr'), 'Administrator')
+        badge = portal_ui.identity_badge('admin', 'administrator')
+        self.assertIn('Administrator privileges', badge)
+        restricted = portal_ui.restrict_actions(
+            '<form action="/restart-device"><button>Restart</button></form>',
+            'viewer'
+        )
+        self.assertIn('Requires Administrator privileges', restricted)
+
     def test_render_page_has_auto_refresh_and_scrollable_logs(self):
         status = {
             'device_name': 'Controller', 'mqtt': 'up',

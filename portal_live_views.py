@@ -245,7 +245,7 @@ def render_update_summary_html(status):
     if int(paired.get('total_steps', 0) or 0) > 1:
         paired_html = (
             '<p class="muted"><strong>' +
-            html_escape(str(paired.get('active_type', '')).capitalize()) +
+            html_escape(portal_ui.capitalized(paired.get('active_type', ''))) +
             ' step ' + html_escape(paired.get('step', 0)) + ' of ' +
             html_escape(paired.get('total_steps', 0)) + '</strong> — ' +
             html_escape(paired.get('status', '')) + '</p>'

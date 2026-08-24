@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_IMPORTS = {'dataclasses', 'pathlib', 'subprocess', 'multiprocessing'}
 FORBIDDEN_METHODS = {
     'isalnum': 'MicroPython str does not provide isalnum()',
+    'capitalize': 'MicroPython str does not provide capitalize()',
+    'title': 'MicroPython str does not provide title()',
 }
 
 

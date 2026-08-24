@@ -306,6 +306,14 @@ def escape(value):
     return value
 
 
+def capitalized(value):
+    """Return a title-cased label using MicroPython's supported string API."""
+    value = str(value).strip()
+    if not value:
+        return ''
+    return value[:1].upper() + value[1:].lower()
+
+
 def brand():
     return (
         '<div class="brand"><span class="brand-mark">HA</span><span class="brand-copy">'
@@ -341,7 +349,7 @@ def identity_badge(username, role):
         initials = tokens[0][:2]
     else:
         initials = '??'
-    role_label = str(role).strip().capitalize() or 'Unknown'
+    role_label = capitalized(role) or 'Unknown'
     description = str(username) + ' · ' + role_label + ' privileges'
     return (
         '<div class="portal-identity" tabindex="0" aria-label="Signed in as ' +
@@ -366,7 +374,7 @@ def _attribute(tag, name):
 
 
 def _disable_controls(fragment, required):
-    explanation = 'Requires ' + str(required).capitalize() + ' privileges'
+    explanation = 'Requires ' + capitalized(required) + ' privileges'
     for element in ('button', 'input', 'select', 'textarea'):
         marker = '<' + element
         offset = 0
@@ -437,7 +445,7 @@ def restrict_actions(page, role):
                 replacement = tag.replace(href_token, '', 1)
             tooltip = (
                 '' if ' title=' in replacement else
-                ' title="Requires ' + escape(str(required).capitalize()) +
+                ' title="Requires ' + escape(capitalized(required)) +
                 ' privileges"'
             )
             replacement = replacement[:-1] + (

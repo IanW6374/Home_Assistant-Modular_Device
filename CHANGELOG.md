@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.3 - 2026-08-24
+
+### Fixed
+
+- Removed the remaining unsupported `str.capitalize()` calls from
+  authenticated portal rendering on MicroPython.
+- Extended the MicroPython compatibility gate to reject unsupported
+  `capitalize()` and `title()` calls in application bundles.
+
 ## 2.0.2 - 2026-08-24
 
 ### Added

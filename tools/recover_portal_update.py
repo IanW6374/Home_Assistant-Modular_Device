@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Recover a HAMD portal whose authenticated HTML renderer is broken.
 
-The v2.0.1 portal can still authenticate and serve JSON endpoints even though
+Affected portals can still authenticate and serve JSON endpoints even though
 personalising an HTML response raises on MicroPython.  This utility reuses
 those authenticated endpoints to stage and activate a signed HAMD bundle.
 """
@@ -213,14 +213,14 @@ def main():
         base_url + '/activate-update', activation,
         {'Content-Type': 'application/x-www-form-urlencoded'}, 'POST'
     ), 30)
-    # v2.0.1 schedules activation before its broken HTML personalisation runs,
+    # Affected versions schedule activation before broken personalisation runs,
     # so HTTP 500 is expected and safe at this final step.
     if status not in (200, 202, 302, 303, 500):
         raise RuntimeError(
             'activation returned HTTP ' + str(status) + ': ' +
             body.decode(errors='replace')[:300]
         )
-    print('v2.0.2 staged and activation requested. Wait 30 seconds, then reload the portal.')
+    print('Update staged and activation requested. Wait 30 seconds, then reload the portal.')
 
 
 if __name__ == '__main__':
