@@ -80,7 +80,7 @@ refer to those same operational topics. See the
 [messaging guide](docs/MESSAGING.md).
 
 Fleet and release services are provided by the separate public
-[IoTMD Management Suite](https://github.com/IanW6374/IoTMD-Management-Suite).
+[IoTMD Management Suite](https://github.com/IanW6374/HA-IoTMD-Management-Suite).
 The generic IoT Certificate Authority and IoT Syslog Server remain independent
 add-ons. See the [management ecosystem](docs/MANAGEMENT_SUITE.md).
 

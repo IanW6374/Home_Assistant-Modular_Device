@@ -5,7 +5,7 @@ security/logging add-ons. They intentionally remain independently installable.
 
 ## IoTMD Management Suite
 
-The public `IoTMD-Management-Suite` Home Assistant add-on combines:
+The public `HA-IoTMD-Management-Suite` Home Assistant add-on combines:
 
 - device enrollment, inventory, health and event history;
 - signed fleet policy and queued command coordination;
