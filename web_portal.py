@@ -39,26 +39,6 @@ from portal_settings_views import *
 from portal_live_views import *
 from portal_presenters import *
 
-
-def parse_portal_body(route, headers, body):
-    """Parse a small form body without duplicating JSON upload payloads."""
-    content_type = str(headers.get('content-type', '')).split(';', 1)[0].strip()
-    if content_type == 'application/json':
-        if route == '/validate-configuration':
-            try:
-                return {'config_json': body.decode()}
-            except Exception:
-                return {'config_json': ''}
-        # Backup and API JSON endpoints consume ``body`` directly. Treating a
-        # large JSON document as a query string retains another full copy on
-        # memory-constrained devices and can stall encrypted restore preview.
-        return {}
-    try:
-        encoded = body.decode()
-    except Exception:
-        encoded = ''
-    return parse_query('?' + encoded) if encoded else {}
-
 async def start_web_portal(portal):
     """Start the portal transport from one explicit application contract."""
     if asyncio is None:
@@ -73,8 +53,6 @@ async def start_web_portal(portal):
     status_getter = portal.get('status.get')
     module_getter = portal.get('modules.list')
     action_handler = portal.get('actions.apply')
-    upload_handler = portal.get('updates.application.receive')
-    firmware_upload_handler = portal.get('updates.firmware.receive')
     config_backup_getter = portal.get('configuration.backup')
     config_import_preview_handler = portal.get('configuration.preview')
     config_import_apply_handler = portal.get('configuration.apply')
@@ -94,7 +72,6 @@ async def start_web_portal(portal):
     secure_config_import_apply_handler = portal.get('configuration.secure.apply')
     log_buffer_lines_setter = portal.get('logs.limit.set')
     wifi_scan_getter = portal.get('network.scan')
-    universal_upload_handler = portal.get('updates.universal.receive')
     portal_user_getter = portal.get('users.list')
     portal_user_add = portal.get('users.add')
     portal_user_update = portal.get('users.update')
@@ -335,9 +312,6 @@ async def start_web_portal(portal):
             form_params = {}
             is_upload = bool(
                 path and (
-                    path.startswith('/update-upload') or
-                    path.startswith('/firmware-upload') or
-                    path.startswith('/universal-upload') or
                     path.startswith('/resumable-upload-chunk') or
                     path.startswith('/certificate-upload')
                 )
@@ -1040,113 +1014,6 @@ async def start_web_portal(portal):
                             certificate_info_getter() if certificate_info_getter else {}
                         )
                     )
-            elif method == 'POST' and path.startswith('/universal-upload'):
-                if universal_upload_handler is None:
-                    await send_response(writer, '503 Service Unavailable', 'Universal updates are unavailable', 'text/plain')
-                else:
-                    try:
-                        length = int(headers.get('content-length', '0'))
-                        if not progress_id:
-                            raise ValueError('missing update progress identifier')
-                        progress_record.clear()
-                        progress_record.update({'phase': 'receiving', 'percent': 0})
-                        log_output(
-                            'Local', 'Universal update',
-                            {'log': 'Upload started - ' + str(length) + ' bytes', 'force': True},
-                            'INFO'
-                        )
-                        params = parse_query(action_path)
-                        params['_progress'] = report_upload_progress
-                        result = await universal_upload_handler(reader, length, params)
-                    except Exception as exc:
-                        try:
-                            log_output(
-                                'Local', 'Universal update',
-                                {'log': 'Upload rejected - ' + str(exc), 'force': True},
-                                'ERROR'
-                            )
-                        except Exception:
-                            pass
-                        message = 'Universal update rejected: ' + str(exc)
-                        if not await finish_progress_response('failed', message):
-                            await send_response(writer, '400 Bad Request', message, 'text/plain')
-                    else:
-                        log_output(
-                            'Local', 'Universal update',
-                            {'log': 'Core and application uploaded and verified', 'force': True},
-                            'INFO'
-                        )
-                        if not await finish_progress_response('complete', result):
-                            await send_response(writer, '200 OK', str(result), 'text/plain')
-            elif method == 'POST' and path.startswith('/update-upload'):
-                login_failures = 0
-                if upload_handler is None:
-                    await send_response(writer, '503 Service Unavailable', 'Application updates are unavailable', 'text/plain')
-                else:
-                    try:
-                        length = int(headers.get('content-length', '0'))
-                        upload_state = 'receiving'
-                        if not progress_id:
-                            raise ValueError('missing update progress identifier')
-                        progress_record.clear()
-                        progress_record.update({'phase': 'receiving', 'percent': 0})
-                        log_output(
-                            'Local', 'Application update',
-                            {'log': 'Upload started - ' + str(length) + ' bytes', 'force': True},
-                            'INFO'
-                        )
-                        params = parse_query(action_path)
-                        params['_progress'] = report_upload_progress
-                        result = await upload_handler(reader, length, params)
-                    except Exception as exc:
-                        upload_state = 'rejected'
-                        try:
-                            log_output(
-                                'Local', 'Application update',
-                                {'log': 'Upload rejected - ' + str(exc), 'force': True},
-                                'ERROR'
-                            )
-                        except Exception:
-                            pass
-                        message = 'Update rejected: ' + str(exc)
-                        if not await finish_progress_response('failed', message):
-                            await send_response(writer, '400 Bad Request', message, 'text/plain')
-                    else:
-                        upload_state = 'staged'
-                        log_output(
-                            'Local', 'Application update',
-                            {'log': 'Upload completed and staged', 'force': True},
-                            'INFO'
-                        )
-                        if not await finish_progress_response('complete', result):
-                            await send_response(writer, '200 OK', str(result), 'text/plain')
-                        upload_state = 'responded'
-            elif method == 'POST' and path.startswith('/firmware-upload'):
-                if firmware_upload_handler is None:
-                    await send_response(writer, '503 Service Unavailable', 'Base firmware updates are unavailable', 'text/plain')
-                else:
-                    try:
-                        length = int(headers.get('content-length', '0'))
-                        if not progress_id:
-                            raise ValueError('missing update progress identifier')
-                        progress_record.clear()
-                        progress_record.update({'phase': 'receiving', 'percent': 0})
-                        log_output('Local', 'Base firmware', {'log': 'Upload started - ' + str(length) + ' bytes', 'force': True}, 'INFO')
-                        params = parse_query(action_path)
-                        params['_progress'] = report_upload_progress
-                        result = await firmware_upload_handler(reader, length, params)
-                    except Exception as exc:
-                        try:
-                            log_output('Local', 'Base firmware', {'log': 'Upload rejected - ' + str(exc), 'force': True}, 'ERROR')
-                        except Exception:
-                            pass
-                        message = 'Firmware rejected: ' + str(exc)
-                        if not await finish_progress_response('failed', message):
-                            await send_response(writer, '400 Bad Request', message, 'text/plain')
-                    else:
-                        log_output('Local', 'Base firmware', {'log': 'Upload completed and verified', 'force': True}, 'INFO')
-                        if not await finish_progress_response('complete', result):
-                            await send_response(writer, '200 OK', str(result), 'text/plain')
             elif method == 'POST' and path.startswith('/set-loglevel'):
                 try:
                     apply_logging_change(
@@ -1403,24 +1270,6 @@ async def start_web_portal(portal):
 
         except Exception as exc:
             if is_client_disconnect_error(exc):
-                if (
-                    path.startswith('/update-upload') or
-                    path.startswith('/firmware-upload') or
-                    path.startswith('/universal-upload')
-                ):
-                    try:
-                        source = (
-                            'Universal update' if path.startswith('/universal-upload') else
-                            ('Base firmware' if path.startswith('/firmware-upload') else 'Application update')
-                        )
-                        detail = ' after staging' if upload_state == 'staged' else ''
-                        log_output(
-                            'Local', source,
-                            {'log': 'Upload connection closed' + detail, 'force': True},
-                            'ERROR'
-                        )
-                    except Exception:
-                        pass
                 return
             try:
                 log_output('Local', 'Web portal', {'log': 'Request failed - ' + str(exc)}, 'ERROR')

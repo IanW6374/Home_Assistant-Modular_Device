@@ -60,6 +60,24 @@ def parse_query(path):
         params[url_decode(key)] = url_decode(value)
     return params
 
+def parse_portal_body(route, headers, body):
+    """Parse a small form body without duplicating JSON upload payloads."""
+    content_type = str(headers.get('content-type', '')).split(';', 1)[0].strip()
+    if content_type == 'application/json':
+        if route == '/validate-configuration':
+            try:
+                return {'config_json': body.decode()}
+            except Exception:
+                return {'config_json': ''}
+        # JSON API endpoints consume body directly. Avoid retaining another
+        # full copy as URL-decoded form fields on memory-constrained devices.
+        return {}
+    try:
+        encoded = body.decode()
+    except Exception:
+        encoded = ''
+    return parse_query('?' + encoded) if encoded else {}
+
 def url_decode(value):
     value = str(value).replace('+', ' ')
     result = bytearray()

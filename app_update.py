@@ -129,6 +129,21 @@ def previous_slot():
     return ''
 
 
+def reclaim_inactive_slot():
+    """Remove only the disposable application generation to free update space."""
+    state = update_status()
+    if state.get('status', 'idle') != 'idle':
+        raise ValueError('cannot reclaim an application slot while an update is pending')
+    current = active_slot()
+    candidate = 'b' if current == 'a' else ('a' if current == 'b' else '')
+    if not candidate:
+        return False
+    path = _slot_path(candidate)
+    existed = _file_exists(path)
+    _remove_tree(path)
+    return existed
+
+
 def application_root():
     update = update_status()
     if update.get('status') in ('trial', 'committing'):

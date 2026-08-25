@@ -18,7 +18,7 @@ DRIVER_MODULES = {
 
 DRIVER_VERSIONS = {
     'dht11': 1,
-    'ems': 2,
+    'ems': 4,
     'grove_ac_voltage': 1,
     'hcsr04': 1,
     'light': 1,

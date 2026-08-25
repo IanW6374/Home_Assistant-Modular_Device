@@ -115,6 +115,41 @@ class UniversalUpdateTests(unittest.TestCase):
         self.assertIn('firmware_verification', [entry[0] for entry in progress])
         self.assertIn('application_verification', [entry[0] for entry in progress])
 
+    def test_resumable_bundle_reclaims_only_inactive_slot_when_space_is_low(self):
+        payload = self.package()
+
+        async def firmware_receiver(reader, length, maximum, progress_callback=None):
+            await reader.read(length)
+            return {'version': '2.0.0', 'release_sequence': 40}
+
+        async def application_receiver(
+            reader, length, allow_protected, maximum, progress_callback=None
+        ):
+            await reader.read(length)
+            return {'version': '2.0.0', 'release_sequence': 40}
+
+        with (
+            patch.object(
+                update_support, 'require_free_space',
+                side_effect=[ValueError('insufficient storage'), {'available': True}]
+            ) as require_space,
+            patch.object(app_update, 'reclaim_inactive_slot', return_value=True) as reclaim,
+            patch.object(update_support, 'record_update_event') as record,
+        ):
+            state = asyncio.run(universal_update.receive_bundle(
+                AsyncReader(payload), len(payload),
+                firmware_receiver=firmware_receiver,
+                application_receiver=application_receiver,
+            ))
+
+        self.assertEqual(state['status'], 'ready')
+        self.assertEqual(require_space.call_count, 2)
+        reclaim.assert_called_once_with()
+        self.assertTrue(any(
+            call.args[:2] == ('application', 'reclaimed')
+            for call in record.call_args_list
+        ))
+
     def test_outer_signature_and_component_hashes_are_enforced(self):
         payload = bytearray(self.package())
         payload[-1] ^= 1

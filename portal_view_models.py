@@ -41,3 +41,90 @@ def update_check_summary(status):
             ('good' if check not in ('Not checked', 'Checking') else '')
         ),
     }
+
+
+def module_summaries(output_devices, device_objects, failed_modules):
+    """Build transport-neutral state and diagnostic summaries for modules."""
+    summaries = []
+    for device_char in output_devices:
+        if device_char.get('uuid') == '0000':
+            continue
+        device = next(
+            (item for item in device_objects
+             if item.get('uuid') == device_char.get('uuid')),
+            None
+        )
+        if not device:
+            continue
+        driver = device_char.get('driver')
+        state = {}
+        diagnostics = {}
+        calibratable = False
+        if driver:
+            try:
+                raw_state = driver.get_state_payload()
+            except Exception as exc:
+                raw_state = {'error': str(exc)}
+            diagnostic_keys = set()
+            for entity_id in device.get('entities', {}):
+                entity = device['entities'][str(entity_id)]
+                key = entity.get('key', entity.get('class', str(entity_id)))
+                if entity.get('entity_category') == 'diagnostic':
+                    diagnostic_keys.add(key)
+            for key in raw_state:
+                target = diagnostics if key in diagnostic_keys else state
+                target[key] = raw_state[key]
+            if hasattr(driver, 'diagnostics_payload'):
+                try:
+                    health = driver.diagnostics_payload()
+                except Exception:
+                    health = {}
+                for key in health:
+                    diagnostics['module_' + key] = health[key]
+            calibratable = (
+                hasattr(driver, 'set_calibration') and
+                device.get('type', {}).get('subclass') == 'Grove-AC-Voltage'
+            )
+        debug_frames = None
+        if driver and hasattr(driver, 'debug_frames_enabled'):
+            try:
+                debug_frames = bool(driver.debug_frames_enabled())
+            except Exception:
+                debug_frames = None
+        summaries.append({
+            'uuid': device.get('uuid', ''),
+            'name': device.get('name', ''),
+            'type': device.get('type', {}).get(
+                'subclass', device.get('type', {}).get('class', '')
+            ),
+            'state': state,
+            'diagnostics': diagnostics,
+            'calibratable': calibratable,
+            'debug_frames': debug_frames,
+        })
+    for failed in failed_modules:
+        device = next(
+            (item for item in device_objects
+             if item.get('uuid') == failed.get('uuid')),
+            None
+        )
+        if not device:
+            continue
+        summaries.append({
+            'uuid': device.get('uuid', ''),
+            'name': device.get('name', ''),
+            'type': device.get('type', {}).get(
+                'subclass', device.get('type', {}).get('class', '')
+            ),
+            'state': {},
+            'diagnostics': {
+                'module_last_ok': False,
+                'module_last_error': (
+                    'Setup failed: ' +
+                    str(failed.get('setup_error', 'unknown error'))
+                ),
+            },
+            'calibratable': False,
+            'debug_frames': None,
+        })
+    return summaries

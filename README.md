@@ -25,11 +25,13 @@ API.
 | Energy and HVAC | WHES, EMS Boiler, RS485 Modbus, multiport Modbus |
 | Outputs | On/off and dimmer switches; on/off, brightness and RGB lights |
 
-Example module configurations are in [`examples/`](examples/).
+See the [module guide](docs/modules/README.md) for wiring, configuration,
+entities and diagnostics for every supported module type. Complete example
+configurations are in [`examples/`](examples/).
 
 ## Hardware and software
 
-- ESP32-S3 with 16 MB flash and Wi-Fi.
+- ESP32-S3-DevKitC-1-N8R8 with 8 MB flash, 8 MB octal PSRAM and Wi-Fi.
 - MicroPython 1.28.0 built with ESP-IDF 5.5.1.
 - Python 3.12 or newer for host tooling.
 - ESP-IDF and the pinned MicroPython checkout for core builds.
@@ -139,6 +141,8 @@ Important entry points:
 - [Upgrade and recovery](docs/UPGRADE_GUIDE.md)
 - [Fleet protocol](docs/FLEET_PROTOCOL.md)
 - [Security operations](docs/SECURITY_OPERATIONS.md)
+- [Module guide](docs/modules/README.md)
+- [Qualification records](docs/qualification/README.md)
 - [Security reporting](SECURITY.md)
 - [Changelog](CHANGELOG.md)
 

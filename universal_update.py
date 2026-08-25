@@ -199,6 +199,20 @@ async def receive_bundle(
 
         application_reader = _ComponentReader(reader, application_size)
         if application_required:
+            # A resumable universal upload remains on the filesystem until
+            # both components verify. If it crowds application staging,
+            # discard only the inactive A/B generation; the active generation
+            # is never touched.
+            try:
+                update_support.require_free_space(application_size)
+            except ValueError:
+                reclaimed = app_update.reclaim_inactive_slot()
+                update_support.require_free_space(application_size)
+                if reclaimed:
+                    update_support.record_update_event(
+                        'application', 'reclaimed',
+                        detail='inactive slot reclaimed for universal staging'
+                    )
             application_state = await application_receiver(
                 application_reader, application_size, False,
                 app_update.DEFAULT_MAX_BUNDLE_BYTES,

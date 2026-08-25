@@ -35,13 +35,19 @@ def rfc5424_message(timestamp, hostname, application, message, severity='INFO'):
 
 
 class RemoteSyslog:
-    def __init__(self, settings=None, hostname='hamd', ca_path='', queue_limit=32):
+    def __init__(self, settings=None, hostname='hamd', ca_path='', queue_limit=32,
+                 status_callback=None):
         self.settings = settings or {}
         self.hostname = str(hostname or 'hamd')
         self.ca_path = str(ca_path or '')
         self.queue_limit = max(1, min(128, int(queue_limit)))
         self.queue = []
         self.dropped = 0
+        self.delivered = 0
+        self.failures = 0
+        self.consecutive_failures = 0
+        self.last_error = ''
+        self.status_callback = status_callback
 
     @property
     def enabled(self):
@@ -66,6 +72,54 @@ class RemoteSyslog:
             message, severity
         ))
         return True
+
+    def status(self):
+        return {
+            'active': self.active,
+            'transport': str(self.settings.get('transport', 'udp')),
+            'host': str(self.settings.get('host', '')),
+            'port': int(self.settings.get(
+                'port', 6514 if self.settings.get('transport') == 'tls' else 514
+            )),
+            'queued': len(self.queue),
+            'delivered': self.delivered,
+            'dropped': self.dropped,
+            'failures': self.failures,
+            'consecutive_failures': self.consecutive_failures,
+            'last_error': self.last_error,
+        }
+
+    def _notify(self, severity, message):
+        if not self.status_callback:
+            return
+        try:
+            self.status_callback(severity, message)
+        except Exception:
+            pass
+
+    def _delivery_failed(self, exc):
+        detail = str(exc) or exc.__class__.__name__
+        previous = self.last_error
+        self.failures += 1
+        self.consecutive_failures += 1
+        self.last_error = detail
+        # Avoid adding the same retry error to the local device log every five
+        # seconds. A changed error is still reported immediately.
+        if self.consecutive_failures == 1 or detail != previous:
+            self._notify(
+                'ERROR', 'Delivery failed - ' + detail + '; retrying in 5 seconds'
+            )
+
+    def _delivery_succeeded(self):
+        recovered = self.consecutive_failures
+        self.delivered += 1
+        self.consecutive_failures = 0
+        self.last_error = ''
+        if recovered:
+            self._notify(
+                'INFO', 'Delivery recovered after ' + str(recovered) +
+                (' failure' if recovered == 1 else ' failures')
+            )
 
     def _tls_context(self):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -120,7 +174,9 @@ class RemoteSyslog:
                 else:
                     await self._send_udp(payload)
                 self.queue.pop(0)
-            except Exception:
+                self._delivery_succeeded()
+            except Exception as exc:
+                self._delivery_failed(exc)
                 if tls_writer is not None:
                     try:
                         tls_writer.close()

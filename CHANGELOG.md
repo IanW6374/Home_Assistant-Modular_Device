@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.9 - 2026-08-25
+
+- Resume interrupted universal `.hamu` uploads from their last committed chunk
+  and reclaim only an inactive application generation when staging space is
+  otherwise insufficient.
+- Report remote syslog delivery failures and recovery in the local Device log,
+  with delivery, queue, drop and failure counters in runtime status.
+- Remove retired one-shot portal upload routes and extract module presentation
+  logic from the runtime composition root.
+- Restore linked documentation for every supported module type, correct the
+  production N8R8 hardware specification, and record v2.0.8 field qualification.
+
 ## 2.0.8 - 2026-08-24
 
 ### Changed

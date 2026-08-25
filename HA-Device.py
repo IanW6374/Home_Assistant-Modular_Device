@@ -44,6 +44,7 @@ from services.home_assistant_service import HomeAssistantService
 from services.portal_service import PortalService
 from services.update_service import UpdateService
 from portal_contracts import PortalDependencies
+from portal_view_models import module_summaries as build_module_summaries
 from application import ApplicationContext, RuntimeState
 import settings_loader as device_settings
 try:
@@ -227,7 +228,11 @@ log_buffer = []
 audit_log_buffer = []
 remote_syslog = RemoteSyslog(
     runtime_credentials.get('syslog', {}), ha_devicename,
-    device_settings.syslog_ca_path
+    device_settings.syslog_ca_path,
+    status_callback=lambda severity, message: logOutput(
+        'Local', 'Remote syslog',
+        {'log': message, 'force': True, 'skip_remote_syslog': True}, severity
+    )
 )
 local_display_config = device_settings.local_display
 local_display_service = None
@@ -483,13 +488,14 @@ def logOutput(mode, action, data, logtype):
             remember_audit_log(log)
         else:
             remember_log(log)
-        remote_syslog.enqueue(
-            '{:04}-{:02}-{:02}T{:02}:{:02}:{:02}'.format(
-                utc_time[0], utc_time[1], utc_time[2],
-                utc_time[3], utc_time[4], utc_time[5]
-            ),
-            log, logtype, audit=is_audit
-        )
+        if not data.get('skip_remote_syslog'):
+            remote_syslog.enqueue(
+                '{:04}-{:02}-{:02}T{:02}:{:02}:{:02}'.format(
+                    utc_time[0], utc_time[1], utc_time[2],
+                    utc_time[3], utc_time[4], utc_time[5]
+                ),
+                log, logtype, audit=is_audit
+            )
 
 
 event_service.add_sink(LegacyLogSink(logOutput))
@@ -933,93 +939,13 @@ def portal_status():
     status['api_port'] = device_api_port
     status['mqtt_publish_queue'] = mqtt_publish_queue.stats()
     status['module_command_broker'] = module_broker.stats()
+    status['remote_syslog'] = remote_syslog.status()
     status['paired_update'] = update_orchestrator.status()
     return status
 
 
 def module_summaries():
-    summaries = []
-    for device_char in outputDevices:
-        if device_char.get('uuid') == '0000':
-            continue
-
-        device = next((d for d in deviceObjects if d.get('uuid') == device_char.get('uuid')), None)
-        if not device:
-            continue
-
-        driver = device_char.get('driver')
-        state = {}
-        diagnostics = {}
-        calibratable = False
-        if driver:
-            try:
-                raw_state = driver.get_state_payload()
-            except Exception as exc:
-                raw_state = {'error': str(exc)}
-
-            diagnostic_keys = set()
-            for entity_id in device.get('entities', {}):
-                entity = device['entities'][str(entity_id)]
-                key = entity.get('key', entity.get('class', str(entity_id)))
-                if entity.get('entity_category') == 'diagnostic':
-                    diagnostic_keys.add(key)
-
-            for key in raw_state:
-                if key in diagnostic_keys:
-                    diagnostics[key] = raw_state[key]
-                else:
-                    state[key] = raw_state[key]
-
-            if hasattr(driver, 'diagnostics_payload'):
-                try:
-                    health = driver.diagnostics_payload()
-                except Exception:
-                    health = {}
-                for key in health:
-                    diagnostics['module_' + key] = health[key]
-            calibratable = hasattr(driver, 'set_calibration') and device.get('type', {}).get('subclass') == 'Grove-AC-Voltage'
-
-        debug_frames = None
-        if driver and hasattr(driver, 'debug_frames_enabled'):
-            try:
-                debug_frames = bool(driver.debug_frames_enabled())
-            except Exception:
-                debug_frames = None
-
-        summaries.append({
-            'uuid': device.get('uuid', ''),
-            'name': device.get('name', ''),
-            'type': device.get('type', {}).get('subclass', device.get('type', {}).get('class', '')),
-            'state': state,
-            'diagnostics': diagnostics,
-            'calibratable': calibratable,
-            'debug_frames': debug_frames
-        })
-    for failed in failedModules:
-        device = next(
-            (d for d in deviceObjects if d.get('uuid') == failed.get('uuid')),
-            None
-        )
-        if not device:
-            continue
-        summaries.append({
-            'uuid': device.get('uuid', ''),
-            'name': device.get('name', ''),
-            'type': device.get('type', {}).get(
-                'subclass', device.get('type', {}).get('class', '')
-            ),
-            'state': {},
-            'diagnostics': {
-                'module_last_ok': False,
-                'module_last_error': (
-                    'Setup failed: ' +
-                    str(failed.get('setup_error', 'unknown error'))
-                ),
-            },
-            'calibratable': False,
-            'debug_frames': None,
-        })
-    return summaries
+    return build_module_summaries(outputDevices, deviceObjects, failedModules)
 
 
 def configuration_backup():
@@ -2441,13 +2367,6 @@ async def start_admin_portal():
             'status.get': portal_status,
             'modules.list': module_summaries,
             'actions.apply': portal_action,
-            'updates.application.receive': (
-                portal_update_upload if web_portal_updates_enabled else None
-            ),
-            'updates.firmware.receive': (
-                portal_firmware_upload if web_portal_firmware_updates_enabled else None
-            ),
-            'updates.universal.receive': portal_universal_upload,
             'updates.preferences.apply': update_release_preferences,
             'updates.upload.begin': update_service.begin,
             'updates.upload.status': update_service.status,

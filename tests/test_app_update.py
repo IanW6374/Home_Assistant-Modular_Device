@@ -390,6 +390,21 @@ class AppUpdateTests(unittest.TestCase):
             Path('.app-slots/a/HA-Device.py').read_bytes(), b'app-c'
         )
 
+    def test_universal_staging_reclaim_preserves_active_slot(self):
+        Path('.app-slots/a').mkdir(parents=True)
+        Path('.app-slots/b').mkdir(parents=True)
+        Path('.app-slots/a/HA-Device.py').write_bytes(b'active')
+        Path('.app-slots/b/HA-Device.py').write_bytes(b'old rollback')
+        Path(app_update.SLOT_STATE_PATH).write_text(json.dumps({
+            'active': 'a', 'versions': {'a': 'current'}, 'sequences': {'a': 1}
+        }))
+
+        self.assertTrue(app_update.reclaim_inactive_slot())
+        self.assertEqual(
+            Path('.app-slots/a/HA-Device.py').read_bytes(), b'active'
+        )
+        self.assertFalse(Path('.app-slots/b').exists())
+
     def test_receive_bundle_reports_verification_progress(self):
         self.make_bundle({'HA-Device.py': b'new application' * 200})
         payload = Path(app_update.BUNDLE_PATH).read_bytes()

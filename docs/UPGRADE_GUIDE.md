@@ -20,16 +20,13 @@ source revision and carries a monotonically increasing release sequence.
 6. Wait for trial health confirmation and verify the running application/core
    versions on the overview page.
 
-Application and core-only uploads are resumable. Retrying the same `.hamd` or
-`.hamf` continues from its committed offset; selecting a different artifact
-discards the interrupted upload and reclaims its storage. The portal rejects an
-artifact before accepting bytes when the complete upload cannot fit with the
-required storage reserve.
-
-Universal `.hamu` bundles are streamed directly into the core and application
-installers rather than cached on the device filesystem. Keep the browser and
-device connected until upload and verification finish; an interrupted
-universal upload can be safely restarted from the beginning.
+All three upload types are resumable. Retrying the same `.hamd`, `.hamf` or
+`.hamu` continues from its last committed 64 KiB chunk; selecting a different
+artifact discards the interrupted upload and reclaims its storage. The portal
+rejects an artifact before accepting bytes when the complete upload cannot fit
+with the required storage reserve. When a completed universal upload leaves too
+little space for application staging, the updater may reclaim the inactive
+application generation. The active generation is never removed.
 
 Do not interrupt power during core activation. A rejected or failed artifact
 must remain visibly failed in the portal; consult the structured log for its

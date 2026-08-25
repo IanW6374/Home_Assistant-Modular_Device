@@ -24,8 +24,8 @@ FORBIDDEN_TRANSPORT_IMPORTS = {
 # down as responsibilities are extracted; increasing one requires an explicit
 # architecture review.
 LINE_LIMITS = {
-    'HA-Device.py': 3300,
-    'web_portal.py': 1450,
+    'HA-Device.py': 3250,
+    'web_portal.py': 1320,
     'setup_wizard.py': 450,
     'certificate_manager.py': 700,
     'credential_store.py': 750,
@@ -33,7 +33,7 @@ LINE_LIMITS = {
     'device_modules/modbus_transport.py': 850,
 }
 FUNCTION_LIMITS = {
-    ('web_portal.py', 'start_web_portal'): 1400,
+    ('web_portal.py', 'start_web_portal'): 1280,
     ('setup_wizard.py', 'serve'): 350,
     ('HA-Device.py', 'main'): 260,
 }

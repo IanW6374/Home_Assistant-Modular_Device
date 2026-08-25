@@ -54,6 +54,29 @@ class RemoteLoggingTests(unittest.TestCase):
         self.assertTrue(client.audit_enabled)
         self.assertTrue(client.enqueue('-', 'legacy audit event', audit=True))
 
+    def test_delivery_failures_are_visible_and_recovery_is_reported_once(self):
+        notices = []
+        client = RemoteSyslog(
+            {'enabled': True, 'host': 'logs.local', 'transport': 'tls'},
+            status_callback=lambda severity, message: notices.append(
+                (severity, message)
+            )
+        )
+
+        client._delivery_failed(OSError('connection refused'))
+        client._delivery_failed(OSError('connection refused'))
+        self.assertEqual(client.status()['failures'], 2)
+        self.assertEqual(client.status()['consecutive_failures'], 2)
+        self.assertEqual(len(notices), 1)
+        self.assertIn('connection refused', notices[0][1])
+
+        client._delivery_succeeded()
+        client._delivery_succeeded()
+        self.assertEqual(client.status()['delivered'], 2)
+        self.assertEqual(client.status()['consecutive_failures'], 0)
+        self.assertEqual(len(notices), 2)
+        self.assertIn('recovered after 2 failures', notices[1][1])
+
 
 if __name__ == '__main__':
     unittest.main()
