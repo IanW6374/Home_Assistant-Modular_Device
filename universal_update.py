@@ -26,9 +26,8 @@ import update_security
 import update_support
 
 
-MAGIC = b'HAMU1\n'
-IOTMD_MAGIC = b'IOTU1\n'
-BUNDLE_TYPES = {MAGIC: 'hamu', IOTMD_MAGIC: 'iotuni'}
+MAGIC = b'IOTU1\n'
+BUNDLE_TYPES = {MAGIC: 'iotuni'}
 STATE_PATH = '.universal-update-state.json'
 MAX_MANIFEST_BYTES = 4096
 DEFAULT_MAX_BYTES = 4 * 1024 * 1024

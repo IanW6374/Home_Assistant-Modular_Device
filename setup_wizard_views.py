@@ -67,12 +67,12 @@ def _page(csrf, message=''):
         application_status = ''
     return (
         '<!doctype html><html><head><meta name="viewport" '
-        'content="width=device-width,initial-scale=1"><title>HAMD setup</title>'
+        'content="width=device-width,initial-scale=1"><title>IoTMD setup</title>'
         '<link rel="stylesheet" href="' + _asset('/assets/portal.css') + '">'
         '</head><body>' + _setup_header() +
         '<main class="setup-main">' + _setup_progress(1) +
         '<div class="page-head"><div><span class="eyebrow">First boot</span>'
-        '<h1>Set up HAMD</h1><p class="lead">Secure this device and connect it to the home network.</p>'
+        '<h1>Set up IoTMD</h1><p class="lead">Secure this device and connect it to the home network.</p>'
         '</div></div>'
         '<p>Credentials are stored in encrypted NVS. Login passwords are stored only as salted verifiers.</p>' +
         notice + '<form id="setup-form" action="/configure" method="post" autocomplete="off">'
@@ -125,7 +125,7 @@ def _page(csrf, message=''):
         'certificate is installed.</p></section>'
         '<section class="card"><div class="section-title"><h2>Emergency recovery</h2></div>'
         '<div class="credential-group"><h3>Recovery Wi-Fi access</h3>'
-        '<p class="muted">Used only to join the protected HAMD-Recovery access point.</p>'
+        '<p class="muted">Used only to join the protected IoTMD-Recovery access point.</p>'
         '<div class="credential-pair">'
         '<label class="field">Recovery AP password<input name="recovery_ap_password" type="password" '
         'minlength="16" maxlength="63" required autocomplete="new-password"></label>'
@@ -186,7 +186,7 @@ def _upload_page(csrf, message=''):
             'Signed application', 'Install application',
             'Select the signed application bundle. Unsigned or incompatible bundles are rejected.'
         ) + notice + '<section class="card"><label class="field">Application bundle'
-        '<input id="bundle" type="file" accept=".hamd"></label>'
+        '<input id="bundle" type="file" accept=".iotapp"></label>'
         '<div class="actions"><span id="result" class="muted"></span>'
         '<button id="install">Upload and verify</button></div>' +
         portal_ui.progress('setup-upload-progress', 'Waiting…', True) +
@@ -380,7 +380,7 @@ def _portal_handoff_page(config, message):
     destination = _portal_url(config)
     return (
         '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<meta name="referrer" content="no-referrer"><title>Opening HAMD</title>'
+        '<meta name="referrer" content="no-referrer"><title>Opening IoTMD</title>'
         '<link rel="stylesheet" href="' + _asset('/assets/portal.css') + '"></head><body>' + _setup_header() +
         '<main class="setup-main">' + _setup_progress(4) + portal_ui.page_heading(
             'First boot', 'Device setup complete',

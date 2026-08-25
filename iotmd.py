@@ -70,11 +70,12 @@ from device_modules.loader import (
 )
 from device_modules.driver_index import DRIVER_VERSIONS
 from device_modules.base import (
-    ha_availability_topic,
+    mqtt_availability_topic,
     ha_config_topic,
-    ha_device_topic,
-    ha_set_topic,
-    ha_state_topic,
+    mqtt_module_topic,
+    mqtt_command_topic,
+    mqtt_state_topic,
+    ha_status_topic,
     ha_safe_id,
     ha_unique_id,
     handle_local_input,
@@ -123,7 +124,10 @@ config['port'] = runtime_credentials['mqtt']['port']
 config['user'] = runtime_credentials['mqtt']['username']
 config['password'] = runtime_credentials['mqtt']['password']
 config['ssl'] = runtime_credentials['mqtt']['ssl']
-mqtt_configured = runtime_credentials['mqtt'].get('configured') is True
+mqtt_enabled = device_settings.mqtt_enabled
+mqtt_configured = (
+    runtime_credentials['mqtt'].get('configured') is True and mqtt_enabled
+)
 
 ha_discovery = device_settings.ha_discovery
 ha_devicename = runtime_credentials['device_name']
@@ -344,7 +348,7 @@ fleet_service = fleet_management.FleetService(
 
 
 def reclaim_resumable_update_storage(kind, _required):
-    """Sacrifice only the inactive application generation for a `.hamu`."""
+    """Sacrifice only the inactive application generation for a `.iotuni`."""
     if str(kind) != 'universal':
         return False
     reclaimed = app_update.reclaim_inactive_slot()
@@ -514,6 +518,22 @@ def logOutput(mode, action, data, logtype):
             )
 
 
+def record_upgrade_failure(kind, phase, exc, version=''):
+    """Persist an actionable upgrade error in both operator-visible stores."""
+    detail = str(exc).strip() or exc.__class__.__name__
+    kind = str(kind or 'update')
+    phase = str(phase or 'processing')
+    logOutput(
+        'Local', 'Upgrade',
+        {'log': kind + ' ' + phase + ' failed - ' + detail, 'force': True},
+        'ERROR'
+    )
+    runtime_health.record_update_result(
+        kind, 'failed', str(version or ''), phase + ': ' + detail
+    )
+    return detail
+
+
 event_service.add_sink(LegacyLogSink(logOutput))
 
 
@@ -522,7 +542,7 @@ def publish_logtype(msg):
         return msg['logtype']
 
     log = msg.get('log', '')
-    if log.startswith('HA Update:'):
+    if log.startswith('MQTT State:'):
         return 'DEBUG'
     if log.startswith('HA Discovery cleanup:'):
         return 'DEBUG'
@@ -1349,6 +1369,29 @@ def update_portal_settings(params):
         'mqtt_server': str(params.get('mqtt_server', '')).strip(),
         'mqtt_port': params.get('mqtt_port', 8883),
         'mqtt_username': str(params.get('mqtt_username', '')),
+        'mqtt_enabled': str(params.get('mqtt_enabled', '')).lower() in (
+            '1', 'true', 'on'
+        ),
+        'mqtt_base_topic': str(params.get('mqtt_base_topic', 'iotmd')).strip(),
+        'mqtt_state_topic': str(params.get(
+            'mqtt_state_topic', '{base}/{device_id}/{module_id}/state'
+        )).strip(),
+        'mqtt_command_topic': str(params.get(
+            'mqtt_command_topic', '{base}/{device_id}/{module_id}/set'
+        )).strip(),
+        'mqtt_response_topic': str(params.get(
+            'mqtt_response_topic', '{base}/{device_id}/{module_id}/response'
+        )).strip(),
+        'mqtt_availability_topic': str(params.get(
+            'mqtt_availability_topic', '{base}/{device_id}/availability'
+        )).strip(),
+        'mqtt_qos': int(params.get('mqtt_qos', 0)),
+        'mqtt_retain_state': str(params.get('mqtt_retain_state', '')).lower() in (
+            '1', 'true', 'on'
+        ),
+        'mqtt_command_subscriptions': str(params.get(
+            'mqtt_command_subscriptions', ''
+        )).lower() in ('1', 'true', 'on'),
         'portal_username': str(params.get('portal_username', '')).strip(),
         'portal_transport': str(params.get('portal_transport', 'auto')).strip(),
         'portal_port': str(params.get('portal_port', '')).strip(),
@@ -1361,6 +1404,9 @@ def update_portal_settings(params):
         'ha_discovery': str(params.get('ha_discovery', '')).lower() in (
             '1', 'true', 'on'
         ),
+        'ha_discovery_prefix': str(params.get(
+            'ha_discovery_prefix', 'homeassistant'
+        )).strip(),
         'log_buffer_lines': int(params.get('log_buffer_lines', 200)),
         'syslog_enabled': str(params.get('syslog_enabled', '')).lower() in (
             '1', 'true', 'on'
@@ -1803,12 +1849,12 @@ def system_info_discovery():
     payloads = {}
     for key in system_info_payload():
         payloads[key] = {
-            '~': ha_device_topic('sensor', deviceid, 'sys'),
+            '~': mqtt_module_topic('sensor', deviceid, 'sys'),
             'stat_t': '~/state',
             'uniq_id': ha_unique_id(deviceid, 'sys', key),
             'name': ha_devicename + ' ' + key,
             'value_template': "{{ value_json[" + repr(key) + "] }}",
-            'availability_topic': ha_availability_topic(deviceid),
+            'availability_topic': mqtt_availability_topic(deviceid),
             'payload_available': 'online',
             'payload_not_available': 'offline',
             'entity_category': 'diagnostic',
@@ -1826,7 +1872,7 @@ def maintenance_discovery():
         'rollback_application': 'Rollback application',
     }
     payloads = {}
-    command_topic = ha_set_topic('button', deviceid, 'maint')
+    command_topic = mqtt_command_topic('button', deviceid, 'maint')
     for command, name in commands.items():
         payloads[command] = {
             'cmd_t': command_topic,
@@ -1835,7 +1881,7 @@ def maintenance_discovery():
             'name': name,
             'entity_category': 'config',
             'en': False,
-            'availability_topic': ha_availability_topic(deviceid),
+            'availability_topic': mqtt_availability_topic(deviceid),
             'dev': homeassistant_device_info(deviceid, ha_devicename, web_portal_url()),
             'o': homeassistant_origin_info(),
         }
@@ -1951,7 +1997,10 @@ def portal_action(action, params):
     if action == 'activate-update':
         state = app_update.update_status()
         if state.get('status') != 'ready':
-            return 'Application update activation failed: no staged update'
+            detail = record_upgrade_failure(
+                'application', 'activation', RuntimeError('no staged update')
+            )
+            return 'Application update activation failed: ' + detail
         selections = {
             'module_settings': str(params.get('module_settings', '')).lower() in ('1', 'true', 'on'),
             'certificates': str(params.get('certificates', '')).lower() in ('1', 'true', 'on')
@@ -1960,26 +2009,39 @@ def portal_action(action, params):
             app_update.configure_pending_update(selections)
             update_orchestrator.mark_activating('application')
         except Exception as exc:
-            return 'Application update activation failed: ' + str(exc)
+            detail = record_upgrade_failure(
+                'application', 'activation', exc, state.get('version', '')
+            )
+            return 'Application update activation failed: ' + detail
 
         schedule_hardware_reset('application_update_reboot', 8000)
         return 'Application update staged; rebooting'
 
     if action == 'activate-firmware':
         if not web_portal_firmware_updates_enabled or not firmware_update.supported():
-            return 'Base firmware activation failed: firmware OTA is unavailable'
+            detail = record_upgrade_failure(
+                'firmware', 'activation', RuntimeError('firmware OTA is unavailable')
+            )
+            return 'Base firmware activation failed: ' + detail
         try:
             firmware_update.activate_pending()
             update_orchestrator.mark_activating('firmware')
         except Exception as exc:
-            return 'Base firmware activation failed: ' + str(exc)
+            state = firmware_update.update_status()
+            detail = record_upgrade_failure(
+                'firmware', 'activation', exc, state.get('version', '')
+            )
+            return 'Base firmware activation failed: ' + detail
 
         schedule_hardware_reset('firmware_update_reboot', 8000)
         return 'Base firmware staged; rebooting into trial partition'
 
     if action == 'activate-universal':
         if not web_portal_firmware_updates_enabled or not firmware_update.supported():
-            return 'Universal update activation failed: firmware OTA is unavailable'
+            detail = record_upgrade_failure(
+                'universal', 'activation', RuntimeError('firmware OTA is unavailable')
+            )
+            return 'Universal update activation failed: ' + detail
         try:
             fleet_snapshot = fleet_service.snapshot()
             fleet_policy = fleet_snapshot.get('policy') or {}
@@ -1988,7 +2050,11 @@ def portal_action(action, params):
             )
             universal_update.activate_pending(maintenance_allowed)
         except Exception as exc:
-            return 'Universal update activation failed: ' + str(exc)
+            state = universal_update.update_status()
+            detail = record_upgrade_failure(
+                'universal', 'activation', exc, state.get('version', '')
+            )
+            return 'Universal update activation failed: ' + detail
         schedule_hardware_reset('universal_update_reboot', 8000)
         return 'Universal core and application update staged; rebooting into trial versions'
 
@@ -2178,6 +2244,19 @@ update_service = UpdateService(
 application_context.register('updates', update_service)
 
 
+async def complete_portal_update(identifier, progress_callback=None):
+    """Include upload-store and installer failures in persistent history."""
+    kind = 'update'
+    try:
+        status = update_service.status(identifier)
+        if isinstance(status, dict):
+            kind = status.get('kind', kind)
+        return await update_service.complete(identifier, progress_callback)
+    except Exception as exc:
+        record_upgrade_failure(kind, 'verification or staging', exc)
+        raise
+
+
 async def _check_release_once():
     global release_available
     releases = list(await release_update.fetch_releases(
@@ -2281,16 +2360,23 @@ async def download_release_once(progress_callback=None):
     release = release_available
     if not release:
         raise ValueError('no checked release is available')
-    state = await release_update.stage_release(
-        release,
-        release_ca_cert_path,
-        app_update.receive_bundle,
-        firmware_update.receive_bundle,
-        web_portal_allow_protected_updates,
-        web_portal_update_max_bytes,
-        web_portal_firmware_update_max_bytes,
-        progress_callback
-    )
+    try:
+        state = await release_update.stage_release(
+            release,
+            release_ca_cert_path,
+            app_update.receive_bundle,
+            firmware_update.receive_bundle,
+            web_portal_allow_protected_updates,
+            web_portal_update_max_bytes,
+            web_portal_firmware_update_max_bytes,
+            progress_callback
+        )
+    except Exception as exc:
+        record_upgrade_failure(
+            release.get('type', 'release'), 'download or staging', exc,
+            release.get('version', '')
+        )
+        raise
     update_orchestrator.mark_staged(release)
     logOutput(
         'Local', 'Release update',
@@ -2387,7 +2473,7 @@ async def start_admin_portal():
             'updates.upload.begin': update_service.begin,
             'updates.upload.status': update_service.status,
             'updates.upload.append': update_service.append,
-            'updates.upload.complete': update_service.complete,
+            'updates.upload.complete': complete_portal_update,
             'configuration.backup': configuration_backup,
             'configuration.preview': preview_configuration_import,
             'configuration.apply': apply_configuration_import,
@@ -2572,7 +2658,12 @@ async def homeassistant_discovery():
 
 
 async def publish_availability(state):
-    await home_assistant_service.publish_availability(state)
+    await publish_message({
+        'payload': state,
+        'topic': mqtt_availability_topic(deviceid),
+        'log': 'Availability: ' + state,
+        'critical': True,
+    }, device_settings.mqtt_qos, False, True)
        
 def device_config(devicetype, uuid, command, payload):
     device = next((d for d in outputDevices if d['uuid'] == uuid), None)
@@ -2593,8 +2684,8 @@ def device_config(devicetype, uuid, command, payload):
 
     data = {
         'payload': msg_payload,
-        'topic': ha_state_topic(devicetype, deviceid, uuid),
-        'log': 'HA Update: ' + deviceObjects[device['index']]['name']
+        'topic': mqtt_state_topic(devicetype, deviceid, uuid),
+        'log': 'MQTT State: ' + deviceObjects[device['index']]['name']
     }
 
     return data
@@ -2614,9 +2705,9 @@ def module_command_completed(operation):
         return
     publish_wrapper({
         'payload': state,
-        'topic': ha_state_topic(device['type']['class'], deviceid, uuid),
-        'log': 'HA Update: ' + device.get('name', uuid),
-    }, 0, False)
+        'topic': mqtt_state_topic(device['type']['class'], deviceid, uuid),
+        'log': 'MQTT State: ' + device.get('name', uuid),
+    }, device_settings.mqtt_qos, False, device_settings.mqtt_retain_state)
 
 
 module_broker.add_listener(module_command_completed)
@@ -2633,7 +2724,7 @@ async def handle_mqtt_message(topic, payload, retained):
     msg_topic = decode_mqtt_value(topic)
     msg_payload_text = decode_mqtt_value(payload)
 
-    if msg_topic == 'homeassistant/status':
+    if ha_discovery and msg_topic == ha_status_topic():
         data = {
             'payload': msg_payload_text,
             'topic': msg_topic,
@@ -2649,7 +2740,7 @@ async def handle_mqtt_message(topic, payload, retained):
         logOutput ('MQTT', 'Received', data, 'INFO')
         return
 
-    if msg_topic == ha_set_topic('button', deviceid, 'maint'):
+    if msg_topic == mqtt_command_topic('button', deviceid, 'maint'):
         if retained:
             return
         command = msg_payload_text.strip().strip('"')
@@ -2677,22 +2768,23 @@ async def handle_mqtt_message(topic, payload, retained):
 
     logOutput ('MQTT', 'Received', data, 'INFO')
 
-    msg_parts = msg_topic.split('/', 3)
-    if len(msg_parts) != 4:
-        return
-
-    msg_topic_1, msg_topic_2, msg_topic_3, msg_topic_4 = msg_parts
-
-    if msg_topic_1 == 'homeassistant':
-        uuid = msg_topic_3[len(deviceid):len(msg_topic_3)]
-        if msg_topic_4 == 'set':
+    for device in deviceObjects:
+        if device.get('uuid') == '0000':
+            continue
+        command_topic = mqtt_command_topic(
+            device['type']['class'], deviceid, device['uuid']
+        )
+        if msg_topic == command_topic:
             try:
-                module_broker.submit(uuid, msg_payload, 'mqtt', msg_topic)
+                module_broker.submit(
+                    device['uuid'], msg_payload, 'mqtt', msg_topic
+                )
             except Exception as exc:
                 logOutput(
                     'MQTT', 'Command',
                     {'log': 'Rejected module command - ' + str(exc)}, 'ERROR'
                 )
+            return
 
 
 async def messages(client):  # Respond to incoming messages
@@ -2726,18 +2818,23 @@ async def messages(client):  # Respond to incoming messages
 
 async def configure_mqtt_connection(client):
     await sync_ntp_time()
-    await client.subscribe('homeassistant/status', 1)
-    logOutput('MQTT', 'Subscribe', {'log': 'Topic: homeassistant/status', 'topic': 'homeassistant/status', 'payload': None}, 'INFO')
-    if ha_system_diagnostics:
-        maintenance_topic = ha_set_topic('button', deviceid, 'maint')
+    if ha_discovery:
+        status_topic = ha_status_topic()
+        await client.subscribe(status_topic, 1)
+        logOutput('MQTT', 'Subscribe', {
+            'log': 'Topic: ' + status_topic, 'topic': status_topic,
+            'payload': None
+        }, 'INFO')
+    if device_settings.mqtt_command_subscriptions and ha_system_diagnostics:
+        maintenance_topic = mqtt_command_topic('button', deviceid, 'maint')
         await client.subscribe(maintenance_topic, 1)
         logOutput('MQTT', 'Subscribe', {'log': 'Topic: ' + maintenance_topic, 'topic': maintenance_topic, 'payload': None}, 'INFO')
 
-    for device in deviceObjects:
+    for device in deviceObjects if device_settings.mqtt_command_subscriptions else ():
         devicetype = find_device_type(device)
         if device['uuid'] != '0000' and devicetype and devicetype['ha_subscribe']:
-            topic = ha_set_topic(device['type']['class'], deviceid, device['uuid'])
-            await client.subscribe(topic, 1)
+            topic = mqtt_command_topic(device['type']['class'], deviceid, device['uuid'])
+            await client.subscribe(topic, device_settings.mqtt_qos)
             logOutput('MQTT', 'Subscribe', {'log': 'Topic: ' + topic, 'topic': topic, 'payload': None}, 'INFO')
 
     await publish_availability('online')
@@ -2958,9 +3055,10 @@ async def main(client):
                     await download_release_once()
                 except Exception as exc:
                     update_orchestrator.mark_failed(exc)
-                    runtime_health.record_update_result(
-                        release_available.get('type', 'release'), 'failed',
-                        release_available.get('version', ''), str(exc)
+                    record_upgrade_failure(
+                        release_available.get('type', 'release'),
+                        'paired release continuation', exc,
+                        release_available.get('version', '')
                     )
 
     if certificate_config.get('mode') == 'acme':
@@ -3073,7 +3171,10 @@ if mqtt_configured:
         )
 
 config['client_id'] = deviceid
-config['will'] = (ha_availability_topic(deviceid), b'offline', True, 0)
+config['will'] = (
+    mqtt_availability_topic(deviceid), b'offline', True,
+    device_settings.mqtt_qos
+)
 config['ssl_params'] = (
     {
         'server_side': False, 'key': None, 'cert': None,

@@ -1,9 +1,10 @@
-# Home Assistant Modular Device (HAMD)
+# IoT Modular Device (IoTMD)
 
-HAMD v2 is production firmware for secure, modular ESP32-S3 devices integrated
-with Home Assistant. One device can host multiple sensors, switches and energy
-interfaces while exposing a web portal, MQTT discovery and a versioned HTTPS
-API.
+IoTMD v2 is production firmware for secure, modular ESP32-S3 devices. One
+device can host multiple sensors, switches and energy interfaces while exposing
+a web portal, configurable MQTT messaging and a versioned HTTPS API. Home
+Assistant is an optional built-in integration rather than a transport
+requirement.
 
 ## Highlights
 
@@ -11,7 +12,8 @@ API.
 - Signed application, core and universal upgrades with anti-rollback, trial
   activation, health confirmation and recovery.
 - Responsive HTTPS portal with administrator, operator and viewer roles.
-- MQTT/Home Assistant discovery plus mandatory-mTLS `/api/v2` access.
+- Platform-neutral MQTT topics, optional Home Assistant discovery and
+  mandatory-mTLS `/api/v2` access.
 - Encrypted complete configuration backup and validated restore preview.
 - NTP, IANA time zones, daylight-saving support and local-time energy resets.
 - Structured audit, health and update history with local and remote syslog.
@@ -50,7 +52,7 @@ The wizard configures:
 
 1. device identity, Wi-Fi and network mode;
 2. portal administrator credentials and HTTPS identity;
-3. MQTT/Home Assistant connectivity;
+3. secure MQTT connectivity and optional Home Assistant discovery;
 4. signed application installation and restart.
 
 After setup, open `https://<device-name>.local:8443/`. The Device API uses port
@@ -61,7 +63,7 @@ After setup, open `https://<device-name>.local:8443/`. The Device API uses port
 The portal provides:
 
 - status, module values and diagnostics;
-- network, portal, time, MQTT, Home Assistant, API and logging settings;
+- network, portal, time, Messaging, API and logging settings;
 - module configuration, calibration and debug controls;
 - users and role-aware permissions;
 - application, core and universal upgrades;
@@ -70,23 +72,27 @@ The portal provides:
 Settings that require a restart are committed immediately and collected behind
 one banner action so several changes can be activated with one reboot.
 
-## Home Assistant
+## Messaging and Home Assistant
 
-MQTT discovery is the normal entity integration. The optional fleet manager is
-published separately as
-[HAMD Home Assistant Add-ons](https://github.com/IanW6374/HAMD-Home-Assistant-Addons).
-Add that repository URL in Home Assistant to install the ingress dashboard for
-inventory, health, policy and staged rollout management.
+MQTT base and state/command/response/availability topics are administrator
+defined. The optional Home Assistant profile publishes discovery records that
+refer to those same operational topics. See the
+[messaging guide](docs/MESSAGING.md).
+
+Fleet and release services are provided by the separate public
+[IoTMD Management Suite](https://github.com/IanW6374/IoTMD-Management-Suite).
+The generic IoT Certificate Authority and IoT Syslog Server remain independent
+add-ons. See the [management ecosystem](docs/MANAGEMENT_SUITE.md).
 
 ## Updates
 
-HAMD uses three signed artifact types:
+IoTMD uses three signed artifact types:
 
 | Extension | Purpose |
 | --- | --- |
-| `.hamd` | Replaceable application and selected drivers |
-| `.hamf` | Secure MicroPython core firmware |
-| `.hamu` | Matched application and core universal update |
+| `.iotapp` | Replaceable application and selected drivers |
+| `.iotcore` | Secure MicroPython core firmware |
+| `.iotuni` | Matched application and core universal update |
 
 Use **Maintenance > Upgrades** for normal installation. Release sequences must
 increase monotonically. Verification occurs before staging, and activation uses
@@ -125,7 +131,7 @@ Important entry points:
 
 | Path | Responsibility |
 | --- | --- |
-| `HA-Device.py` | Runtime composition and supervision |
+| `iotmd.py` | Runtime composition and supervision |
 | `application/` | Transport-neutral state and service contracts |
 | `services/` | Application use cases |
 | `device_modules/` | Drivers, capabilities and resource allocation |
@@ -138,6 +144,9 @@ Important entry points:
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [MQTT messaging and Home Assistant](docs/MESSAGING.md)
+- [Device API v2](docs/API.md) and [OpenAPI contract](docs/openapi.yaml)
+- [Management ecosystem](docs/MANAGEMENT_SUITE.md)
 - [Upgrade and recovery](docs/UPGRADE_GUIDE.md)
 - [Fleet protocol](docs/FLEET_PROTOCOL.md)
 - [Security operations](docs/SECURITY_OPERATIONS.md)

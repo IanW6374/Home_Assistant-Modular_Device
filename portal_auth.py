@@ -1,4 +1,4 @@
-"""Bounded role-based portal identity management for HAMD v2."""
+"""Bounded role-based portal identity management for IoTMD v2."""
 
 try:
     import uos as os

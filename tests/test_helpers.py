@@ -1,12 +1,13 @@
 import unittest
+from unittest.mock import patch
 
 import device_modules.base as base
 from device_modules.base import ha_config_topic
-from device_modules.base import ha_availability_topic
-from device_modules.base import ha_response_topic
+from device_modules.base import mqtt_availability_topic
+from device_modules.base import mqtt_response_topic
 from device_modules.base import ha_safe_id
-from device_modules.base import ha_set_topic
-from device_modules.base import ha_state_topic
+from device_modules.base import mqtt_command_topic
+from device_modules.base import mqtt_state_topic
 from device_modules.base import ha_unique_id
 from device_modules.base import sensor_discovery_payload
 from device_modules.base import DeviceDriver
@@ -60,27 +61,48 @@ class ModuleDiagnosticsTests(unittest.TestCase):
 
 
 class HelperTests(unittest.TestCase):
-    def test_home_assistant_topics(self):
+    def test_mqtt_topics_are_platform_neutral(self):
         self.assertEqual(
-            ha_state_topic('sensor', 'abc', '0001'),
-            'homeassistant/sensor/abc0001/state'
+            mqtt_state_topic('sensor', 'abc', '0001'),
+            'iotmd/abc/0001/state'
         )
         self.assertEqual(
             ha_config_topic('sensor', 'abc', '0001', 2),
             'homeassistant/sensor/abc0001_2/config'
         )
         self.assertEqual(
-            ha_set_topic('sensor', 'abc', '0001'),
-            'homeassistant/sensor/abc0001/set'
+            mqtt_command_topic('sensor', 'abc', '0001'),
+            'iotmd/abc/0001/set'
         )
         self.assertEqual(
-            ha_response_topic('sensor', 'abc', '0001'),
-            'homeassistant/sensor/abc0001/response'
+            mqtt_response_topic('sensor', 'abc', '0001'),
+            'iotmd/abc/0001/response'
         )
         self.assertEqual(
-            ha_availability_topic('abc'),
-            'homeassistant/status/abc/availability'
+            mqtt_availability_topic('abc'),
+            'iotmd/abc/availability'
         )
+
+    def test_mqtt_topic_templates_are_configurable(self):
+        with (
+            patch.object(base.device_settings, 'mqtt_base_topic', 'plant'),
+            patch.object(
+                base.device_settings, 'mqtt_state_topic',
+                '{base}/{component}/{device_id}/{module_id}/value'
+            ),
+            patch.object(
+                base.device_settings, 'mqtt_command_topic',
+                '{base}/{device_id}/commands/{module_id}'
+            ),
+        ):
+            self.assertEqual(
+                mqtt_state_topic('sensor', 'boiler', 'flow'),
+                'plant/sensor/boiler/flow/value'
+            )
+            self.assertEqual(
+                mqtt_command_topic('sensor', 'boiler', 'flow'),
+                'plant/boiler/commands/flow'
+            )
 
     def test_home_assistant_safe_ids(self):
         self.assertEqual(ha_safe_id('PowerLimitByBMSDisChg'), 'powerlimitbybmsdischg')
@@ -96,8 +118,8 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(info['name'], 'Configured Device')
         self.assertEqual(info['ids'], ['abc123_configured_device'])
         self.assertEqual(info['sn'], 'abc123')
-        self.assertEqual(info['mf'], 'HAMD')
-        self.assertEqual(info['mdl'], 'Home Assistant Modular Device')
+        self.assertEqual(info['mf'], 'IoTMD')
+        self.assertEqual(info['mdl'], 'IoT Modular Device')
         self.assertEqual(info['hw'], 'ESP32-S3-DevKitC-1-N8R8')
 
     def test_sensor_discovery_includes_availability_and_origin(self):
@@ -115,7 +137,7 @@ class HelperTests(unittest.TestCase):
             'Device'
         )
 
-        self.assertEqual(payload['availability_topic'], 'homeassistant/status/abc/availability')
+        self.assertEqual(payload['availability_topic'], 'iotmd/abc/availability')
         self.assertEqual(payload['payload_available'], 'online')
         self.assertEqual(payload['payload_not_available'], 'offline')
         self.assertEqual(payload['dev']['cu'], 'http://192.168.1.50:8080/')

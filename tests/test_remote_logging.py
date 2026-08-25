@@ -6,10 +6,10 @@ from remote_logging import RemoteSyslog, rfc5424_message
 class RemoteLoggingTests(unittest.TestCase):
     def test_rfc5424_message_uses_local0_and_expected_severity(self):
         payload = rfc5424_message(
-            '2026-08-22T12:00:00', 'controller', 'HAMD', 'Started', 'ERROR'
+            '2026-08-22T12:00:00', 'controller', 'IoTMD', 'Started', 'ERROR'
         ).decode()
 
-        self.assertTrue(payload.startswith('<131>1 2026-08-22T12:00:00Z controller HAMD'))
+        self.assertTrue(payload.startswith('<131>1 2026-08-22T12:00:00Z controller IoTMD'))
         self.assertTrue(payload.endswith(' Started'))
 
     def test_remote_queue_is_bounded_and_counts_drops(self):
@@ -35,7 +35,7 @@ class RemoteLoggingTests(unittest.TestCase):
         self.assertFalse(audit_only.enqueue('-', 'system event'))
         self.assertTrue(audit_only.enqueue('-', 'login accepted', audit=True))
         self.assertTrue(audit_only.active)
-        self.assertIn(b'HAMD-Audit', audit_only.queue[0])
+        self.assertIn(b'IoTMD-Audit', audit_only.queue[0])
 
         system_only = RemoteSyslog({
             'enabled': True, 'audit_enabled': False,
@@ -43,7 +43,7 @@ class RemoteLoggingTests(unittest.TestCase):
         })
         self.assertTrue(system_only.enqueue('-', 'system event'))
         self.assertFalse(system_only.enqueue('-', 'login accepted', audit=True))
-        self.assertNotIn(b'HAMD-Audit', system_only.queue[0])
+        self.assertNotIn(b'IoTMD-Audit', system_only.queue[0])
 
     def test_existing_syslog_configuration_forwards_audit_by_default(self):
         client = RemoteSyslog({

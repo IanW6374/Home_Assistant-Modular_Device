@@ -198,7 +198,7 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
             request_line, headers = await http_support.read_request(reader)
             request_line = request_line.decode().strip()
             method, path = _parse_request_line(request_line)
-            authenticated = wifi_recovery._cookies(headers).get('ham_setup') == session
+            authenticated = wifi_recovery._cookies(headers).get('iotmd_setup') == session
             challenge_response = certificate_manager.http01_response(path)
             if method == 'GET' and path == '/assets/portal.css':
                 await send(
@@ -214,14 +214,14 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 await send(writer, '200 OK', challenge_response, 'text/plain')
             elif method == 'GET' and path == '/':
                 await send(writer, '200 OK', _page(session), headers=(
-                    ('Set-Cookie', 'ham_setup=' + session + '; Path=/; HttpOnly; SameSite=Strict'),
+                    ('Set-Cookie', 'iotmd_setup=' + session + '; Path=/; HttpOnly; SameSite=Strict'),
                 ))
             elif method == 'GET' and path == '/resume/' + session:
                 config = credential_store.load()
                 await send(writer, '200 OK', _certificate_resume_page(
                     session, config
                 ), headers=(
-                    ('Set-Cookie', 'ham_setup=' + session + '; Path=/; HttpOnly; SameSite=Strict'),
+                    ('Set-Cookie', 'iotmd_setup=' + session + '; Path=/; HttpOnly; SameSite=Strict'),
                 ))
             elif not authenticated:
                 await send(writer, '401 Unauthorized', 'Reconnect to the setup page.', 'text/plain')

@@ -62,10 +62,10 @@ class SettingsLoaderTests(unittest.TestCase):
             settings_loader.ha_device_info['mdl'],
             device_config.DEVICE_INFO['mdl']
         )
-        self.assertEqual(settings_loader.ha_device_info['mf'], 'HAMD')
+        self.assertEqual(settings_loader.ha_device_info['mf'], 'IoTMD')
         self.assertEqual(
             settings_loader.ha_device_info['mdl'],
-            'Home Assistant Modular Device'
+            'IoT Modular Device'
         )
         self.assertEqual(
             settings_loader.ha_device_info['hw'],
@@ -75,6 +75,12 @@ class SettingsLoaderTests(unittest.TestCase):
     def test_user_preferences_have_safe_unprovisioned_defaults(self):
         self.assertEqual(settings_loader.loglevel, 'INFO')
         self.assertTrue(settings_loader.ha_discovery)
+        self.assertEqual(settings_loader.ha_discovery_prefix, 'homeassistant')
+        self.assertEqual(settings_loader.mqtt_base_topic, 'iotmd')
+        self.assertEqual(
+            settings_loader.mqtt_state_topic,
+            '{base}/{device_id}/{module_id}/state'
+        )
         self.assertFalse(settings_loader.release_auto_download)
         self.assertFalse(settings_loader.release_auto_activate)
         self.assertEqual(settings_loader.release_check_schedule, 'disabled')

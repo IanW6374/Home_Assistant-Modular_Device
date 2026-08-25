@@ -26,7 +26,7 @@ def rfc5424_message(timestamp, hostname, application, message, severity='INFO'):
     if timestamp != '-' and not timestamp.endswith('Z'):
         timestamp += 'Z'
     safe_host = str(hostname or '-')[:64].replace(' ', '_')
-    safe_app = str(application or 'HAMD')[:48].replace(' ', '_')
+    safe_app = str(application or 'IoTMD')[:48].replace(' ', '_')
     safe_message = str(message).replace('\r', ' ').replace('\n', '\\n')
     return (
         '<' + str(priority) + '>1 ' + timestamp + ' ' + safe_host + ' ' +
@@ -35,10 +35,10 @@ def rfc5424_message(timestamp, hostname, application, message, severity='INFO'):
 
 
 class RemoteSyslog:
-    def __init__(self, settings=None, hostname='hamd', ca_path='', queue_limit=32,
+    def __init__(self, settings=None, hostname='iotapp', ca_path='', queue_limit=32,
                  status_callback=None):
         self.settings = settings or {}
-        self.hostname = str(hostname or 'hamd')
+        self.hostname = str(hostname or 'iotapp')
         self.ca_path = str(ca_path or '')
         self.queue_limit = max(1, min(128, int(queue_limit)))
         self.queue = []
@@ -68,7 +68,7 @@ class RemoteSyslog:
             self.queue.pop(0)
             self.dropped += 1
         self.queue.append(rfc5424_message(
-            timestamp, self.hostname, 'HAMD-Audit' if audit else 'HAMD',
+            timestamp, self.hostname, 'IoTMD-Audit' if audit else 'IoTMD',
             message, severity
         ))
         return True

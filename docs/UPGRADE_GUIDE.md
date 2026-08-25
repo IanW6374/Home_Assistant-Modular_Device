@@ -1,16 +1,25 @@
-# HAMD v2 upgrade and recovery guide
+# IoTMD v2 upgrade and recovery guide
 
 ## Artifact types
 
-- `.hamd`: application and selected drivers.
-- `.hamf`: secure MicroPython core firmware.
-- `.hamu`: matched application and core for one coordinated upgrade.
+- `.iotapp`: application and selected drivers.
+- `.iotcore`: secure MicroPython core firmware.
+- `.iotuni`: matched application and core for one coordinated upgrade.
 - `.factory.bin`: device seeding and USB disaster recovery only.
 
 Every deployable artifact is signed with ECDSA P-256/SHA-256, identifies its
 source revision and carries a monotonically increasing release sequence.
 
 ## Portal upgrade
+
+### Transition from v2.0.x
+
+The v2.1 formats and encrypted configuration namespace are intentionally a clean
+break. On the existing test device, first install
+`universal-2.0.15.hamu`. After it restarts and the portal confirms v2.0.15, install
+`universal-2.1.0.iotuni`. The transition copies and byte-verifies the encrypted
+configuration while retaining the v2.0 source namespace for rollback. Do not
+install a v2.1 component directly on v2.0.13 or earlier.
 
 1. Back up the current configuration.
 2. Open **Maintenance > Upgrades**.
@@ -20,8 +29,8 @@ source revision and carries a monotonically increasing release sequence.
 6. Wait for trial health confirmation and verify the running application/core
    versions on the overview page.
 
-All three upload types are resumable. Retrying the same `.hamd`, `.hamf` or
-`.hamu` continues from its last committed 64 KiB chunk; selecting a different
+All three upload types are resumable. Retrying the same `.iotapp`, `.iotcore` or
+`.iotuni` continues from its last committed 64 KiB chunk; selecting a different
 artifact discards the interrupted upload and reclaims its storage. The portal
 rejects an artifact before accepting bytes when the complete upload cannot fit
 with the required storage reserve. When a completed universal upload leaves too
@@ -35,27 +44,27 @@ reason.
 ## Production build
 
 Build only from a clean, tested commit. This example uses production version
-`2.0.0` and release sequence `2200`:
+`2.1.0` and release sequence `2300`:
 
 ```sh
-python3 tools/build_update.py releases/v2.0.0/application-2.0.0.hamd \
-  --version 2.0.0 --release-sequence 2200 \
+python3 tools/build_update.py releases/v2.1.0/application-2.1.0.iotapp \
+  --version 2.1.0 --release-sequence 2300 \
   --signing-key /secure/update.signing-key
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.0.0 --release-sequence 2200 \
-  --output releases/v2.0.0/ham-core-2.0.0.hamf \
-  --factory-output releases/v2.0.0/ham-core-2.0.0.factory.bin \
+  --version 2.1.0 --release-sequence 2300 \
+  --output releases/v2.1.0/iotmd-core-2.1.0.iotcore \
+  --factory-output /secure-output/iotmd-core-2.1.0.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
-  --factory-setup-password-output releases/v2.0.0/device-v2.setup-password.txt
+  --factory-setup-password-output /secure-output/device-v2.1.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.0.0/universal-2.0.0.hamu \
-  --application releases/v2.0.0/application-2.0.0.hamd \
-  --firmware releases/v2.0.0/ham-core-2.0.0.hamf \
-  --version 2.0.0 --release-sequence 2200 \
+  releases/v2.1.0/universal-2.1.0.iotuni \
+  --application releases/v2.1.0/application-2.1.0.iotapp \
+  --firmware releases/v2.1.0/iotmd-core-2.1.0.iotcore \
+  --version 2.1.0 --release-sequence 2300 \
   --signing-key /secure/update.signing-key
 ```
 
@@ -71,10 +80,10 @@ logs. Use the exact serial device and acknowledge erasure explicitly:
 ```sh
 python3 tools/reseed_device_usb.py \
   --device /dev/cu.usbmodemXXXX \
-  --bundle releases/v2.0.0/ham-core-2.0.0.hamf \
-  --application-bundle releases/v2.0.0/application-2.0.0.hamd \
+  --bundle releases/v2.1.0/iotmd-core-2.1.0.iotcore \
+  --application-bundle releases/v2.1.0/application-2.1.0.iotapp \
   --micropython-root /path/to/micropython \
-  --setup-password-file releases/v2.0.0/device-v2.setup-password.txt \
+  --setup-password-file /secure-output/device-v2.1.setup-password.txt \
   --update-signing-key /secure/update.signing-key \
   --confirm-erase-user-state
 ```

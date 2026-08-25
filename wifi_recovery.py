@@ -268,14 +268,14 @@ def _login_page(message=''):
     )
     return (
         '<!doctype html><html><head><meta name="viewport" '
-        'content="width=device-width,initial-scale=1"><title>HAMD recovery</title>'
+        'content="width=device-width,initial-scale=1"><title>IoTMD recovery</title>'
         '<style>body{font-family:system-ui;margin:0;background:#f3f5f7;color:#17202a;'
         'min-height:100vh;display:grid;place-items:center;padding:1rem}main{width:min(25rem,100%);'
         'background:white;border:1px solid #d7dde5;border-radius:10px;padding:1.3rem;'
         'box-sizing:border-box}form,label{display:grid;gap:.5rem}input,button{font:inherit;'
         'padding:.65rem;border:1px solid #b9c2ce;border-radius:7px}button{background:#1769aa;'
         'color:white;font-weight:700}.error{color:#a32222}</style></head><body><main>'
-        '<h1>HAMD recovery</h1><p>Home Assistant Modular Device</p>'
+        '<h1>IoTMD recovery</h1><p>IoT Modular Device</p>'
         '<p>Enter the dedicated recovery password.</p>' +
         notice + '<form action="/login" method="post"><label>Password'
         '<input name="password" type="password" autocomplete="current-password" '
@@ -330,7 +330,7 @@ def _recovery_page(reason, csrf, message=''):
     )
     if signed_ready:
         upload_controls += (
-            '<div class="upload"><input id="bundle" type="file" accept=".hamd,.hamf,.hamu,.iotapp,.iotcore,.iotuni">'
+            '<div class="upload"><input id="bundle" type="file" accept=".iotapp,.iotcore,.iotuni">'
             '<button id="upload" type="button">Upload and verify</button></div>'
             '<p id="upload-result" class="muted"></p>'
         )
@@ -343,7 +343,7 @@ def _recovery_page(reason, csrf, message=''):
     )
     return (
         '<!doctype html><html><head><meta name="viewport" '
-        'content="width=device-width,initial-scale=1"><title>HAMD recovery</title>'
+        'content="width=device-width,initial-scale=1"><title>IoTMD recovery</title>'
         '<style>:root{--line:#d7dde5;--blue:#1769aa;--red:#a32222}*{box-sizing:border-box}'
         'body{font-family:system-ui;margin:0;background:#f3f5f7;color:#17202a;padding:1rem}'
         'main{max-width:48rem;margin:auto}section{background:white;border:1px solid var(--line);'
@@ -354,7 +354,7 @@ def _recovery_page(reason, csrf, message=''):
         'font-weight:700;cursor:pointer}.secondary{background:white;color:var(--blue)}'
         '.muted{color:#667384}.error{color:var(--red)}.notice{padding:.6rem;background:#edf7ef;'
         'border:1px solid #a8d2b0;border-radius:7px}code{overflow-wrap:anywhere}</style></head>'
-        '<body><main><h1>HAMD core recovery</h1><p>Home Assistant Modular Device</p>'
+        '<body><main><h1>IoTMD core recovery</h1><p>IoT Modular Device</p>'
         '<p class="error">Normal application startup failed.</p>'
         '<section><h2>Failure</h2><code>' + _escape(reason) + '</code>' + notice + '</section>'
         '<section><h2>Wi-Fi credentials</h2><form action="/wifi" method="post">'
@@ -372,9 +372,9 @@ def _recovery_page(reason, csrf, message=''):
         '</section></main><script>var csrf=' + repr(str(csrf)) + ';'
         'var button=document.getElementById("upload");if(button){button.onclick=function(){'
         'var input=document.getElementById("bundle"),out=document.getElementById("upload-result");'
-        'if(!input.files.length){return;}var file=input.files[0],firmware=/\\.(?:hamf|iotcore)$/i.test(file.name),'
-        'application=/\\.(?:hamd|iotapp)$/i.test(file.name),universal=/\\.(?:hamu|iotuni)$/i.test(file.name);'
-        'if(!firmware&&!application&&!universal){out.textContent="Choose a legacy or IoTMD bundle.";return;}'
+        'if(!input.files.length){return;}var file=input.files[0],firmware=/\\.iotcore$/i.test(file.name),'
+        'application=/\\.iotapp$/i.test(file.name),universal=/\\.iotuni$/i.test(file.name);'
+        'if(!firmware&&!application&&!universal){out.textContent="Choose a .iotapp, .iotcore or .iotuni bundle.";return;}'
         'button.disabled=true;out.textContent="Uploading and verifying...";var request=new XMLHttpRequest();'
         'request.open("POST",universal?"/upload-universal":(firmware?"/upload-firmware":"/upload-application"),true);'
         'request.setRequestHeader("X-CSRF-Token",csrf);request.onload=function(){button.disabled=false;'
@@ -432,7 +432,7 @@ async def serve_core_recovery(
             method = parts[0] if len(parts) > 0 else ''
             path = parts[1].split('?', 1)[0] if len(parts) > 1 else ''
 
-            authenticated = _cookies(headers).get('ham_recovery') == session
+            authenticated = _cookies(headers).get('iotmd_recovery') == session
             if path == '/login' and method == 'GET':
                 await send(writer, '200 OK', _login_page())
             elif path == '/login' and method == 'POST':
@@ -445,7 +445,7 @@ async def serve_core_recovery(
                     failures = 0
                     await send(
                         writer, '303 See Other', 'Redirecting', 'text/plain',
-                        (('Location', '/'), ('Set-Cookie', 'ham_recovery=' + session + '; Path=/; HttpOnly; SameSite=Strict'))
+                        (('Location', '/'), ('Set-Cookie', 'iotmd_recovery=' + session + '; Path=/; HttpOnly; SameSite=Strict'))
                     )
                 else:
                     failures += 1

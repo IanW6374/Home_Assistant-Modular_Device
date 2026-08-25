@@ -35,7 +35,7 @@ def homeassistant_device_info(deviceid, ha_devicename, configuration_url=None):
 
 def homeassistant_origin_info():
     info = {
-        "name": "Home Assistant Modular Device"
+        "name": "IoT Modular Device"
     }
     device_info = device_settings.ha_device_info
     software = device_info.get('sw') or device_info.get('sw_version')
@@ -44,28 +44,56 @@ def homeassistant_origin_info():
     return info
 
 
-def ha_device_topic(device_type, deviceid, uuid):
-    return 'homeassistant/' + device_type + '/' + deviceid + uuid
+def _mqtt_topic(template, device_type, deviceid, uuid=''):
+    return str(template).replace(
+        '{base}', device_settings.mqtt_base_topic
+    ).replace(
+        '{device_id}', str(deviceid)
+    ).replace(
+        '{module_id}', str(uuid)
+    ).replace(
+        '{component}', str(device_type)
+    ).strip('/')
 
 
-def ha_state_topic(device_type, deviceid, uuid):
-    return ha_device_topic(device_type, deviceid, uuid) + '/state'
+def mqtt_module_topic(device_type, deviceid, uuid):
+    state = mqtt_state_topic(device_type, deviceid, uuid)
+    return state.rsplit('/', 1)[0] if '/' in state else state
+
+
+def mqtt_state_topic(device_type, deviceid, uuid):
+    return _mqtt_topic(
+        device_settings.mqtt_state_topic, device_type, deviceid, uuid
+    )
 
 
 def ha_config_topic(device_type, deviceid, uuid, entity_id):
-    return ha_device_topic(device_type, deviceid, uuid) + '_' + str(entity_id) + '/config'
+    return (
+        device_settings.ha_discovery_prefix + '/' + str(device_type) + '/' +
+        str(deviceid) + str(uuid) + '_' + str(entity_id) + '/config'
+    )
 
 
-def ha_set_topic(device_type, deviceid, uuid):
-    return ha_device_topic(device_type, deviceid, uuid) + '/set'
+def mqtt_command_topic(device_type, deviceid, uuid):
+    return _mqtt_topic(
+        device_settings.mqtt_command_topic, device_type, deviceid, uuid
+    )
 
 
-def ha_response_topic(device_type, deviceid, uuid):
-    return ha_device_topic(device_type, deviceid, uuid) + '/response'
+def mqtt_response_topic(device_type, deviceid, uuid):
+    return _mqtt_topic(
+        device_settings.mqtt_response_topic, device_type, deviceid, uuid
+    )
 
 
-def ha_availability_topic(deviceid):
-    return 'homeassistant/status/' + deviceid + '/availability'
+def mqtt_availability_topic(deviceid):
+    return _mqtt_topic(
+        device_settings.mqtt_availability_topic, '', deviceid
+    )
+
+
+def ha_status_topic():
+    return device_settings.ha_discovery_prefix + '/status'
 
 
 def ha_safe_id(value):
@@ -96,12 +124,12 @@ def ha_unique_id(deviceid, uuid, entity_id):
 def sensor_discovery_payload(device, entity, key, index, deviceid, ha_devicename):
     entity_id = entity.get('ha_id', key)
     payload = {
-        "~": ha_device_topic(device['type']['class'], deviceid, device['uuid']),
+        "~": mqtt_module_topic(device['type']['class'], deviceid, device['uuid']),
         "stat_t": "~/state",
         "uniq_id": ha_unique_id(deviceid, device['uuid'], entity_id),
         "name": device['name'] + ' ' + key,
         "value_template": "{{ value_json[" + repr(key) + "] }}",
-        "availability_topic": ha_availability_topic(deviceid),
+        "availability_topic": mqtt_availability_topic(deviceid),
         "payload_available": "online",
         "payload_not_available": "offline",
         "dev": homeassistant_device_info(deviceid, ha_devicename, device.get('_portal_url')),
@@ -159,11 +187,13 @@ class DeviceDriver:
         payload.update(self.health_state_payload())
         data = {
             'payload': payload,
-            'topic': ha_state_topic(self.device['type']['class'], deviceid, self.device['uuid']),
-            'log': 'HA Update: ' + self.device['name']
+            'topic': mqtt_state_topic(self.device['type']['class'], deviceid, self.device['uuid']),
+            'log': 'MQTT State: ' + self.device['name']
         }
-        retain = bool(self.device.get('retain_state', False))
-        publish_callable(data, 0, False, retain)
+        retain = bool(
+            self.device.get('retain_state', device_settings.mqtt_retain_state)
+        )
+        publish_callable(data, device_settings.mqtt_qos, False, retain)
 
     def publish_discovery(self, publish_callable, deviceid, ha_devicename=None):
         payloads, _ = self.get_discovery_payloads(deviceid, ha_devicename or self.device.get('name', ''))

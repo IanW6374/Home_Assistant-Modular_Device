@@ -175,7 +175,7 @@ async def _open_response(url, ca_path, redirects=MAX_REDIRECTS):
     host_header = host if port == 443 else host + ':' + str(port)
     writer.write(
         ('GET ' + path + ' HTTP/1.1\r\nHost: ' + host_header +
-         '\r\nUser-Agent: HAMD-Device/2\r\n'
+         '\r\nUser-Agent: IoTMD-Device/2\r\n'
          'Accept: application/json,application/octet-stream\r\n'
          'Connection: close\r\n\r\n').encode()
     )

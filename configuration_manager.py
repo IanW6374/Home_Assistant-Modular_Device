@@ -23,7 +23,7 @@ except ImportError:
 
 FORMAT_VERSION = 4
 MAX_IMPORT_BYTES = 128 * 1024
-SECURE_FORMAT = 'hamd-secure-backup'
+SECURE_FORMAT = 'iotmd-secure-backup'
 SECURE_FORMAT_VERSION = 2
 SECURE_KDF_ITERATIONS = 120000
 SECURE_SALT_BYTES = 16
@@ -118,17 +118,17 @@ def parse_import(payload):
 
 def _secure_crypto():
     try:
-        import _hamd_crypto
+        import _iotmd_crypto
     except ImportError:
         raise RuntimeError(
-            'encrypted backups require compatible HAMD core firmware'
+            'encrypted backups require compatible IoTMD core firmware'
         )
     for name in ('pbkdf2_sha256', 'aes_gcm_encrypt', 'aes_gcm_decrypt'):
-        if not hasattr(_hamd_crypto, name):
+        if not hasattr(_iotmd_crypto, name):
             raise RuntimeError(
-                'encrypted backups require a newer HAMD core firmware'
+                'encrypted backups require a newer IoTMD core firmware'
             )
-    return _hamd_crypto
+    return _iotmd_crypto
 
 
 def _password_bytes(password):

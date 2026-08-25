@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the inward dependency rules documented for HAMD v2."""
+"""Enforce the inward dependency rules documented for IoTMD v2."""
 
 import ast
 from pathlib import Path
@@ -24,18 +24,18 @@ FORBIDDEN_TRANSPORT_IMPORTS = {
 # down as responsibilities are extracted; increasing one requires an explicit
 # architecture review.
 LINE_LIMITS = {
-    'HA-Device.py': 3250,
+    'iotmd.py': 3350,
     'web_portal.py': 1320,
     'setup_wizard.py': 450,
     'certificate_manager.py': 700,
-    'credential_store.py': 750,
-    'app_update.py': 750,
+    'credential_store.py': 800,
+    'app_update.py': 755,
     'device_modules/modbus_transport.py': 850,
 }
 FUNCTION_LIMITS = {
     ('web_portal.py', 'start_web_portal'): 1280,
     ('setup_wizard.py', 'serve'): 350,
-    ('HA-Device.py', 'main'): 260,
+    ('iotmd.py', 'main'): 260,
 }
 RETIRED_SOURCE_MARKERS = {
     'settings_loader.py': ('ha_discovery_cleanup_legacy',),

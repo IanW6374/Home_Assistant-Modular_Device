@@ -385,7 +385,7 @@ class EMSTests(unittest.TestCase):
         joined = '; '.join(errors)
 
         self.assertIn('UART0 is reserved for the console', joined)
-        self.assertIn('GPIO38 is reserved for the HAMD status LED', joined)
+        self.assertIn('GPIO38 is reserved for the IoTMD status LED', joined)
         self.assertIn('GPIO38 is already used by ems.tx', joined)
 
 

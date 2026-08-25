@@ -7,6 +7,21 @@ configuration is validated against
 [`module_settings.schema.json`](../../module_settings.schema.json) before it is
 committed.
 
+## Common contract
+
+Each module has one transport-neutral state object. It is published to the
+administrator-defined MQTT state topic and returned by
+`GET /api/v2/modules/{uuid}/state`. Writable drivers accept the same JSON command
+body through the configured MQTT command topic or
+`POST /api/v2/modules/{uuid}/commands`. Diagnostics are available in the portal
+and at `/api/v2/modules/{uuid}/diagnostics`. See the
+[messaging](../MESSAGING.md) and [API](../API.md) guides.
+
+Home Assistant discovery is optional. Enabling it adds an HA presentation for
+the same state and command topics; it does not change the driver or payload.
+Entity `class`, `device_class`, `unit`, `state_class` and `entity_category`
+control that presentation.
+
 ## Supported types
 
 | Class | Subclass | Guide |
@@ -29,3 +44,10 @@ GPIO numbers are ESP32-S3 GPIO numbers, not header positions. Do not assign a
 pin, UART or SPI bus to more than one module. The portal resource validator
 reports conflicts before restart. After applying a change, use **Module >
 Diagnostics** to confirm values and driver health.
+
+Use unique UUIDs permanently: changing a UUID changes MQTT topics, API identity
+and Home Assistant unique IDs. A module-level `retain_state` overrides the
+global Messaging setting. Poll intervals are seconds unless a driver explicitly
+names a millisecond field. Treat all mains, boiler, inverter and high-current
+connections as hardware engineering work requiring appropriate isolation,
+protection and enclosure.

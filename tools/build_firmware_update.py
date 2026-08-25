@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wrap an ESP32 MicroPython application image in a verified .hamf bundle."""
+"""Wrap an ESP32 MicroPython application image in a verified .iotcore bundle."""
 
 import argparse
 import hashlib
@@ -11,13 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from update_security import SIGNATURE_SCHEME, sign_manifest, sign_message
 
 
-MAGIC = b'HAMF1\n'
+MAGIC = b'IOTC1\n'
 
 
 def legacy_api4_manifest_message(manifest):
     """Canonical message used by the installed recovery API-4 verifier."""
     fields = (
-        'hamf',
+        'iotcore',
         str(manifest.get('format_version', 1)),
         str(manifest.get('target_board', manifest.get('platform', ''))),
         str(manifest.get('min_recovery_api', 1)),
@@ -90,7 +90,7 @@ def build_firmware_bundle(
     manifest_object['minimum_core_api'] = int(minimum_core_api)
     if signing_key:
         manifest_object['signature_scheme'] = SIGNATURE_SCHEME
-        manifest_object['signature'] = sign_manifest('hamf', manifest_object, signing_key)
+        manifest_object['signature'] = sign_manifest('iotcore', manifest_object, signing_key)
     manifest = json.dumps(manifest_object, separators=(',', ':')).encode()
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +120,7 @@ def main():
     )
     parser.add_argument(
         '--output', required=True,
-        help='Output remote-upgrade bundle (.hamf)'
+        help='Output remote-upgrade bundle (.iotcore)'
     )
     parser.add_argument('--version', required=True, help='Base firmware version label')
     parser.add_argument(

@@ -6,7 +6,8 @@ except ImportError:
     import asyncio
 
 from device_modules.base import (
-    ha_availability_topic, ha_config_topic, ha_device_topic, ha_state_topic,
+    mqtt_availability_topic, ha_config_topic, mqtt_command_topic,
+    mqtt_module_topic, mqtt_state_topic,
     ha_unique_id,
     homeassistant_device_info, homeassistant_origin_info,
 )
@@ -34,6 +35,24 @@ class HomeAssistantService:
         self.maintenance_discovery = maintenance_discovery
         self.last_discovery_count = 0
 
+    def _operational_topics(self, payload, component, uuid):
+        """Bind HA discovery to the configured platform-neutral MQTT topics."""
+        payload = payload.copy()
+        module_topic = mqtt_module_topic(component, self.device_id, uuid)
+        replacements = {
+            '~/state': mqtt_state_topic(component, self.device_id, uuid),
+            '~/set': mqtt_command_topic(component, self.device_id, uuid),
+        }
+        for key in ('stat_t', 'state_topic', 'cmd_t', 'command_topic'):
+            value = payload.get(key)
+            if value in replacements:
+                payload[key] = replacements[value]
+            elif isinstance(value, str) and value.startswith('~/'):
+                payload[key] = module_topic + value[1:]
+        payload.pop('~', None)
+        payload['availability_topic'] = mqtt_availability_topic(self.device_id)
+        return payload
+
     def _character(self, uuid):
         return next(
             (item for item in self.device_characters() if item.get('uuid') == uuid),
@@ -47,14 +66,14 @@ class HomeAssistantService:
             'module_last_publish_age_s', 'module_consecutive_errors',
         ):
             payloads[key] = {
-                '~': ha_device_topic(
+                '~': mqtt_module_topic(
                     device['type']['class'], self.device_id, device['uuid']
                 ),
                 'stat_t': '~/state',
                 'uniq_id': ha_unique_id(self.device_id, device['uuid'], key),
                 'name': device['name'] + ' ' + key,
                 'value_template': "{{ value_json[" + repr(key) + "] }}",
-                'availability_topic': ha_availability_topic(self.device_id),
+                'availability_topic': mqtt_availability_topic(self.device_id),
                 'payload_available': 'online',
                 'payload_not_available': 'offline',
                 'entity_category': 'diagnostic',
@@ -134,6 +153,9 @@ class HomeAssistantService:
                 payload = discovery[entity_id].copy()
                 topic = payload.pop('_topic', None)
                 component = payload.pop('_component', device['type']['class'])
+                payload = self._operational_topics(
+                    payload, component, device['uuid']
+                )
                 topic = topic or ha_config_topic(
                     component, self.device_id, device['uuid'], entity_id
                 )
@@ -153,15 +175,16 @@ class HomeAssistantService:
             await asyncio.sleep(1)
             await self.publisher({
                 'payload': entities,
-                'topic': ha_state_topic(
+                'topic': mqtt_state_topic(
                     device['type']['class'], self.device_id, device['uuid']
                 ),
-                'log': 'HA Update: ' + device['name'],
+                'log': 'MQTT State: ' + device['name'],
             }, 0, False)
 
         if self.system_enabled:
             system_count = 0
             for key, payload in (self.system_discovery() or {}).items():
+                payload = self._operational_topics(payload, 'sensor', 'sys')
                 await self.publisher({
                     'payload': payload,
                     'topic': ha_config_topic('sensor', self.device_id, 'sys', key),
@@ -171,10 +194,11 @@ class HomeAssistantService:
                 system_count += 1
             await self.publisher({
                 'payload': self.system_state(),
-                'topic': ha_state_topic('sensor', self.device_id, 'sys'),
-                'log': 'HA Update: system diagnostics',
+                'topic': mqtt_state_topic('sensor', self.device_id, 'sys'),
+                'log': 'MQTT State: system diagnostics',
             }, 0, False)
             for key, payload in (self.maintenance_discovery() or {}).items():
+                payload = self._operational_topics(payload, 'button', 'maint')
                 await self.publisher({
                     'payload': payload,
                     'topic': ha_config_topic('button', self.device_id, 'maint', key),
@@ -197,6 +221,6 @@ class HomeAssistantService:
     async def publish_availability(self, state):
         await self.publisher({
             'payload': state,
-            'topic': ha_availability_topic(self.device_id),
+            'topic': mqtt_availability_topic(self.device_id),
             'log': 'Availability: ' + state,
         }, 0, False, True)

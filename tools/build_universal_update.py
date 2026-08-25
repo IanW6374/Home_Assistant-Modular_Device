@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a signed universal HAMD core-and-application update bundle."""
+"""Build a signed universal IoTMD core-and-application update bundle."""
 
 import argparse
 import hashlib
@@ -21,7 +21,7 @@ except ImportError:
     )
 
 
-MAGIC = b'HAMU1\n'
+MAGIC = b'IOTU1\n'
 
 
 def _component(path, expected_type, signing_key):
@@ -107,7 +107,7 @@ def build_universal_bundle(
         'trial_timeout_s': trial_timeout_s,
     })
     manifest_object['signature'] = update_security.sign_manifest(
-        'hamu', manifest_object, signing_key
+        'iotuni', manifest_object, signing_key
     )
     manifest = json.dumps(manifest_object, separators=(',', ':')).encode()
     output = Path(output)
@@ -128,7 +128,7 @@ def build_universal_bundle(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Build a signed .hamu universal upgrade bundle'
+        description='Build a signed .iotuni universal upgrade bundle'
     )
     parser.add_argument('output')
     parser.add_argument('--application', required=True)

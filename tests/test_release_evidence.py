@@ -20,12 +20,12 @@ class ReleaseEvidenceTests(unittest.TestCase):
 
     def test_provenance_binds_artifact_digest(self):
         with tempfile.TemporaryDirectory() as directory:
-            artifact = Path(directory) / 'release.hamu'
-            artifact.write_bytes(b'hamd')
+            artifact = Path(directory) / 'release.iotuni'
+            artifact.write_bytes(b'iotapp')
             value = build_statement(
                 Path(__file__).resolve().parents[1], [artifact], '2.0.0-alpha.1'
             )
-            self.assertEqual(value['subject'][0]['name'], 'release.hamu')
+            self.assertEqual(value['subject'][0]['name'], 'release.iotuni')
             self.assertEqual(len(value['subject'][0]['digest']['sha256']), 64)
 
 

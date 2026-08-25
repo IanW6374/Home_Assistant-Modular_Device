@@ -23,7 +23,7 @@ FILES = (
     "update_support.py",
     "wifi_recovery.py",
     "http_support.py",
-    "HA-Device.py",
+    "iotmd.py",
     "release_update.py",
     "settings_loader.py",
     "component_versions.py",

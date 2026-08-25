@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a signed HAMD core bundle over USB while servicing the device WDT."""
+"""Stage a signed IoTMD core bundle over USB while servicing the device WDT."""
 
 import argparse
 import sys
@@ -8,7 +8,7 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Copy and stage a signed .hamf bundle over the MicroPython USB REPL'
+        description='Copy and stage a signed .iotcore bundle over the MicroPython USB REPL'
     )
     parser.add_argument('--device', required=True)
     parser.add_argument('--bundle', required=True)
@@ -32,7 +32,7 @@ def main():
     sys.path.insert(0, str(tools_dir))
     import pyboard
 
-    remote_path = '/.hamd-usb-firmware.hamf'
+    remote_path = '/.iotapp-usb-firmware.iotcore'
     board = pyboard.Pyboard(args.device)
     try:
         # Bind the hardware WDT directly. A soft reset would discard the
@@ -40,11 +40,11 @@ def main():
         board.enter_raw_repl(soft_reset=False)
         board.exec_(
             "import machine\n"
-            "_hamd_wdt=machine.WDT(0)\n"
-            "def _hamd_feed():\n"
-            " _hamd_wdt.feed()\n"
-            "_hamd_upload=open('" + remote_path + "','wb')\n"
-            "_hamd_write=_hamd_upload.write"
+            "_iotmd_wdt=machine.WDT(0)\n"
+            "def _iotmd_feed():\n"
+            " _iotmd_wdt.feed()\n"
+            "_iotmd_upload=open('" + remote_path + "','wb')\n"
+            "_iotmd_write=_iotmd_upload.write"
         )
         total = bundle.stat().st_size
         written = 0
@@ -53,39 +53,39 @@ def main():
                 chunk = stream.read(512)
                 if not chunk:
                     break
-                board.exec_('_hamd_write(' + repr(chunk) + ')\n_hamd_feed()')
+                board.exec_('_iotmd_write(' + repr(chunk) + ')\n_iotmd_feed()')
                 written += len(chunk)
                 if written == total or written % (64 * 1024) < 512:
                     print('copied', written, 'of', total)
-        board.exec_('_hamd_upload.close()\n_hamd_feed()')
+        board.exec_('_iotmd_upload.close()\n_iotmd_feed()')
 
         stage_code = """
 import os
 try:
- import uasyncio as _hamd_asyncio
+ import uasyncio as _iotmd_asyncio
 except ImportError:
- import asyncio as _hamd_asyncio
-import firmware_update as _hamd_firmware
-_hamd_source=open('%s','rb')
-_hamd_running_version=_hamd_firmware.running_version
-class _HamdReader:
+ import asyncio as _iotmd_asyncio
+import firmware_update as _iotmd_firmware
+_iotmd_source=open('%s','rb')
+_iotmd_running_version=_iotmd_firmware.running_version
+class _IoTMDReader:
  async def read(self,count):
-  _hamd_feed()
-  return _hamd_source.read(count)
-async def _hamd_progress(phase,completed,total):
- _hamd_feed()
-async def _hamd_stage():
+  _iotmd_feed()
+  return _iotmd_source.read(count)
+async def _iotmd_progress(phase,completed,total):
+ _iotmd_feed()
+async def _iotmd_stage():
  if %r:
-  _hamd_firmware.running_version=lambda fallback='':''
+  _iotmd_firmware.running_version=lambda fallback='':''
  try:
-  return await _hamd_firmware.receive_bundle(
-   _HamdReader(),%d,progress_callback=_hamd_progress)
+  return await _iotmd_firmware.receive_bundle(
+   _IoTMDReader(),%d,progress_callback=_iotmd_progress)
  finally:
-  _hamd_firmware.running_version=_hamd_running_version
+  _iotmd_firmware.running_version=_iotmd_running_version
 try:
- print(_hamd_asyncio.run(_hamd_stage()))
+ print(_iotmd_asyncio.run(_iotmd_stage()))
 finally:
- _hamd_source.close()
+ _iotmd_source.close()
  os.remove('%s')
 """ % (remote_path, args.allow_same_version, total, remote_path)
         board.exec_(stage_code, timeout=180)
@@ -93,9 +93,9 @@ finally:
 
         if args.activate:
             result = board.exec_(
-                "import firmware_update as _hamd_firmware\n"
-                "print(_hamd_firmware.activate_pending())\n"
-                "_hamd_feed()"
+                "import firmware_update as _iotmd_firmware\n"
+                "print(_iotmd_firmware.activate_pending())\n"
+                "_iotmd_feed()"
             )
             print(result.decode().strip())
             print('firmware marked for trial boot')

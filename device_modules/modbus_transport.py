@@ -11,7 +11,7 @@ from machine import UART, Pin
 try:
     from .base import DeviceDriver
     from .base import ha_safe_id
-    from .base import ha_response_topic
+    from .base import mqtt_response_topic
     from .base import sensor_discovery_payload
     from .logging import log_output
     from .modbus_codec import (
@@ -22,7 +22,7 @@ try:
 except ImportError:
     from base import DeviceDriver
     from base import ha_safe_id
-    from base import ha_response_topic
+    from base import mqtt_response_topic
     from base import sensor_discovery_payload
     from logging import log_output
     from modbus_codec import (
@@ -800,7 +800,7 @@ class ModbusRTUDriver(DeviceDriver):
 
         data = {
             'payload': payload,
-            'topic': ha_response_topic('sensor', self._deviceid, self.device['uuid']),
+            'topic': mqtt_response_topic('sensor', self._deviceid, self.device['uuid']),
             'log': 'RS485 response: ' + self.device['name']
         }
         self._publish_callable(data, 0, False)

@@ -22,7 +22,7 @@ from credential_schema import (
 )
 
 
-NAMESPACE = 'ham_config'
+NAMESPACE = 'iotmd_config'
 MAX_CONFIG_BYTES = 8192
 NETWORK_TRIAL_KEY = 'nettrial'
 MAX_NETWORK_TRIAL_BYTES = 8192
@@ -341,6 +341,27 @@ def build_configuration(values, portal_password, recovery_password):
             'password': values.get('mqtt_password', ''),
             'ssl': bool(values.get('mqtt_ssl', False)),
             'configured': bool(values.get('mqtt_server', '')),
+            'enabled': bool(values.get(
+                'mqtt_enabled', bool(values.get('mqtt_server', ''))
+            )),
+            'base_topic': values.get('mqtt_base_topic', 'iotmd'),
+            'state_topic': values.get(
+                'mqtt_state_topic', '{base}/{device_id}/{module_id}/state'
+            ),
+            'command_topic': values.get(
+                'mqtt_command_topic', '{base}/{device_id}/{module_id}/set'
+            ),
+            'response_topic': values.get(
+                'mqtt_response_topic', '{base}/{device_id}/{module_id}/response'
+            ),
+            'availability_topic': values.get(
+                'mqtt_availability_topic', '{base}/{device_id}/availability'
+            ),
+            'qos': int(values.get('mqtt_qos', 0)),
+            'retain_state': bool(values.get('mqtt_retain_state', False)),
+            'command_subscriptions': bool(values.get(
+                'mqtt_command_subscriptions', True
+            )),
         },
         'portal': {
             'username': values.get('portal_username', ''),
@@ -380,6 +401,9 @@ def build_configuration(values, portal_password, recovery_password):
             'timezone_name': values.get('timezone_name', 'UTC'),
             'log_buffer_lines': int(values.get('log_buffer_lines', 200)),
             'ha_discovery': bool(values.get('ha_discovery', True)),
+            'ha_discovery_prefix': str(values.get(
+                'ha_discovery_prefix', 'homeassistant'
+            )),
             'release_auto_download': bool(
                 values.get('release_auto_download', False)
             ),
@@ -456,10 +480,31 @@ def public_settings():
         'wifi_dns_server': config['wifi'].get('dns_server', ''),
         'network_trial_pending': network_trial_pending(),
         'mqtt_configured': config['mqtt'].get('configured') is True,
+        'mqtt_enabled': config['mqtt'].get(
+            'enabled', config['mqtt'].get('configured') is True
+        ),
         'mqtt_server': config['mqtt']['server'],
         'mqtt_port': config['mqtt']['port'],
         'mqtt_username': config['mqtt']['username'],
         'mqtt_password_set': bool(config['mqtt']['password']),
+        'mqtt_base_topic': config['mqtt'].get('base_topic', 'iotmd'),
+        'mqtt_state_topic': config['mqtt'].get(
+            'state_topic', '{base}/{device_id}/{module_id}/state'
+        ),
+        'mqtt_command_topic': config['mqtt'].get(
+            'command_topic', '{base}/{device_id}/{module_id}/set'
+        ),
+        'mqtt_response_topic': config['mqtt'].get(
+            'response_topic', '{base}/{device_id}/{module_id}/response'
+        ),
+        'mqtt_availability_topic': config['mqtt'].get(
+            'availability_topic', '{base}/{device_id}/availability'
+        ),
+        'mqtt_qos': config['mqtt'].get('qos', 0),
+        'mqtt_retain_state': config['mqtt'].get('retain_state', False),
+        'mqtt_command_subscriptions': config['mqtt'].get(
+            'command_subscriptions', True
+        ),
         'portal_username': config['portal']['username'],
         'portal_transport': portal_transport,
         'portal_port': portal_port,
@@ -474,6 +519,9 @@ def public_settings():
         'timezone_name': config['preferences'].get('timezone_name', 'UTC'),
         'log_buffer_lines': config['preferences'].get('log_buffer_lines', 200),
         'ha_discovery': config['preferences']['ha_discovery'],
+        'ha_discovery_prefix': config['preferences'].get(
+            'ha_discovery_prefix', 'homeassistant'
+        ),
         'release_auto_download': config['preferences']['release_auto_download'],
         'release_auto_activate': config['preferences']['release_auto_activate'],
         'release_check_schedule': config['preferences'].get(
@@ -510,12 +558,31 @@ def _apply_operational_settings(config, values):
     if 'mqtt_server' in values:
         config['mqtt']['server'] = values['mqtt_server']
         config['mqtt']['configured'] = bool(values['mqtt_server'])
+    if 'mqtt_enabled' in values:
+        config['mqtt']['enabled'] = bool(values['mqtt_enabled'])
     if 'mqtt_port' in values:
         config['mqtt']['port'] = int(values['mqtt_port'])
     if 'mqtt_username' in values:
         config['mqtt']['username'] = values['mqtt_username']
     if 'mqtt_password' in values:
         config['mqtt']['password'] = values['mqtt_password']
+    for source, target in (
+        ('mqtt_base_topic', 'base_topic'),
+        ('mqtt_state_topic', 'state_topic'),
+        ('mqtt_command_topic', 'command_topic'),
+        ('mqtt_response_topic', 'response_topic'),
+        ('mqtt_availability_topic', 'availability_topic'),
+    ):
+        if source in values:
+            config['mqtt'][target] = str(values[source]).strip()
+    if 'mqtt_qos' in values:
+        config['mqtt']['qos'] = int(values['mqtt_qos'])
+    if 'mqtt_retain_state' in values:
+        config['mqtt']['retain_state'] = bool(values['mqtt_retain_state'])
+    if 'mqtt_command_subscriptions' in values:
+        config['mqtt']['command_subscriptions'] = bool(
+            values['mqtt_command_subscriptions']
+        )
     if 'portal_username' in values:
         old_username = str(config['portal'].get('username', '')).lower()
         config['portal']['username'] = values['portal_username']
@@ -558,6 +625,10 @@ def _apply_operational_settings(config, values):
         config['preferences']['log_buffer_lines'] = int(values['log_buffer_lines'])
     if 'ha_discovery' in values:
         config['preferences']['ha_discovery'] = bool(values['ha_discovery'])
+    if 'ha_discovery_prefix' in values:
+        config['preferences']['ha_discovery_prefix'] = str(
+            values['ha_discovery_prefix']
+        ).strip()
     if 'release_auto_download' in values:
         config['preferences']['release_auto_download'] = bool(
             values['release_auto_download']

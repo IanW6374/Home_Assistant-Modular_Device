@@ -3,7 +3,7 @@
   "micropython_commit": "e0e9fbb17ed6fd06bb76e266ae554784c9c80804",
   "esp_idf": "v5.5.1",
   "esp_idf_commit": "fcae32885b0296b32044cb99ecbdc50d98dddb83",
-  "board": "HAM_ESP32_S3",
+  "board": "IOTMD_ESP32_S3",
   "variant": "SPIRAM_OCT",
   "ota_partition_bytes": 2097152,
   "ota_warning_percent": 80,

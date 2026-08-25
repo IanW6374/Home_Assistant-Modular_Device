@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate an independent HAMD fleet-policy P-256 signing keypair."""
+"""Generate an independent IoTMD fleet-policy P-256 signing keypair."""
 
 import argparse
 import os

@@ -1,6 +1,6 @@
-# HAMD v2 architecture
+# IoTMD v2 architecture
 
-HAMD v2 is a clean-seed ESP32-S3 platform. Dependencies point inward:
+IoTMD v2 is a clean-seed ESP32-S3 platform. Dependencies point inward:
 
 ```text
 frozen platform -> application domain <- services <- portal/API/MQTT/display

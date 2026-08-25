@@ -37,26 +37,26 @@ class ReleaseProvenanceTests(unittest.TestCase):
         source = Path('component_versions.py')
         source.write_bytes(b'VALUE=1\nMARKER=' + repr(source_marker(self.revision)).encode())
         build_bundle(
-            Path('application.hamd'), '1.9.0', [('component_versions.py', source)],
+            Path('application.iotapp'), '1.9.0', [('component_versions.py', source)],
             signing_key=self.private_key, release_sequence=1900,
         )
         _descriptor, _bundle, published = publish_release(
-            'application.hamd', 'site', 'https://updates.example/hamd',
+            'application.iotapp', 'site', 'https://updates.example/iotmd',
             'stable', self.private_key, source_revision=self.revision,
         )
         self.assertIn(self.revision, published['notes'])
         with self.assertRaisesRegex(ValueError, 'does not match'):
             publish_release(
-                'application.hamd', 'other-site', 'https://updates.example/hamd',
+                'application.iotapp', 'other-site', 'https://updates.example/iotmd',
                 'stable', self.private_key, source_revision='2' * 40,
             )
 
-        damaged = bytearray(Path('application.hamd').read_bytes())
+        damaged = bytearray(Path('application.iotapp').read_bytes())
         damaged[-1] ^= 1
-        Path('damaged.hamd').write_bytes(damaged)
+        Path('damaged.iotapp').write_bytes(damaged)
         with self.assertRaisesRegex(ValueError, 'payload hash failed'):
             publish_release(
-                'damaged.hamd', 'damaged-site', 'https://updates.example/hamd',
+                'damaged.iotapp', 'damaged-site', 'https://updates.example/iotmd',
                 'stable', self.private_key,
             )
 
@@ -67,11 +67,11 @@ class ReleaseProvenanceTests(unittest.TestCase):
         image = Path('micropython.bin')
         image.write_bytes(b'\xe9' + metadata.read_bytes())
         build_firmware_bundle(
-            image, Path('firmware.hamf'), '1.9.0', signing_key=self.private_key,
+            image, Path('firmware.iotcore'), '1.9.0', signing_key=self.private_key,
             release_sequence=1900,
         )
         publish_release(
-            'firmware.hamf', 'firmware-site', 'https://updates.example/hamd',
+            'firmware.iotcore', 'firmware-site', 'https://updates.example/iotmd',
             'stable', self.private_key, source_revision=self.revision,
         )
 

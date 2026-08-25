@@ -69,7 +69,7 @@ class UniversalUpdateTests(unittest.TestCase):
             'signature_scheme': update_security.SIGNATURE_SCHEME,
         }
         manifest['signature'] = update_security.sign_manifest(
-            'hamu', manifest, self.private_key
+            'iotuni', manifest, self.private_key
         )
         encoded = json.dumps(manifest, separators=(',', ':')).encode()
         return (
@@ -186,10 +186,10 @@ class UniversalUpdateTests(unittest.TestCase):
         source.write_text('VALUE = 1')
         settings = Path('settings.json')
         settings.write_text('{}')
-        application = Path('application.hamd')
+        application = Path('application.iotapp')
         build_bundle(
             application, '2.0.0',
-            [('HA-Device.py', source), ('app_settings.json', settings)],
+            [('iotmd.py', source), ('app_settings.json', settings)],
             signing_key=self.private_key, release_sequence=40,
             minimum_core_api=1,
             components={'runtime': 1, 'modules': {}},
@@ -357,8 +357,8 @@ class UniversalUpdateTests(unittest.TestCase):
         settings = Path('settings.json')
         settings.write_text('{}')
         build_bundle(
-            Path('application.hamd'), '2.0.0',
-            [('HA-Device.py', source), ('app_settings.json', settings)],
+            Path('application.iotapp'), '2.0.0',
+            [('iotmd.py', source), ('app_settings.json', settings)],
             signing_key=self.private_key, release_sequence=40,
             minimum_core_api=1,
             components={'runtime': 1, 'modules': {}},
@@ -366,19 +366,19 @@ class UniversalUpdateTests(unittest.TestCase):
         image = Path('micropython.bin')
         image.write_bytes(b'\xe9' + b'core image' * 20)
         build_firmware_bundle(
-            image, Path('firmware.hamf'), '2.0.0',
+            image, Path('firmware.iotcore'), '2.0.0',
             signing_key=self.private_key, release_sequence=40,
             minimum_core_api=1,
         )
         manifest = build_universal_bundle(
-            Path('universal.hamu'), Path('application.hamd'), Path('firmware.hamf'),
+            Path('universal.iotuni'), Path('application.iotapp'), Path('firmware.iotcore'),
             '2.0.0', 40, self.private_key
         )
         self.assertEqual(manifest['application']['release_sequence'], 40)
         self.assertEqual(manifest['firmware']['release_sequence'], 40)
         self.assertEqual(manifest['format_version'], 2)
         self.assertEqual(manifest['rollback_policy'], 'paired')
-        with Path('universal.hamu').open('rb') as stream:
+        with Path('universal.iotuni').open('rb') as stream:
             self.assertEqual(stream.read(6), universal_update.MAGIC)
             length = int.from_bytes(stream.read(4), 'big')
             stored = json.loads(stream.read(length).decode())
@@ -388,7 +388,7 @@ class UniversalUpdateTests(unittest.TestCase):
             update_security._bytes_to_int(public[32:]),
         )
         self.assertTrue(update_security.verify_manifest_signature(
-            'hamu', stored, stored['signature'], point
+            'iotuni', stored, stored['signature'], point
         ))
 
     def test_clean_seed_runtime_rejects_legacy_universal_format(self):
@@ -397,21 +397,21 @@ class UniversalUpdateTests(unittest.TestCase):
         settings = Path('settings.json')
         settings.write_text('{}')
         build_bundle(
-            Path('application.hamd'), '2.0.0-alpha.1',
-            [('HA-Device.py', source), ('app_settings.json', settings)],
+            Path('application.iotapp'), '2.0.0-alpha.1',
+            [('iotmd.py', source), ('app_settings.json', settings)],
             signing_key=self.private_key, release_sequence=2101,
             minimum_core_api=1, components={'runtime': 1, 'modules': {}},
         )
         image = Path('micropython.bin')
         image.write_bytes(b'\xe9' + b'core image' * 20)
         build_firmware_bundle(
-            image, Path('firmware.hamf'), '2.0.0-alpha.1',
+            image, Path('firmware.iotcore'), '2.0.0-alpha.1',
             signing_key=self.private_key, release_sequence=2101,
             minimum_core_api=1,
         )
         manifest = build_universal_bundle(
-            Path('universal.hamu'), Path('application.hamd'),
-            Path('firmware.hamf'), '2.0.0-alpha.1', 2101,
+            Path('universal.iotuni'), Path('application.iotapp'),
+            Path('firmware.iotcore'), '2.0.0-alpha.1', 2101,
             self.private_key,
         )
         manifest['format_version'] = 1

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a deterministic CycloneDX SBOM for a HAMD release source tree."""
+"""Generate a deterministic CycloneDX SBOM for a IoTMD release source tree."""
 
 import argparse
 import hashlib
@@ -50,7 +50,7 @@ def build_sbom(root, version):
             )}],
         },
         {
-            'type': 'library', 'name': 'HAMD native cryptography',
+            'type': 'library', 'name': 'IoTMD native cryptography',
             'version': str(version),
             'properties': [{'name': 'source.path', 'value': 'firmware/native'}],
         },
@@ -59,7 +59,7 @@ def build_sbom(root, version):
         'bomFormat': 'CycloneDX', 'specVersion': '1.5', 'serialNumber': None,
         'version': 1,
         'metadata': {'component': {
-            'type': 'firmware', 'name': 'HAMD', 'version': str(version)
+            'type': 'firmware', 'name': 'IoTMD', 'version': str(version)
         }},
         'components': components,
     }

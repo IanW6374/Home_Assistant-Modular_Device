@@ -41,7 +41,7 @@ class AppUpdateTests(unittest.TestCase):
 
     def make_bundle(self, files, version='test-1', release_sequence=None):
         files = dict(files)
-        if 'HA-Device.py' in files and 'app_settings.json' not in files:
+        if 'iotmd.py' in files and 'app_settings.json' not in files:
             files['app_settings.json'] = b'{}'
         if release_sequence is None:
             self.bundle_sequence += 1
@@ -60,7 +60,7 @@ class AppUpdateTests(unittest.TestCase):
         )
 
     def test_validates_application_bundle(self):
-        self.make_bundle({'HA-Device.py': b'print("new")', 'device_modules/test.py': b'VALUE=1'})
+        self.make_bundle({'iotmd.py': b'print("new")', 'device_modules/test.py': b'VALUE=1'})
 
         manifest = app_update.validate_bundle()
 
@@ -68,7 +68,7 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(len(manifest['files']), 3)
 
     def test_rejects_tampered_bundle(self):
-        self.make_bundle({'HA-Device.py': b'print("new")'})
+        self.make_bundle({'iotmd.py': b'print("new")'})
         data = Path(app_update.BUNDLE_PATH).read_bytes()
         Path(app_update.BUNDLE_PATH).write_bytes(data[:-1] + bytes([data[-1] ^ 0xff]))
 
@@ -92,7 +92,7 @@ class AppUpdateTests(unittest.TestCase):
         source.write_bytes(b'new')
         build_bundle(
             Path(app_update.BUNDLE_PATH), 'other-profile',
-            [('HA-Device.py', source), ('app_settings.json', source)],
+            [('iotmd.py', source), ('app_settings.json', source)],
             signing_key=self.private_key
         )
 
@@ -117,17 +117,17 @@ class AppUpdateTests(unittest.TestCase):
                 app_update.validate_bundle()
 
     def test_activate_and_confirm_update(self):
-        Path('HA-Device.py').write_bytes(b'old')
-        self.make_bundle({'HA-Device.py': b'new', 'device_modules/new.py': b'VALUE=2'})
+        Path('iotmd.py').write_bytes(b'old')
+        self.make_bundle({'iotmd.py': b'new', 'device_modules/new.py': b'VALUE=2'})
         app_update.stage_bundle()
 
         result = app_update.activate_pending()
 
         self.assertIn('activated update test-1', result)
-        self.assertEqual(Path('HA-Device.py').read_bytes(), b'old')
-        self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'new')
+        self.assertEqual(Path('iotmd.py').read_bytes(), b'old')
+        self.assertEqual(Path('.app-slots/a/iotmd.py').read_bytes(), b'new')
         self.assertEqual(Path('.app-slots/a/device_modules/new.py').read_bytes(), b'VALUE=2')
-        self.assertEqual(app_update.application_entry(), '.app-slots/a/HA-Device.py')
+        self.assertEqual(app_update.application_entry(), '.app-slots/a/iotmd.py')
         self.assertEqual(app_update.update_status()['status'], 'trial')
         self.assertTrue(app_update.confirm_update())
         self.assertEqual(app_update.update_status()['status'], 'idle')
@@ -146,7 +146,7 @@ class AppUpdateTests(unittest.TestCase):
     def test_optional_bundle_files_are_applied_selectively(self):
         Path('module_settings.json').write_bytes(b'old-module')
         self.make_bundle({
-            'HA-Device.py': b'new-app',
+            'iotmd.py': b'new-app',
             'module_settings.json': b'new-module',
             'certs/home-ca.der': b'new-cert'
         })
@@ -162,19 +162,19 @@ class AppUpdateTests(unittest.TestCase):
 
         app_update.activate_pending()
 
-        self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'new-app')
+        self.assertEqual(Path('.app-slots/a/iotmd.py').read_bytes(), b'new-app')
         self.assertEqual(Path('module_settings.json').read_bytes(), b'old-module')
         self.assertEqual(Path('certs/home-ca.der').read_bytes(), b'new-cert')
 
     def test_cannot_select_optional_group_absent_from_staged_bundle(self):
-        self.make_bundle({'HA-Device.py': b'new-app'})
+        self.make_bundle({'iotmd.py': b'new-app'})
         app_update.stage_bundle()
 
         with self.assertRaisesRegex(ValueError, 'not present'):
             app_update.configure_pending_update({'module_settings': True})
 
     def test_ready_update_can_be_discarded_from_recovery(self):
-        self.make_bundle({'HA-Device.py': b'new-app'}, 'discard-me')
+        self.make_bundle({'iotmd.py': b'new-app'}, 'discard-me')
         app_update.stage_bundle()
 
         self.assertTrue(app_update.discard_pending_update())
@@ -183,44 +183,44 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(update_support.update_history()[-1]['event'], 'discarded')
 
     def test_unconfirmed_update_rolls_back_on_next_boot(self):
-        Path('HA-Device.py').write_bytes(b'old')
-        self.make_bundle({'HA-Device.py': b'new', 'new-file.py': b'new'})
+        Path('iotmd.py').write_bytes(b'old')
+        self.make_bundle({'iotmd.py': b'new', 'new-file.py': b'new'})
         app_update.stage_bundle()
         app_update.activate_pending()
 
-        self.assertTrue(Path('.app-slots/a/HA-Device.py').exists())
+        self.assertTrue(Path('.app-slots/a/iotmd.py').exists())
 
         result = app_update.activate_pending()
 
         self.assertIn('rolled back', result)
-        self.assertEqual(Path('HA-Device.py').read_bytes(), b'old')
+        self.assertEqual(Path('iotmd.py').read_bytes(), b'old')
         self.assertFalse(Path('new-file.py').exists())
         self.assertFalse(Path('.app-slots/a').exists())
         self.assertEqual(app_update.update_status()['status'], 'idle')
 
     def test_confirmed_updates_alternate_application_slots(self):
-        self.make_bundle({'HA-Device.py': b'app-a'}, 'version-a')
+        self.make_bundle({'iotmd.py': b'app-a'}, 'version-a')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.confirm_update()
 
-        self.make_bundle({'HA-Device.py': b'app-b'}, 'version-b')
+        self.make_bundle({'iotmd.py': b'app-b'}, 'version-b')
         app_update.stage_bundle()
         app_update.activate_pending()
 
-        self.assertEqual(app_update.application_entry(), '.app-slots/b/HA-Device.py')
-        self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'app-a')
-        self.assertEqual(Path('.app-slots/b/HA-Device.py').read_bytes(), b'app-b')
+        self.assertEqual(app_update.application_entry(), '.app-slots/b/iotmd.py')
+        self.assertEqual(Path('.app-slots/a/iotmd.py').read_bytes(), b'app-a')
+        self.assertEqual(Path('.app-slots/b/iotmd.py').read_bytes(), b'app-b')
         app_update.confirm_update()
         self.assertEqual(app_update.active_slot(), 'b')
         self.assertEqual(app_update.running_version(), 'version-b')
 
     def test_slot_integrity_detects_tampering_and_manual_rollback(self):
-        self.make_bundle({'HA-Device.py': b'app-a'}, 'version-a')
+        self.make_bundle({'iotmd.py': b'app-a'}, 'version-a')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.confirm_update()
-        self.make_bundle({'HA-Device.py': b'app-b'}, 'version-b')
+        self.make_bundle({'iotmd.py': b'app-b'}, 'version-b')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.confirm_update()
@@ -230,36 +230,36 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(result['active'], 'a')
         self.assertEqual(app_update.running_version(), 'version-a')
 
-        Path('.app-slots/a/HA-Device.py').write_bytes(b'tampered')
+        Path('.app-slots/a/iotmd.py').write_bytes(b'tampered')
         self.assertFalse(app_update.validate_slot_integrity('a'))
         self.assertEqual(app_update.active_slot(), '')
 
     def test_failed_second_slot_keeps_confirmed_slot_active(self):
-        self.make_bundle({'HA-Device.py': b'stable'}, 'stable')
+        self.make_bundle({'iotmd.py': b'stable'}, 'stable')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.confirm_update()
 
-        self.make_bundle({'HA-Device.py': b'broken'}, 'broken')
+        self.make_bundle({'iotmd.py': b'broken'}, 'broken')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.rollback_update()
 
         self.assertEqual(app_update.active_slot(), 'a')
-        self.assertEqual(app_update.application_entry(), '.app-slots/a/HA-Device.py')
-        self.assertEqual(Path('.app-slots/a/HA-Device.py').read_bytes(), b'stable')
+        self.assertEqual(app_update.application_entry(), '.app-slots/a/iotmd.py')
+        self.assertEqual(Path('.app-slots/a/iotmd.py').read_bytes(), b'stable')
         self.assertFalse(Path('.app-slots/b').exists())
 
     def test_bad_shared_certificate_rolls_back_with_failed_trial_slot(self):
         Path('certs').mkdir()
         Path('certs/web.key').write_bytes(b'working-key')
-        self.make_bundle({'HA-Device.py': b'stable'}, 'stable')
+        self.make_bundle({'iotmd.py': b'stable'}, 'stable')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.confirm_update()
 
         self.make_bundle({
-            'HA-Device.py': b'trial',
+            'iotmd.py': b'trial',
             'certs/web.key': b'incorrect-key'
         }, 'trial')
         app_update.stage_bundle(allow_protected=True)
@@ -278,7 +278,7 @@ class AppUpdateTests(unittest.TestCase):
         self.assertFalse(Path('.app-slots/b').exists())
 
     def test_prepare_application_path_prefers_active_slot_and_library(self):
-        self.make_bundle({'HA-Device.py': b'app', 'lib/example.py': b'VALUE=1'})
+        self.make_bundle({'iotmd.py': b'app', 'lib/example.py': b'VALUE=1'})
         app_update.stage_bundle()
         app_update.activate_pending()
 
@@ -289,7 +289,7 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(sys.path[1], '.app-slots/a/lib')
 
     def test_interrupted_confirmation_is_completed_on_boot(self):
-        self.make_bundle({'HA-Device.py': b'app'}, 'confirmed')
+        self.make_bundle({'iotmd.py': b'app'}, 'confirmed')
         app_update.stage_bundle()
         app_update.activate_pending()
         state = app_update.update_status()
@@ -303,11 +303,11 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(app_update.update_status()['status'], 'idle')
 
     def test_rollback_repairs_slot_pointer_after_interrupted_commit(self):
-        self.make_bundle({'HA-Device.py': b'stable'}, 'stable')
+        self.make_bundle({'iotmd.py': b'stable'}, 'stable')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.confirm_update()
-        self.make_bundle({'HA-Device.py': b'trial'}, 'trial')
+        self.make_bundle({'iotmd.py': b'trial'}, 'trial')
         app_update.stage_bundle()
         app_update.activate_pending()
         state = app_update.update_status()
@@ -323,7 +323,7 @@ class AppUpdateTests(unittest.TestCase):
         self.assertFalse(Path('.app-slots/b').exists())
 
     def test_receive_bundle_streams_and_stages_upload(self):
-        self.make_bundle({'HA-Device.py': b'new'})
+        self.make_bundle({'iotmd.py': b'new'})
         payload = Path(app_update.BUNDLE_PATH).read_bytes()
         Path(app_update.BUNDLE_PATH).unlink()
 
@@ -343,7 +343,7 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(Path(app_update.BUNDLE_PATH).read_bytes(), payload)
 
     def test_receive_bundle_reserves_only_the_uploaded_bundle(self):
-        self.make_bundle({'HA-Device.py': b'new'})
+        self.make_bundle({'iotmd.py': b'new'})
         payload = Path(app_update.BUNDLE_PATH).read_bytes()
         Path(app_update.BUNDLE_PATH).unlink()
 
@@ -362,23 +362,23 @@ class AppUpdateTests(unittest.TestCase):
         require.assert_called_once_with(len(payload))
 
     def test_activation_reclaims_inactive_slot_before_capacity_check(self):
-        self.make_bundle({'HA-Device.py': b'app-a'}, 'version-a')
+        self.make_bundle({'iotmd.py': b'app-a'}, 'version-a')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.confirm_update()
-        self.make_bundle({'HA-Device.py': b'app-b'}, 'version-b')
+        self.make_bundle({'iotmd.py': b'app-b'}, 'version-b')
         app_update.stage_bundle()
         app_update.activate_pending()
         app_update.confirm_update()
         self.assertEqual(app_update.active_slot(), 'b')
-        self.assertTrue(Path('.app-slots/a/HA-Device.py').exists())
+        self.assertTrue(Path('.app-slots/a/iotmd.py').exists())
 
-        self.make_bundle({'HA-Device.py': b'app-c'}, 'version-c')
+        self.make_bundle({'iotmd.py': b'app-c'}, 'version-c')
         app_update.stage_bundle()
 
         def assert_inactive_reclaimed(_required):
             self.assertFalse(Path('.app-slots/a').exists())
-            self.assertTrue(Path('.app-slots/b/HA-Device.py').exists())
+            self.assertTrue(Path('.app-slots/b/iotmd.py').exists())
 
         with patch.object(
             update_support, 'require_free_space',
@@ -387,26 +387,26 @@ class AppUpdateTests(unittest.TestCase):
             app_update.activate_pending()
 
         self.assertEqual(
-            Path('.app-slots/a/HA-Device.py').read_bytes(), b'app-c'
+            Path('.app-slots/a/iotmd.py').read_bytes(), b'app-c'
         )
 
     def test_universal_staging_reclaim_preserves_active_slot(self):
         Path('.app-slots/a').mkdir(parents=True)
         Path('.app-slots/b').mkdir(parents=True)
-        Path('.app-slots/a/HA-Device.py').write_bytes(b'active')
-        Path('.app-slots/b/HA-Device.py').write_bytes(b'old rollback')
+        Path('.app-slots/a/iotmd.py').write_bytes(b'active')
+        Path('.app-slots/b/iotmd.py').write_bytes(b'old rollback')
         Path(app_update.SLOT_STATE_PATH).write_text(json.dumps({
             'active': 'a', 'versions': {'a': 'current'}, 'sequences': {'a': 1}
         }))
 
         self.assertTrue(app_update.reclaim_inactive_slot())
         self.assertEqual(
-            Path('.app-slots/a/HA-Device.py').read_bytes(), b'active'
+            Path('.app-slots/a/iotmd.py').read_bytes(), b'active'
         )
         self.assertFalse(Path('.app-slots/b').exists())
 
     def test_receive_bundle_reports_verification_progress(self):
-        self.make_bundle({'HA-Device.py': b'new application' * 200})
+        self.make_bundle({'iotmd.py': b'new application' * 200})
         payload = Path(app_update.BUNDLE_PATH).read_bytes()
         Path(app_update.BUNDLE_PATH).unlink()
         progress = []
@@ -439,7 +439,7 @@ class AppUpdateTests(unittest.TestCase):
 
     def test_builder_excludes_local_configuration_by_default(self):
         root = Path('.')
-        Path('HA-Device.py').write_text('app')
+        Path('iotmd.py').write_text('app')
         Path('app_settings.json').write_text('{}')
         Path('module_settings.json').write_text(json.dumps({
             'devices': [{
@@ -489,7 +489,7 @@ class AppUpdateTests(unittest.TestCase):
             name for name, _ in collect_files(root, include_settings=True)
         ]
 
-        self.assertIn('HA-Device.py', default_names)
+        self.assertIn('iotmd.py', default_names)
         self.assertIn('app_settings.json', default_names)
         self.assertIn('web_portal_ui.py', default_names)
         self.assertNotIn('portal_ui.py', default_names)
@@ -614,7 +614,7 @@ class AppUpdateTests(unittest.TestCase):
         source.write_text('VALUE=1')
         build_bundle(
             Path(app_update.BUNDLE_PATH), 'universal-10',
-            [('HA-Device.py', source), ('app_settings.json', source)],
+            [('iotmd.py', source), ('app_settings.json', source)],
             signing_key=self.private_key,
             release_sequence=10
         )
@@ -629,7 +629,7 @@ class AppUpdateTests(unittest.TestCase):
 
         build_bundle(
             Path(app_update.BUNDLE_PATH), 'universal-9',
-            [('HA-Device.py', source), ('app_settings.json', source)],
+            [('iotmd.py', source), ('app_settings.json', source)],
             signing_key=self.private_key,
             release_sequence=9
         )
@@ -639,7 +639,7 @@ class AppUpdateTests(unittest.TestCase):
     def test_profile_bundle_cannot_bypass_release_sequence(self):
         Path(app_update.RELEASE_SEQUENCE_PATH).write_text('10')
         self.make_bundle(
-            {'HA-Device.py': b'older profile runtime'},
+            {'iotmd.py': b'older profile runtime'},
             version='profile-10',
             release_sequence=10
         )
@@ -664,7 +664,7 @@ class AppUpdateTests(unittest.TestCase):
         build_bundle(
             Path(app_update.BUNDLE_PATH), 'bad-universal',
             [
-                ('HA-Device.py', source),
+                ('iotmd.py', source),
                 ('app_settings.json', source),
                 ('module_settings.json', source)
             ],

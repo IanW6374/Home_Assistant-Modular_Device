@@ -94,10 +94,10 @@ class FirmwareUpdateTests(unittest.TestCase):
         payload = payload or (b'\xe9' + bytes(range(256)) * 20)
         Path('micropython.app-bin').write_bytes(payload)
         build_firmware_bundle(
-            'micropython.app-bin', 'firmware.hamf', version, 'esp32-s3',
+            'micropython.app-bin', 'firmware.iotcore', version, 'esp32-s3',
             self.private_key, release_sequence=release_sequence
         )
-        return payload, Path('firmware.hamf').read_bytes()
+        return payload, Path('firmware.iotcore').read_bytes()
 
     def test_receive_activate_and_confirm_firmware(self):
         payload, bundle = self.make_bundle()
@@ -148,7 +148,7 @@ class FirmwareUpdateTests(unittest.TestCase):
         Path('micropython.app-bin').write_bytes(payload)
         with self.assertRaisesRegex(ValueError, 'format must be 6'):
             build_firmware_bundle(
-                'micropython.app-bin', 'firmware.hamf', 'legacy',
+                'micropython.app-bin', 'firmware.iotcore', 'legacy',
                 'esp32-s3', self.private_key, format_version=4
             )
 

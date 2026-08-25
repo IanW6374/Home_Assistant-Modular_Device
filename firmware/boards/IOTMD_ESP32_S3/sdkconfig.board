@@ -2,7 +2,7 @@ CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# The immutable HAMD core is a Wi-Fi appliance. Optimise it for flash size and
+# The immutable IoTMD core is a Wi-Fi appliance. Optimise it for flash size and
 # do not carry upstream MicroPython transports that the supported hardware and
 # recovery environment cannot use.
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
@@ -21,5 +21,5 @@ CONFIG_MBEDTLS_GCM_C=y
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-HAM-8MiB-ota.csv"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions-IOTMD-8MiB-ota.csv"
 CONFIG_PARTITION_TABLE_OFFSET=0x10000

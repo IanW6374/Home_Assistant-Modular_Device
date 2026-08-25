@@ -38,9 +38,8 @@ except ImportError:
     core_metadata = None
 
 
-MAGIC = b'HAMF1\n'
-IOTMD_MAGIC = b'IOTC1\n'
-BUNDLE_TYPES = {MAGIC: 'hamf', IOTMD_MAGIC: 'iotcore'}
+MAGIC = b'IOTC1\n'
+BUNDLE_TYPES = {MAGIC: 'iotcore'}
 STATE_PATH = '.firmware-update-state.json'
 VERSION_PATH = '.firmware-version'
 RELEASE_SEQUENCE_PATH = '.firmware-release-sequence'

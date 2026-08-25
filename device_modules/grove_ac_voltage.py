@@ -14,7 +14,7 @@ except ImportError:
     hardware_platform = None
 try:
     from .base import DeviceDriver
-    from .base import ha_device_topic
+    from .base import mqtt_module_topic
     from .base import ha_safe_id
     from .base import ha_unique_id
     from .base import sensor_discovery_payload
@@ -22,7 +22,7 @@ try:
     from .logging import log_output
 except ImportError:
     from base import DeviceDriver
-    from base import ha_device_topic
+    from base import mqtt_module_topic
     from base import ha_safe_id
     from base import ha_unique_id
     from base import sensor_discovery_payload
@@ -263,7 +263,7 @@ class GroveACVoltageDriver(DeviceDriver):
     def _binary_discovery_payload(self, entity, key, deviceid, ha_devicename):
         payload = {
             '_component': 'binary_sensor',
-            '~': ha_device_topic(self.device['type']['class'], deviceid, self.device['uuid']),
+            '~': mqtt_module_topic(self.device['type']['class'], deviceid, self.device['uuid']),
             'stat_t': '~/state',
             'uniq_id': ha_unique_id(deviceid, self.device['uuid'], key),
             'name': self.device['name'] + ' ' + key,

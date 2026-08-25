@@ -26,7 +26,7 @@ def render_refresh_controls_html(button_id='refresh-toggle', refresh_scope='log 
 def display_release_version(value):
     """Remove internal core and MicroPython decoration from a release label."""
     value = str(value or '')
-    for prefix in ('ham-core-', 'core-'):
+    for prefix in ('iotmd-core-', 'core-'):
         if value.startswith(prefix):
             value = value[len(prefix):]
             break
@@ -472,7 +472,7 @@ def render_overview_page(token, status=None, modules=None, value_refresh_ms=5000
         'document.getElementById("overview-modules").outerHTML=p.modules;})'
         '.catch(function(){});}setInterval(refreshOverview,' + str(interval) + ');'
     )
-    return portal_ui.shell('HAMD overview', 'overview', body, token, script)
+    return portal_ui.shell('IoTMD overview', 'overview', body, token, script)
 
 def render_logging_page(token, current_loglevel, levels, logs,
                         log_refresh_ms=5000, settings=None, message=''):
@@ -516,7 +516,7 @@ def render_logging_page(token, current_loglevel, levels, logs,
         'if(t!==null&&t!==undefined&&e.textContent!==t){e.textContent=t;if(b)e.scrollTop=e.scrollHeight;}})'
         '.catch(function(){});}setInterval(refreshLogs,' + str(interval) + ');updateLogRefresh();'
     )
-    return portal_ui.shell('HAMD device log', 'logging', body, token, script)
+    return portal_ui.shell('IoTMD device log', 'logging', body, token, script)
 
 def render_audit_logging_page(token, logs, log_refresh_ms=5000):
     body = (
@@ -548,7 +548,7 @@ def render_audit_logging_page(token, logs, log_refresh_ms=5000):
         '.catch(function(){});}setInterval(refreshAuditLogs,' + str(interval) + ');updateAuditRefresh();'
     )
     return portal_ui.shell(
-        'HAMD audit log', 'audit_logging', body, token, script
+        'IoTMD audit log', 'audit_logging', body, token, script
     )
 
 def render_logging_settings_page(token, settings, message='', error=False):
@@ -600,7 +600,7 @@ def render_logging_settings_page(token, settings, message='', error=False):
         'syslogTransport.onchange=function(){syslogPort.value=this.value==="tls"?"6514":"514";};'
     )
     return portal_ui.shell(
-        'HAMD logging settings', 'logging_settings', body, token, script
+        'IoTMD logging settings', 'logging_settings', body, token, script
     )
 
 def render_module_diagnostics_page(token, modules, value_refresh_ms=5000,
@@ -625,7 +625,7 @@ def render_module_diagnostics_page(token, modules, value_refresh_ms=5000,
         str(interval) + ');'
     )
     return portal_ui.shell(
-        'HAMD module diagnostics', 'module_diagnostics', body, token, script
+        'IoTMD module diagnostics', 'module_diagnostics', body, token, script
     )
 
 def render_update_preferences(csrf, settings):
@@ -697,11 +697,11 @@ def update_upload_script():
         'document.getElementById("update-bundle"),f=input.files&&input.files[0],out=document.getElementById('
         '"update-result"),box=document.getElementById("update-progress"),'
         'label=box.querySelector(".status-text");if(!f){portalRequire(input,'
-        '"Choose a legacy or IoTMD update bundle");return;}var firmware=/\\.(?:hamf|iotcore)$/i.test(f.name),'
-        'application=/\\.(?:hamd|iotapp)$/i.test(f.name),universal=/\\.(?:hamu|iotuni)$/i.test(f.name);'
+        '"Choose a .iotapp, .iotcore or .iotuni update bundle");return;}var firmware=/\\.iotcore$/i.test(f.name),'
+        'application=/\\.iotapp$/i.test(f.name),universal=/\\.iotuni$/i.test(f.name);'
         'function previous(text){out.className="status-history complete";out.textContent=text;}'
         'function failure(text){out.className="status-history failed";out.textContent=text;}'
-        'if(!firmware&&!application&&!universal){failure("Choose a legacy or IoTMD update bundle.");return;}'
+        'if(!firmware&&!application&&!universal){failure("Choose a .iotapp, .iotcore or .iotuni update bundle.");return;}'
         'box.classList.remove("complete","failed");box.hidden=false;label.textContent="Uploading 0%";'
         'out.className="status-history";out.textContent="";'
         'var id="",polling=false,finished=false,timer=null;function schedulePoll(){if(!finished)timer=setTimeout(poll,1000);}'
@@ -767,11 +767,11 @@ def render_updates_page(token, status=None, settings=None, message='', error=Fal
         manual_content = (
             '<form id="update-upload-form" data-csrf="' + html_escape(token) + '">'
             '<div class="actions"><span><input id="update-bundle" class="file-input-hidden" type="file" required '
-            'accept=".hamd,.hamf,.hamu,.iotapp,.iotcore,.iotuni"><label class="button secondary file-button" for="update-bundle">'
+            'accept=".iotapp,.iotcore,.iotuni"><label class="button secondary file-button" for="update-bundle">'
             'Choose update file</label> <span id="update-file-name" class="file-name">No file selected</span></span>'
             '<button type="submit">Upload and verify</button></div></form>' +
             portal_ui.progress('update-progress', '0%', True) +
-        '<p id="update-result" class="status-history">Application bundles use .hamd; core firmware uses .hamf; universal bundles use .hamu.</p>'
+        '<p id="update-result" class="status-history">Application bundles use .iotapp; core firmware uses .iotcore; universal bundles use .iotuni.</p>'
         )
         script += update_upload_script()
     body = (
@@ -791,7 +791,7 @@ def render_updates_page(token, status=None, settings=None, message='', error=Fal
         manual_content + '</section></div>'
     )
     return portal_ui.shell(
-        'HAMD upgrades', 'updates', body, token, script
+        'IoTMD upgrades', 'updates', body, token, script
     )
 
 def render_page_parts(token, current_loglevel, levels, logs=None, log_refresh_ms=5000,

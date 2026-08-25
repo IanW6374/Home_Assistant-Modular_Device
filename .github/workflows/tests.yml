@@ -58,10 +58,10 @@ jobs:
         run: |
           source "$IDF_PATH/export.sh"
           python tools/provision_update_signing.py \
-            --private-key /tmp/hamd-ci-update.key --generate
+            --private-key /tmp/iotmd-ci-update.key --generate
           python tools/generate_secure_boot_key.py \
             --esp-idf-root "$IDF_PATH" \
-            --output /tmp/hamd-ci-secure-boot.pem
+            --output /tmp/iotmd-ci-secure-boot.pem
       - name: Build complete secure ESP32-S3 firmware
         shell: bash
         run: |
@@ -71,9 +71,9 @@ jobs:
             --micropython-root .ci-micropython \
             --version ci \
             --release-sequence 1 \
-            --output /tmp/hamd-ci.hamf \
-            --factory-output /tmp/hamd-ci.factory.bin \
-            --signing-key /tmp/hamd-ci-update.key \
+            --output /tmp/iotmd-ci.iotcore \
+            --factory-output /tmp/iotmd-ci.factory.bin \
+            --signing-key /tmp/iotmd-ci-update.key \
             --production-security \
-            --secure-boot-signing-key /tmp/hamd-ci-secure-boot.pem \
-            --factory-setup-password-output /tmp/hamd-ci.setup-password.txt
+            --secure-boot-signing-key /tmp/iotmd-ci-secure-boot.pem \
+            --factory-setup-password-output /tmp/iotmd-ci.setup-password.txt

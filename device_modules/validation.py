@@ -15,7 +15,7 @@ SENSOR_CLASSES = {
     'voltage'
 }
 
-# Pins that are unavailable or owned by the supported HAM ESP32-S3 N8R8 core.
+# Pins that are unavailable or owned by the supported IoTMD ESP32-S3 N8R8 core.
 ESP32_S3_INVALID_GPIOS = {
     0: 'boot strapping',
     3: 'boot strapping',
@@ -37,7 +37,7 @@ ESP32_S3_INVALID_GPIOS = {
     35: 'Octal flash/PSRAM',
     36: 'Octal flash/PSRAM',
     37: 'Octal flash/PSRAM',
-    38: 'the HAMD status LED',
+    38: 'the IoTMD status LED',
     43: 'the UART0 console',
     44: 'the UART0 console',
     45: 'boot strapping',

@@ -49,9 +49,9 @@ secrets.py
 .micropico-logs/
 *.uf2
 *.mpy
-*.hamd
-*.hamf
-*.hamu
+*.iotapp
+*.iotcore
+*.iotuni
 *.app-bin
 *.bin
 *.elf

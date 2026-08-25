@@ -119,11 +119,11 @@ class WebPortalTests(unittest.TestCase):
     def test_configuration_backup_filenames_include_utc_timestamp(self):
         self.assertEqual(
             configuration_backup_filename(False, 0),
-            'ha-device-configuration-19700101-000000Z.json'
+            'iotmd-configuration-19700101-000000Z.json'
         )
         self.assertEqual(
             configuration_backup_filename(True, 0),
-            'ha-device-complete-19700101-000000Z.encrypted.json'
+            'iotmd-complete-19700101-000000Z.encrypted.json'
         )
 
     def test_portal_marks_required_and_custom_invalid_fields(self):
@@ -300,8 +300,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertTrue(credentials_match('admin', 'Secret-Cedar-47!River', 'admin', verifier))
         self.assertFalse(credentials_match('admin', 'wrong', 'admin', verifier))
         self.assertFalse(credentials_match('other', 'Secret-Cedar-47!River', 'admin', verifier))
-        self.assertTrue(has_portal_session({'cookie': 'a=1; ham_session=session'}, 'session'))
-        self.assertFalse(has_portal_session({'cookie': 'ham_session=wrong'}, 'session'))
+        self.assertTrue(has_portal_session({'cookie': 'a=1; iotmd_session=session'}, 'session'))
+        self.assertFalse(has_portal_session({'cookie': 'iotmd_session=wrong'}, 'session'))
         self.assertEqual(url_decode('%7B%22name%22%3A+%22test%22%7D'), '{"name": "test"}')
         self.assertEqual(url_decode('%C2%B0C'), '°C')
         self.assertTrue(asyncio.run(credentials_match_async(
@@ -363,8 +363,8 @@ class WebPortalTests(unittest.TestCase):
             render_page('csrf', 'INFO', ('INFO',)),
         )
         for html in pages:
-            self.assertIn('HAMD', html)
-            self.assertIn('Home Assistant Modular Device', html)
+            self.assertIn('IoTMD', html)
+            self.assertIn('IoT Modular Device', html)
             self.assertIn('class="brand-mark"', html)
             self.assertIn(
                 'href="/assets/portal.css?v=' + portal_ui.ASSET_VERSION + '"',
@@ -452,7 +452,7 @@ class WebPortalTests(unittest.TestCase):
         real_import = builtins.__import__
 
         def import_without_native(name, *args, **kwargs):
-            if name == '_hamd_crypto':
+            if name == '_iotmd_crypto':
                 raise ImportError('native module unavailable')
             return real_import(name, *args, **kwargs)
 
@@ -473,7 +473,7 @@ class WebPortalTests(unittest.TestCase):
         network = render_settings_page('csrf', settings)
         portal = web_portal.render_portal_settings_page('csrf', settings)
         ntp = web_portal.render_ntp_settings_page('csrf', settings)
-        mqtt = web_portal.render_mqtt_page('csrf', settings)
+        mqtt = web_portal.render_messaging_page('csrf', settings)
 
         self.assertIn('<h1>Network</h1>', network)
         self.assertIn('<h2>Device identity</h2>', network)
@@ -552,8 +552,9 @@ class WebPortalTests(unittest.TestCase):
         self.assertNotIn('href="/wifi-settings">Wi-Fi</a>', html)
         self.assertIn('href="/ntp-settings">Time / Date</a>', html)
         self.assertIn('href="/logging-settings">Logging</a>', html)
-        self.assertIn('href="/mqtt">MQTT</a>', html)
-        self.assertIn('href="/home-assistant">Home Assistant</a>', html)
+        self.assertIn('href="/messaging">Messaging</a>', html)
+        self.assertNotIn('href="/mqtt"', html)
+        self.assertNotIn('href="/home-assistant"', html)
         self.assertIn('href="/device-api">Device API</a>', html)
         self.assertIn('href="/configuration-backup">Configuration backup</a>', html)
         self.assertIn('href="/health-history">Health history</a>', html)
@@ -568,8 +569,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('aria-hidden="true">\\</span>', html)
         self.assertIn('<main><div class="breadcrumb"', html)
 
-    def test_home_assistant_has_dedicated_configuration_page(self):
-        html = web_portal.render_home_assistant_page('csrf', {
+    def test_messaging_combines_mqtt_and_home_assistant(self):
+        html = web_portal.render_messaging_page('csrf', {
             'device_name': 'Controller', 'portal_username': 'admin',
             'wifi_ssid': 'home-network', 'portal_transport': 'auto',
             'mqtt_server': 'mqtt.local', 'mqtt_port': 8883,
@@ -577,17 +578,19 @@ class WebPortalTests(unittest.TestCase):
             'ha_discovery': True,
         })
 
-        self.assertIn('<h1>Home Assistant</h1>', html)
-        self.assertIn('action="/home-assistant"', html)
+        self.assertIn('<h1>Messaging</h1>', html)
+        self.assertIn('action="/messaging"', html)
         self.assertIn('name="mqtt_server"', html)
         self.assertIn('name="ha_discovery" checked', html)
+        self.assertIn('name="mqtt_state_topic"', html)
+        self.assertIn('name="ha_discovery_prefix"', html)
         self.assertIn('action="/discover" method="post"', html)
-        discovery_card = html.split('<h2>Home Assistant discovery</h2>', 1)[1].split('</section>', 1)[0]
+        discovery_card = html.split('<h2>Home Assistant integration</h2>', 1)[1].split('</section>', 1)[0]
         self.assertIn('Save changes', discovery_card)
         self.assertIn('aria-label="System submenu"', html)
-        self.assertNotIn('<h2>MQTT connection</h2>', html)
+        self.assertIn('<h2>MQTT connection</h2>', html)
 
-    def test_mqtt_and_user_have_dedicated_pages(self):
+    def test_messaging_and_user_have_dedicated_pages(self):
         settings = {
             'device_name': 'Controller', 'portal_username': 'admin',
             'wifi_ssid': 'home-network', 'portal_transport': 'auto',
@@ -595,14 +598,15 @@ class WebPortalTests(unittest.TestCase):
             'mqtt_username': 'device-user', 'mqtt_password_set': True,
             'ha_discovery': True,
         }
-        mqtt = web_portal.render_mqtt_page('csrf', settings)
+        mqtt = web_portal.render_messaging_page('csrf', settings)
         user = web_portal.render_user_settings_page('csrf', settings, users=(
             {'username': 'admin', 'role': 'administrator', 'enabled': True},
         ))
 
-        self.assertIn('<h1>MQTT</h1>', mqtt)
-        self.assertIn('action="/mqtt"', mqtt)
+        self.assertIn('<h1>Messaging</h1>', mqtt)
+        self.assertIn('action="/messaging"', mqtt)
         self.assertIn('<h2>MQTT connection</h2>', mqtt)
+        self.assertIn('<h2>Home Assistant integration</h2>', mqtt)
         self.assertIn('<a href="/settings">System</a>', mqtt)
         self.assertIn('<h1>Account</h1>', user)
         self.assertIn('action="/user"', user)
@@ -709,7 +713,7 @@ class WebPortalTests(unittest.TestCase):
         html = web_portal.render_overview_page('csrf', {
             'device_name': 'Controller', 'wifi_ip': '192.0.2.2', 'mqtt': 'up',
             'uptime_s': 12, 'running_version': '1.9.0',
-            'firmware_running_version': 'ham-core-1.9.0-rc.7-mpy1.28.0',
+            'firmware_running_version': 'iotmd-core-1.9.0-rc.7-mpy1.28.0',
             'base_version': '1.28.0',
         }, [{
             'name': 'Probe', 'type': 'MAX31865',
@@ -719,7 +723,7 @@ class WebPortalTests(unittest.TestCase):
 
         self.assertIn('<span>Application version</span><strong>1.9.0</strong>', html)
         self.assertIn('<span>Core version</span><strong>1.9.0-rc.7</strong>', html)
-        self.assertNotIn('ham-core-', html)
+        self.assertNotIn('iotmd-core-', html)
         self.assertNotIn('-mpy1.28.0', html)
         self.assertNotIn('class="metric wide"><span>Core version', html)
         self.assertIn('<h1>Overview</h1>', html)
@@ -786,8 +790,6 @@ class WebPortalTests(unittest.TestCase):
              'Portal access', 'Save changes'),
             (web_portal.render_ntp_settings_page('csrf', settings),
              'Time synchronisation', 'Save changes'),
-            (web_portal.render_mqtt_page('csrf', settings),
-             'MQTT connection', 'Save changes'),
             (web_portal.render_user_settings_page('csrf', settings),
              'Administrator identity', 'Save changes'),
         )
@@ -964,18 +966,18 @@ class WebPortalTests(unittest.TestCase):
                 self.assertEqual(login_event[3], 'INFO')
                 cookie_header = next(
                     line for line in login.split('\r\n')
-                    if line.startswith('Set-Cookie: ham_session=')
+                    if line.startswith('Set-Cookie: iotmd_session=')
                 )
-                session_id = cookie_header.split('ham_session=', 1)[1].split(';', 1)[0]
+                session_id = cookie_header.split('iotmd_session=', 1)[1].split(';', 1)[0]
 
                 locked = await request(
-                    ('GET / HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('GET / HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
                 self.assertIn('Location: /user', locked)
 
                 account_page = await request(
-                    ('GET /user HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('GET /user HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
                 csrf_token = account_page.split(
@@ -989,7 +991,7 @@ class WebPortalTests(unittest.TestCase):
                     '&confirm_password=New-Secure-Cedar-48%21'
                 ).encode()
                 wrong_change = await request(
-                    ('POST /user?action=password HTTP/1.1\r\nCookie: ham_session=' +
+                    ('POST /user?action=password HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\nContent-Length: ' +
                      str(len(wrong_change_body)) + '\r\n\r\n').encode() +
                     wrong_change_body
@@ -1005,7 +1007,7 @@ class WebPortalTests(unittest.TestCase):
                     '&confirm_password=New-Secure-Cedar-48%21'
                 ).encode()
                 changed = await request(
-                    ('POST /user?action=password HTTP/1.1\r\nCookie: ham_session=' +
+                    ('POST /user?action=password HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\nContent-Length: ' + str(len(change_body)) +
                      '\r\n\r\n').encode() + change_body
                 )
@@ -1017,14 +1019,14 @@ class WebPortalTests(unittest.TestCase):
                 ))
                 changed_cookie = next(
                     line for line in changed.split('\r\n')
-                    if line.startswith('Set-Cookie: ham_session=')
+                    if line.startswith('Set-Cookie: iotmd_session=')
                 )
                 session_id = changed_cookie.split(
-                    'ham_session=', 1
+                    'iotmd_session=', 1
                 )[1].split(';', 1)[0]
 
                 authorized = await request(
-                    ('GET / HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('GET / HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
                 self.assertIn('200 OK', authorized)
@@ -1062,7 +1064,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('nav-menu-trigger', javascript)
 
                 diagnostics = await request(
-                    ('GET /diagnostics HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /diagnostics HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
                 self.assertIn('<h1>Diagnostics</h1>', diagnostics)
@@ -1072,7 +1074,7 @@ class WebPortalTests(unittest.TestCase):
                     'csrf=' + csrf_token + '&uuid=0001&enabled=true'
                 ).encode()
                 debug_response = await request(
-                    ('POST /ems-debug HTTP/1.1\r\nCookie: ham_session=' +
+                    ('POST /ems-debug HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\nContent-Length: ' +
                      str(len(debug_body)) + '\r\n\r\n').encode() + debug_body
                 )
@@ -1088,7 +1090,7 @@ class WebPortalTests(unittest.TestCase):
                 )
 
                 logging = await request(
-                    ('GET /logging HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /logging HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
                 self.assertIn('<h1>Device log</h1>', logging)
@@ -1096,13 +1098,13 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('name="level"', logging)
 
                 audit_logging = await request(
-                    ('GET /audit-log HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /audit-log HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
                 self.assertIn('<h1>Audit log</h1>', audit_logging)
                 self.assertIn('successful login', audit_logging)
                 audit_feed = await request(
-                    ('GET /audit-logs HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /audit-logs HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
                 self.assertIn('successful login\nAPI connection', audit_feed)
@@ -1113,22 +1115,16 @@ class WebPortalTests(unittest.TestCase):
                 self.assertEqual(request_event[3], 'DEBUG')
                 self.assertNotIn('audit', request_event[2])
 
-                home_assistant = await request(
-                    ('GET /home-assistant HTTP/1.1\r\nCookie: ham_session=' +
-                     session_id + '\r\n\r\n').encode()
-                )
-                self.assertIn('<h1>Home Assistant</h1>', home_assistant)
-                self.assertIn('action="/home-assistant"', home_assistant)
-
-                mqtt = await request(
-                    ('GET /mqtt HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                messaging = await request(
+                    ('GET /messaging HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
-                self.assertIn('<h1>MQTT</h1>', mqtt)
-                self.assertIn('action="/mqtt"', mqtt)
+                self.assertIn('<h1>Messaging</h1>', messaging)
+                self.assertIn('action="/messaging"', messaging)
+                self.assertIn('<h2>Home Assistant integration</h2>', messaging)
 
                 user_page = await request(
-                    ('GET /user HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('GET /user HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
                 self.assertIn('<h1>Account</h1>', user_page)
@@ -1138,13 +1134,13 @@ class WebPortalTests(unittest.TestCase):
                 self.assertNotIn('/user/password', user_page)
 
                 removed_password_page = await request(
-                    ('GET /change-password HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /change-password HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
                 self.assertIn('404 Not Found', removed_password_page)
 
                 removed_user_password_page = await request(
-                    ('GET /user/password HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /user/password HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
                 self.assertIn('404 Not Found', removed_user_password_page)
@@ -1155,7 +1151,7 @@ class WebPortalTests(unittest.TestCase):
                     '&confirm_password=Another-Secure-Cedar-49%21'
                 ).encode()
                 normal_wrong = await request(
-                    ('POST /user?action=password HTTP/1.1\r\nCookie: ham_session=' +
+                    ('POST /user?action=password HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\nContent-Length: ' +
                      str(len(normal_wrong_body)) + '\r\n\r\n').encode() +
                     normal_wrong_body
@@ -1167,7 +1163,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('Current password is incorrect.', normal_wrong)
 
                 settings_page = await request(
-                    ('GET /settings HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('GET /settings HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
                 self.assertIn('<h1>Network</h1>', settings_page)
@@ -1179,14 +1175,14 @@ class WebPortalTests(unittest.TestCase):
                     ('/logging-settings', 'Logging'),
                 ):
                     page = await request(
-                        ('GET ' + route + ' HTTP/1.1\r\nCookie: ham_session=' +
+                        ('GET ' + route + ' HTTP/1.1\r\nCookie: iotmd_session=' +
                          session_id + '\r\n\r\n').encode()
                     )
                     self.assertIn('<h1>' + heading + '</h1>', page)
 
                 action_count = len(portal_actions)
                 automatic_check = await request(
-                    ('GET /updates?check=1 HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /updates?check=1 HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
                 self.assertIn('200 OK', automatic_check)
@@ -1201,7 +1197,7 @@ class WebPortalTests(unittest.TestCase):
                     '&release_channel=stable'
                 ).encode()
                 settings_saved = await request(
-                    ('POST /settings HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('POST /settings HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\nContent-Length: ' + str(len(settings_body)) +
                      '\r\n\r\n').encode() + settings_body
                 )
@@ -1212,13 +1208,13 @@ class WebPortalTests(unittest.TestCase):
                 self.assertEqual(changed_settings[0]['wifi_ssid'], 'new-network')
 
                 restart_status = await request(
-                    ('GET /api/restart-required HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /api/restart-required HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\n\r\n').encode()
                 )
                 self.assertIn('"required": true', restart_status)
                 restart_body = ('csrf=' + csrf_token).encode()
                 restart_response = await request(
-                    ('POST /restart-device HTTP/1.1\r\nCookie: ham_session=' +
+                    ('POST /restart-device HTTP/1.1\r\nCookie: iotmd_session=' +
                      session_id + '\r\nContent-Length: ' +
                      str(len(restart_body)) + '\r\n\r\n').encode() + restart_body
                 )
@@ -1227,7 +1223,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertEqual(restart_requests, [True])
 
                 expired = await request(
-                    ('GET / HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('GET / HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
                 self.assertIn('401 Unauthorized', expired)
@@ -1239,11 +1235,11 @@ class WebPortalTests(unittest.TestCase):
                 )
                 session_id = next(
                     line for line in relogin.split('\r\n')
-                    if line.startswith('Set-Cookie: ham_session=')
-                ).split('ham_session=', 1)[1].split(';', 1)[0]
+                    if line.startswith('Set-Cookie: iotmd_session=')
+                ).split('iotmd_session=', 1)[1].split(';', 1)[0]
 
                 relogin_page = await request(
-                    ('GET / HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('GET / HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
                 csrf_token = relogin_page.split(
@@ -1252,7 +1248,7 @@ class WebPortalTests(unittest.TestCase):
 
                 logout_body = ('csrf=' + csrf_token).encode()
                 logout = await request(
-                    ('POST /logout HTTP/1.1\r\nCookie: ham_session=' + session_id +
+                    ('POST /logout HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\nContent-Length: ' + str(len(logout_body)) +
                      '\r\n\r\n').encode() + logout_body
                 )
@@ -1266,10 +1262,10 @@ class WebPortalTests(unittest.TestCase):
                 )
                 reset_session = next(
                     line for line in reset_login.split('\r\n')
-                    if line.startswith('Set-Cookie: ham_session=')
-                ).split('ham_session=', 1)[1].split(';', 1)[0]
+                    if line.startswith('Set-Cookie: iotmd_session=')
+                ).split('iotmd_session=', 1)[1].split(';', 1)[0]
                 reset_page = await request(
-                    ('GET /factory-default HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /factory-default HTTP/1.1\r\nCookie: iotmd_session=' +
                      reset_session + '\r\n\r\n').encode()
                 )
                 self.assertIn('<h1>Device control</h1>', reset_page)
@@ -1291,7 +1287,7 @@ class WebPortalTests(unittest.TestCase):
                     '&reset_confirmation=RESET'
                 ).encode()
                 reset_response = await request(
-                    ('POST /factory-default HTTP/1.1\r\nCookie: ham_session=' +
+                    ('POST /factory-default HTTP/1.1\r\nCookie: iotmd_session=' +
                      reset_session + '\r\nContent-Length: ' +
                      str(len(reset_body)) + '\r\n\r\n').encode() + reset_body
                 )
@@ -1306,10 +1302,10 @@ class WebPortalTests(unittest.TestCase):
                 )
                 shutdown_session = next(
                     line for line in shutdown_login.split('\r\n')
-                    if line.startswith('Set-Cookie: ham_session=')
-                ).split('ham_session=', 1)[1].split(';', 1)[0]
+                    if line.startswith('Set-Cookie: iotmd_session=')
+                ).split('iotmd_session=', 1)[1].split(';', 1)[0]
                 control_page = await request(
-                    ('GET /device-control HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /device-control HTTP/1.1\r\nCookie: iotmd_session=' +
                      shutdown_session + '\r\n\r\n').encode()
                 )
                 self.assertIn('<h1>Device control</h1>', control_page)
@@ -1323,7 +1319,7 @@ class WebPortalTests(unittest.TestCase):
                 )[1].split('"', 1)[0]
                 shutdown_body = ('csrf=' + shutdown_csrf).encode()
                 shutdown_response = await request(
-                    ('POST /shutdown-device HTTP/1.1\r\nCookie: ham_session=' +
+                    ('POST /shutdown-device HTTP/1.1\r\nCookie: iotmd_session=' +
                      shutdown_session + '\r\nContent-Length: ' +
                      str(len(shutdown_body)) + '\r\n\r\n').encode() +
                     shutdown_body
@@ -1373,10 +1369,10 @@ class WebPortalTests(unittest.TestCase):
                 )
                 viewer_session = next(
                     line for line in viewer_login.split('\r\n')
-                    if line.startswith('Set-Cookie: ham_session=')
-                ).split('ham_session=', 1)[1].split(';', 1)[0]
+                    if line.startswith('Set-Cookie: iotmd_session=')
+                ).split('iotmd_session=', 1)[1].split(';', 1)[0]
                 viewer_page = await request(
-                    ('GET /diagnostics HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /diagnostics HTTP/1.1\r\nCookie: iotmd_session=' +
                      viewer_session + '\r\n\r\n').encode()
                 )
                 self.assertIn(
@@ -1391,7 +1387,7 @@ class WebPortalTests(unittest.TestCase):
                 )[1].split('"', 1)[0]
                 viewer_logout_body = ('csrf=' + viewer_csrf).encode()
                 viewer_logout = await request(
-                    ('POST /logout HTTP/1.1\r\nCookie: ham_session=' +
+                    ('POST /logout HTTP/1.1\r\nCookie: iotmd_session=' +
                      viewer_session + '\r\nContent-Length: ' +
                      str(len(viewer_logout_body)) + '\r\n\r\n').encode() +
                     viewer_logout_body
@@ -1400,7 +1396,7 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('Location: /login', viewer_logout)
                 self.assertIn('Max-Age=0', viewer_logout)
                 viewer_expired = await request(
-                    ('GET /diagnostics HTTP/1.1\r\nCookie: ham_session=' +
+                    ('GET /diagnostics HTTP/1.1\r\nCookie: iotmd_session=' +
                      viewer_session + '\r\n\r\n').encode()
                 )
                 self.assertIn('401 Unauthorized', viewer_expired)
@@ -1482,6 +1478,21 @@ class WebPortalTests(unittest.TestCase):
         self.assertTrue(logs[0][2]['force'])
         self.assertEqual(logs[0][3], 'INFO')
 
+    def test_failed_upgrade_action_is_logged_as_error(self):
+        logs = []
+        result = apply_portal_action(
+            'activate-universal', '/activate-universal',
+            lambda _action, _params: (
+                'Universal update activation failed: signature invalid'
+            ),
+            lambda mode, action, data, logtype: logs.append(
+                (mode, action, data, logtype)
+            )
+        )
+        self.assertIn('signature invalid', result)
+        self.assertEqual(logs[0][3], 'ERROR')
+        self.assertTrue(logs[0][2]['force'])
+
     def test_client_disconnect_errors_are_recognized(self):
         self.assertTrue(is_client_disconnect_error(OSError(-29312, 'MBEDTLS_ERR_SSL_CONN_EOF')))
         self.assertTrue(is_client_disconnect_error(OSError('MBEDTLS_ERR_SSL_CONN_EOF')))
@@ -1511,7 +1522,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('HTTP/1.1 200 OK', raw)
         self.assertIn('Content-Type: text/plain; charset=utf-8', raw)
         self.assertIn(
-            'Content-Disposition: attachment; filename="ha-device-logs.txt"',
+            'Content-Disposition: attachment; filename="iotmd-logs.txt"',
             raw
         )
         self.assertIn('Content-Length: 12', raw)
@@ -1795,7 +1806,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('previous("Completed: upload");startPolling()', updates)
         self.assertNotIn('Writing firmware on device', updates)
         self.assertIn('Verifying application 0%', updates)
-        self.assertIn('.hamu', updates)
+        self.assertIn('.iotuni', updates)
         self.assertIn('firmware_verification', updates)
         self.assertIn('application_verification', updates)
         self.assertIn('startPolling()', updates)
@@ -1832,8 +1843,8 @@ class WebPortalTests(unittest.TestCase):
         )
         self.assertIn('id="logs"', html)
         self.assertIn('id="live-sections"', html)
-        self.assertIn('HAMD Portal', html)
-        self.assertIn('Home Assistant Modular Device', html)
+        self.assertIn('IoTMD Portal', html)
+        self.assertIn('IoT Modular Device', html)
         self.assertEqual(web_portal.render_label('running_version'), 'Application version')
         self.assertEqual(web_portal.render_label('base_version'), 'MicroPython version')
         self.assertIn('Probe', html)
@@ -1857,7 +1868,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('id="update-upload-form"', html)
         self.assertIn('startPolling();return sendChunk', html)
         self.assertIn('Upload and verify', html)
-        self.assertIn('application (.hamd) or base firmware (.hamf)', html)
+        self.assertIn('application (.iotapp) or base firmware (.iotcore)', html)
         self.assertNotIn('Application update options:', html)
         self.assertNotIn('action="/activate-update"', html)
         self.assertNotIn('Activate and reboot', html)
@@ -1889,7 +1900,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Upload complete; verifying update...', html)
         self.assertIn('Uploading and verifying base firmware...', html)
         self.assertIn('Uploading and verifying application update...', html)
-        self.assertIn('Choose a .hamd or .hamf update bundle.', html)
+        self.assertIn('Choose a .iotapp or .iotcore update bundle.', html)
         self.assertIn('Waiting for current portal request...', html)
         self.assertIn('var refreshInProgress=Promise.resolve()', html)
         self.assertIn('var refreshBusy=false', html)
@@ -2019,7 +2030,7 @@ class WebPortalTests(unittest.TestCase):
             'update_status': 'ready',
             'update_version': '2.0.0-alpha.8',
             'firmware_update_status': 'ready',
-            'firmware_update_version': 'ham-core-2.0.0-alpha.8-mpy1.28.0',
+            'firmware_update_version': 'iotmd-core-2.1.0',
             'universal_update_status': 'ready',
             'universal_update_version': '2.0.0-alpha.8',
         })

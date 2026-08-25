@@ -92,19 +92,19 @@ class UpdateSecurityTests(unittest.TestCase):
         source = Path('source.py')
         source.write_text('VALUE = 1')
         build_bundle(
-            Path('signed.hamd'), '3.0', [('HA-Device.py', source)],
+            Path('signed.iotapp'), '3.0', [('iotmd.py', source)],
             signing_key=self.private_key
         )
 
-        with Path('signed.hamd').open('rb') as stream:
+        with Path('signed.iotapp').open('rb') as stream:
             import app_update
             manifest = app_update.read_manifest(stream)
         self.assertEqual(manifest['format_version'], 6)
         self.assertEqual(manifest['release_sequence'], 1)
         self.assertEqual(manifest['signature_scheme'], 'ecdsa-p256-sha256')
 
-        build_bundle(Path('unsigned.hamd'), '2.0', [('HA-Device.py', source)])
-        with Path('unsigned.hamd').open('rb') as stream:
+        build_bundle(Path('unsigned.iotapp'), '2.0', [('iotmd.py', source)])
+        with Path('unsigned.iotapp').open('rb') as stream:
             with self.assertRaisesRegex(ValueError, 'ECDSA-signed updates are required'):
                 app_update.read_manifest(stream)
 
@@ -133,7 +133,7 @@ class UpdateSecurityTests(unittest.TestCase):
             'signature': '0' * 128,
         }
         with self.assertRaisesRegex(ValueError, 'signature verification failed'):
-            update_security.validate_manifest('hamd', manifest)
+            update_security.validate_manifest('iotapp', manifest)
 
     def test_recovery_api_incompatibility_is_rejected(self):
         manifest = {
@@ -150,7 +150,7 @@ class UpdateSecurityTests(unittest.TestCase):
             'files': [],
         }
         with self.assertRaisesRegex(ValueError, 'installed API is 6'):
-            update_security.validate_manifest('hamd', manifest)
+            update_security.validate_manifest('iotapp', manifest)
 
     def test_application_checks_api_exposed_by_frozen_recovery(self):
         manifest = {
@@ -168,7 +168,7 @@ class UpdateSecurityTests(unittest.TestCase):
         }
         with patch.object(update_security, 'RECOVERY_API_VERSION', 1):
             with self.assertRaisesRegex(ValueError, 'installed API is 1'):
-                update_security.validate_manifest('hamd', manifest)
+                update_security.validate_manifest('iotapp', manifest)
 
     def test_legacy_bundle_format_is_rejected(self):
         manifest = {
@@ -179,7 +179,7 @@ class UpdateSecurityTests(unittest.TestCase):
             'sha256': '0' * 64,
         }
         with self.assertRaisesRegex(ValueError, 'unsupported update format'):
-            update_security.validate_manifest('hamf', manifest)
+            update_security.validate_manifest('iotcore', manifest)
 
     def test_lock_and_bounded_history(self):
         update_support.acquire_update_lock()
@@ -252,10 +252,10 @@ class UpdateSecurityTests(unittest.TestCase):
             'application failed', 'csrf-value'
         )
 
-        self.assertIn('HAMD core recovery', html)
+        self.assertIn('IoTMD core recovery', html)
         self.assertIn('Wi-Fi credentials', html)
         self.assertIn(
-            'accept=".hamd,.hamf,.hamu,.iotapp,.iotcore,.iotuni"', html
+            'accept=".iotapp,.iotcore,.iotuni"', html
         )
         self.assertIn('X-CSRF-Token', html)
         self.assertIn('application failed', html)
@@ -343,7 +343,7 @@ class UpdateSecurityTests(unittest.TestCase):
                 'Console-Ash-82!Stone', bytes(range(16))
             )
             task = asyncio.create_task(wifi_recovery.serve_core_recovery(
-                'HAMD-Recovery-test', 'recovery-ap-password', verifier, 'app failed',
+                'IoTMD-Recovery-test', 'recovery-ap-password', verifier, 'app failed',
                 lambda: None, lambda: None
             ))
             try:
@@ -360,20 +360,20 @@ class UpdateSecurityTests(unittest.TestCase):
                 self.assertIn('303 See Other', login)
                 cookie = next(
                     line for line in login.split('\r\n')
-                    if line.startswith('Set-Cookie: ham_recovery=')
+                    if line.startswith('Set-Cookie: iotmd_recovery=')
                 )
-                session = cookie.split('ham_recovery=', 1)[1].split(';', 1)[0]
+                session = cookie.split('iotmd_recovery=', 1)[1].split(';', 1)[0]
 
                 page = await request(
-                    ('GET / HTTP/1.1\r\nCookie: ham_recovery=' + session +
+                    ('GET / HTTP/1.1\r\nCookie: iotmd_recovery=' + session +
                      '\r\n\r\n').encode()
                 )
                 self.assertIn('200 OK', page)
-                self.assertIn('HAMD core recovery', page)
+                self.assertIn('IoTMD core recovery', page)
 
                 bad_csrf = b'csrf=wrong'
                 rejected = await request(
-                    ('POST /retry HTTP/1.1\r\nCookie: ham_recovery=' + session +
+                    ('POST /retry HTTP/1.1\r\nCookie: iotmd_recovery=' + session +
                      '\r\nContent-Length: ' + str(len(bad_csrf)) +
                      '\r\n\r\n').encode() + bad_csrf
                 )
@@ -417,12 +417,12 @@ class UpdateSecurityTests(unittest.TestCase):
             ),
             'https://updates.example/rc/latest.json'
         )
-        application_source = (Path(self.previous_cwd) / 'HA-Device.py').read_text()
+        application_source = (Path(self.previous_cwd) / 'iotmd.py').read_text()
         self.assertIn("{'log': 'Checking ' + request_url, 'force': True}", application_source)
         self.assertIn("release_check_status + ' — ' + request_url", application_source)
 
     def test_portal_restarts_use_hardware_timer(self):
-        application_source = (Path(self.previous_cwd) / 'HA-Device.py').read_text()
+        application_source = (Path(self.previous_cwd) / 'iotmd.py').read_text()
         self.assertIn('scheduled_control_timer = Timer(-1)', application_source)
         self.assertIn('mode=Timer.ONE_SHOT', application_source)
         self.assertIn("mark_restart_required('Module configuration changed')", application_source)
@@ -439,7 +439,7 @@ class UpdateSecurityTests(unittest.TestCase):
             'format_version': 2, 'target_board': 'esp32-s3',
             'channel': 'stable', 'type': 'application', 'version': '2.0.0',
             'release_sequence': 20000,
-            'url': 'https://updates.example/bundles/app.hamd',
+            'url': 'https://updates.example/bundles/app.iotapp',
             'size': 123, 'sha256': 'a' * 64, 'minimum_core_api': 6,
             'minimum_config_api': 3, 'maximum_config_api': 3,
             'components': {'runtime': 2, 'modules': {'whes': 3}},
@@ -460,11 +460,11 @@ class UpdateSecurityTests(unittest.TestCase):
         source = Path('source.py')
         source.write_text('VALUE=1')
         build_bundle(
-            Path('universal.hamd'), '2.0.0', [('HA-Device.py', source)],
+            Path('universal.iotapp'), '2.0.0', [('iotmd.py', source)],
             signing_key=self.private_key, release_sequence=20000
         )
         descriptor_path, bundle_path, descriptor = publish_release(
-            'universal.hamd', 'site', 'https://updates.example/hamd',
+            'universal.iotapp', 'site', 'https://updates.example/iotmd',
             'stable', self.private_key, 'Production release',
             '2026-07-20T12:00:00Z'
         )
@@ -491,22 +491,22 @@ class UpdateSecurityTests(unittest.TestCase):
         source = Path('source.py')
         source.write_text('VALUE=1')
         build_bundle(
-            Path('application.hamd'), '2.1.0-beta.1',
-            [('HA-Device.py', source)], signing_key=self.private_key,
+            Path('application.iotapp'), '2.1.0-beta.1',
+            [('iotmd.py', source)], signing_key=self.private_key,
             release_sequence=20100,
         )
         image = Path('micropython.bin')
         image.write_bytes(b'\xe9' + (b'\0' * 127))
         build_firmware_bundle(
-            image, Path('firmware.hamf'), 'core-2.1.0-beta.1',
+            image, Path('firmware.iotcore'), 'core-2.1.0-beta.1',
             signing_key=self.private_key, release_sequence=20100,
         )
         publish_release(
-            'application.hamd', 'site', 'https://updates.example/hamd',
+            'application.iotapp', 'site', 'https://updates.example/iotmd',
             'beta', self.private_key, 'Application', '2026-07-20T12:00:00Z',
         )
         publish_release(
-            'firmware.hamf', 'site', 'https://updates.example/hamd',
+            'firmware.iotcore', 'site', 'https://updates.example/iotmd',
             'beta', self.private_key, 'Firmware', '2026-07-20T12:00:00Z',
         )
 
@@ -544,12 +544,12 @@ class UpdateSecurityTests(unittest.TestCase):
         }
         application = dict(common, **{
             'type': 'application', 'version': '2.2.0',
-            'url': 'https://updates.example/app.hamd', 'minimum_core_api': 7,
+            'url': 'https://updates.example/app.iotapp', 'minimum_core_api': 7,
             'components': {'runtime': 3, 'modules': {'whes': 4}},
         })
         firmware = dict(common, **{
             'type': 'firmware', 'version': 'core-2.2.0',
-            'url': 'https://updates.example/core.hamf', 'minimum_core_api': 6,
+            'url': 'https://updates.example/core.iotcore', 'minimum_core_api': 6,
         })
         for descriptor in (application, firmware):
             descriptor['signature'] = update_security.sign_manifest(
@@ -575,26 +575,26 @@ class UpdateSecurityTests(unittest.TestCase):
         output.mkdir()
         source = Path('source.py')
         source.write_text('VALUE=1')
-        staged = output / 'staged.hamd'
+        staged = output / 'staged.iotapp'
         build_bundle(
-            staged, '2.2.0-beta.1', [('HA-Device.py', source)],
+            staged, '2.2.0-beta.1', [('iotmd.py', source)],
             signing_key=self.private_key, release_sequence=20200,
         )
 
         _descriptor_path, published, _descriptor = publish_release(
-            staged, output, 'https://updates.example/hamd', 'beta',
+            staged, output, 'https://updates.example/iotmd', 'beta',
             self.private_key, 'Staged release', '2026-07-20T12:00:00Z',
         )
         self.assertFalse(staged.exists())
         self.assertTrue(published.is_file())
 
-        external = Path('external.hamd')
+        external = Path('external.iotapp')
         build_bundle(
-            external, '2.2.0-beta.2', [('HA-Device.py', source)],
+            external, '2.2.0-beta.2', [('iotmd.py', source)],
             signing_key=self.private_key, release_sequence=20201,
         )
         publish_release(
-            external, output, 'https://updates.example/hamd', 'beta',
+            external, output, 'https://updates.example/iotmd', 'beta',
             self.private_key, 'External release', '2026-07-20T12:00:00Z',
         )
         self.assertTrue(external.is_file())
@@ -633,12 +633,12 @@ class UpdateSecurityTests(unittest.TestCase):
         self.assertEqual(asyncio.run(exercise()), b'Wikipedia')
 
     def test_remote_stage_verifies_signed_bundle_hash_and_sequence(self):
-        payload = b'HAMD bundle bytes'
+        payload = b'IoTMD bundle bytes'
         descriptor = {
             'format_version': 2, 'target_board': 'esp32-s3',
             'channel': 'beta', 'type': 'application', 'version': '2.1.0-beta.1',
             'release_sequence': 20100,
-            'url': 'https://updates.example/bundles/app.hamd',
+            'url': 'https://updates.example/bundles/app.iotapp',
             'size': len(payload), 'sha256': hashlib.sha256(payload).hexdigest(),
             'minimum_core_api': 6, 'minimum_config_api': 3,
             'maximum_config_api': 3,

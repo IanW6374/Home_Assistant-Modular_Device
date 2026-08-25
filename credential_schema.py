@@ -13,6 +13,14 @@ SUPPORTED_TIMEZONES = (
     'Australia/Adelaide', 'Australia/Sydney', 'Pacific/Auckland',
 )
 
+DEFAULT_MQTT_TOPICS = {
+    'base_topic': 'iotmd',
+    'state_topic': '{base}/{device_id}/{module_id}/state',
+    'command_topic': '{base}/{device_id}/{module_id}/set',
+    'response_topic': '{base}/{device_id}/{module_id}/response',
+    'availability_topic': '{base}/{device_id}/availability',
+}
+
 def _text(value, label, minimum=0, maximum=256):
     if not isinstance(value, str) or len(value) < minimum or len(value) > maximum:
         raise ValueError(label + ' has an invalid length')
@@ -42,6 +50,21 @@ def _ipv4_integer(value):
     for part in value.split('.'):
         result = (result << 8) | int(part)
     return result
+
+def _mqtt_topic(value, label, required_fields=()):
+    value = _text(value, label, 1, 256).strip().strip('/')
+    if not value or '//' in value or any(character in value for character in ('+', '#')):
+        raise ValueError(label + ' is not a valid MQTT topic template')
+    allowed = ('{base}', '{device_id}', '{module_id}', '{component}')
+    remainder = value
+    for placeholder in allowed:
+        remainder = remainder.replace(placeholder, '')
+    if '{' in remainder or '}' in remainder:
+        raise ValueError(label + ' contains an unsupported placeholder')
+    for field in required_fields:
+        if '{' + field + '}' not in value:
+            raise ValueError(label + ' must contain {' + field + '}')
+    return value
 
 def _validate_wifi_ipv4(wifi):
     dhcp = wifi.get('dhcp', True)
@@ -113,9 +136,14 @@ def validate(config, require_provisioned=False):
             raise ValueError('a 64-character Wi-Fi password must be hexadecimal')
     _validate_wifi_ipv4(wifi)
     mqtt_configured = mqtt.get('configured') is True
+    mqtt_enabled = mqtt.get('enabled', mqtt_configured)
+    if not isinstance(mqtt_enabled, bool):
+        raise ValueError('MQTT enabled setting must be true or false')
     mqtt_server = _text(mqtt.get('server', ''), 'MQTT server', 1 if mqtt_configured else 0, 253)
     if bool(mqtt_server) != mqtt_configured:
         raise ValueError('MQTT configured state does not match the broker hostname')
+    if mqtt_enabled and not mqtt_configured:
+        raise ValueError('MQTT broker hostname is required when messaging is enabled')
     port = mqtt.get('port', 0)
     if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
         raise ValueError('MQTT port must be between 1 and 65535')
@@ -123,6 +151,27 @@ def validate(config, require_provisioned=False):
     _text(mqtt.get('password', ''), 'MQTT password', 0, 256)
     if mqtt.get('ssl') is not True:
         raise ValueError('MQTT TLS is mandatory')
+    base_topic = _mqtt_topic(
+        mqtt.get('base_topic', DEFAULT_MQTT_TOPICS['base_topic']),
+        'MQTT base topic'
+    )
+    for field, required in (
+        ('state_topic', ('device_id', 'module_id')),
+        ('command_topic', ('device_id', 'module_id')),
+        ('response_topic', ('device_id', 'module_id')),
+        ('availability_topic', ('device_id',)),
+    ):
+        template = _mqtt_topic(
+            mqtt.get(field, DEFAULT_MQTT_TOPICS[field]),
+            'MQTT ' + field.replace('_', ' '), required
+        )
+        if '{base}' in template and not base_topic:
+            raise ValueError('MQTT base topic is required by topic templates')
+    if mqtt.get('qos', 0) not in (0, 1):
+        raise ValueError('MQTT QoS must be 0 or 1')
+    for name in ('retain_state', 'command_subscriptions'):
+        if not isinstance(mqtt.get(name, name == 'command_subscriptions'), bool):
+            raise ValueError('MQTT ' + name.replace('_', ' ') + ' must be true or false')
 
     _text(portal.get('username', ''), 'portal username', 1, 32)
     users = portal.get('users')
@@ -179,6 +228,10 @@ def validate(config, require_provisioned=False):
     for name in ('ha_discovery', 'release_auto_download', 'release_auto_activate'):
         if not isinstance(preferences.get(name), bool):
             raise ValueError('user preference ' + name + ' must be true or false')
+    _mqtt_topic(
+        preferences.get('ha_discovery_prefix', 'homeassistant'),
+        'Home Assistant discovery prefix'
+    )
     release_schedule = preferences.get('release_check_schedule', 'disabled')
     if release_schedule not in ('disabled', 'daily', 'weekly'):
         raise ValueError('automatic update check schedule is invalid')

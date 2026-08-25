@@ -14,9 +14,9 @@ from tools.release_provenance import git_source_revision, source_marker
 from update_security import SIGNATURE_SCHEME, sign_manifest
 
 
-MAGIC = b'HAMD1\n'
+MAGIC = b'IOTA1\n'
 CORE_FILES = (
-    'HA-Device.py',
+    'iotmd.py',
     'app_settings.json',
     'component_versions.py',
     'settings_loader.py',
@@ -245,7 +245,7 @@ def generated_driver_index(root):
     for name, version in sorted(application_components(root)['modules'].items()):
         versions.append("    %r: %d," % (name, version))
     return (
-        '"""Generated mapping used to import only configured HAMD device drivers."""\n\n'
+        '"""Generated mapping used to import only configured IoTMD device drivers."""\n\n'
         'DRIVER_MODULES = {\n' + '\n'.join(entries) + '\n}\n\n'
         'DRIVER_VERSIONS = {\n' + '\n'.join(versions) + '\n}\n'
     ).encode()
@@ -388,7 +388,7 @@ def build_bundle(
     if signing_key:
         manifest_object['signature_scheme'] = SIGNATURE_SCHEME
         manifest_object['signature'] = sign_manifest(
-            'hamd', manifest_object, signing_key
+            'iotapp', manifest_object, signing_key
         )
     manifest = json.dumps(
         manifest_object,
@@ -414,7 +414,7 @@ def build_bundle(
 
 def main():
     parser = argparse.ArgumentParser(description='Build a MicroPython application update bundle')
-    parser.add_argument('output', help='Output .hamd bundle path')
+    parser.add_argument('output', help='Output .iotapp bundle path')
     parser.add_argument('--version', required=True, help='Application version label')
     parser.add_argument(
         '--universal', action='store_true',

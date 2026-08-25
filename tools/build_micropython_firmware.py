@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproducibly build and package the HAMD ESP32-S3 MicroPython firmware."""
+"""Reproducibly build and package the IoTMD ESP32-S3 MicroPython firmware."""
 
 import argparse
 import base64
@@ -109,7 +109,7 @@ def write_core_metadata(directory, version, release_sequence, source_revision=''
         if source_revision else ''
     )
     output.write_text(
-        '"""Generated immutable HAMD core package identity."""\n\n'
+        '"""Generated immutable IoTMD core package identity."""\n\n'
         'CORE_FIRMWARE_VERSION = ' + repr(str(version)) + '\n'
         'RELEASE_SEQUENCE = ' + str(int(release_sequence)) + '\n'
         + provenance
@@ -154,14 +154,14 @@ def provision_factory_setup_nvs(
     )
     if not generator.is_file():
         raise SystemExit('ESP-IDF NVS partition generator not found: ' + str(generator))
-    with tempfile.TemporaryDirectory(prefix='ham-factory-nvs-') as temporary_name:
+    with tempfile.TemporaryDirectory(prefix='iotmd-factory-nvs-') as temporary_name:
         temporary = Path(temporary_name)
         csv_path = temporary / 'setup.csv'
         nvs_path = temporary / 'nvs.bin'
         key_name = 'nvs-keys.bin'
         csv_path.write_text(
             'key,type,encoding,value\n'
-            'ham_config,namespace,,\n'
+            'iotmd_config,namespace,,\n'
             'bootkey,data,hex2bin,' + password.encode().hex() + '\n'
             'verifykey,data,hex2bin,' + verification_key.hex() + '\n'
         )
@@ -192,7 +192,7 @@ def provision_factory_setup_nvs(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build HAMD ESP32-S3 OTA firmware')
+    parser = argparse.ArgumentParser(description='Build IoTMD ESP32-S3 OTA firmware')
     parser.add_argument('--micropython-root', required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--release-sequence', required=True, type=int)
@@ -282,9 +282,9 @@ def main():
     board_dir = project / 'firmware' / 'boards' / lock['board']
     user_c_modules = project / 'firmware' / 'native'
     if not (user_c_modules / 'micropython.cmake').is_file():
-        raise SystemExit('HAMD native module definition not found: ' + str(user_c_modules))
+        raise SystemExit('IoTMD native module definition not found: ' + str(user_c_modules))
     build_dir = 'build-' + lock['board'] + '-' + lock['variant'] + '-secure'
-    core_metadata_dir = port / build_dir / 'hamd-generated'
+    core_metadata_dir = port / build_dir / 'iotmd-generated'
     write_core_metadata(
         core_metadata_dir, args.version, args.release_sequence, source_revision
     )
@@ -311,8 +311,8 @@ def main():
         '-D', 'MICROPY_FROZEN_MANIFEST=' + str(project / 'firmware' / 'manifest.py'),
         '-D', 'MICROPY_MANIFEST_CORE_METADATA_DIR=' + str(core_metadata_dir),
         '-D', 'USER_C_MODULES=' + str(user_c_modules),
-        '-D', 'HAM_PRODUCTION_SECURITY=ON',
-        '-D', 'HAM_SECURE_BOOT_SIGNING_KEY=' + str(secure_boot_key),
+        '-D', 'IOTMD_PRODUCTION_SECURITY=ON',
+        '-D', 'IOTMD_SECURE_BOOT_SIGNING_KEY=' + str(secure_boot_key),
         '-B', build_dir,
         'reconfigure',
     ]
@@ -324,11 +324,11 @@ def main():
         'BUILD=' + build_dir,
         'FROZEN_MANIFEST=' + str(project / 'firmware' / 'manifest.py'),
         'USER_C_MODULES=' + str(user_c_modules),
-        'CMAKE_ARGS=-DHAM_PRODUCTION_SECURITY=ON -DHAM_SECURE_BOOT_SIGNING_KEY=' +
+        'CMAKE_ARGS=-DIOTMD_PRODUCTION_SECURITY=ON -DIOTMD_SECURE_BOOT_SIGNING_KEY=' +
         str(secure_boot_key) + ' -DMICROPY_MANIFEST_CORE_METADATA_DIR=' +
         str(core_metadata_dir),
     ]
-    partition_target = port / 'partitions-HAM-8MiB-ota.csv'
+    partition_target = port / 'partitions-IOTMD-8MiB-ota.csv'
     try:
         shutil.copy2(
             project / 'firmware' / 'partitions-8MiB-ota.csv', partition_target
@@ -351,9 +351,9 @@ def main():
         compile_commands = port / build_dir / 'compile_commands.json'
         if (
             not compile_commands.is_file()
-            or 'hamd_crypto.c' not in compile_commands.read_text()
+            or 'iotmd_crypto.c' not in compile_commands.read_text()
         ):
-            raise SystemExit('refusing to package firmware without the native HAMD crypto module')
+            raise SystemExit('refusing to package firmware without the native IoTMD crypto module')
         sdkconfig = (port / build_dir / 'sdkconfig').read_text()
         try:
             validate_production_sdkconfig(sdkconfig)

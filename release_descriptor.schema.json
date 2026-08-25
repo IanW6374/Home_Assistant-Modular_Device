@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hamd.example/schemas/release-descriptor.json",
-  "title": "HAMD signed release descriptor",
+  "$id": "https://iotmd.example/schemas/release-descriptor.json",
+  "title": "IoTMD signed release descriptor",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -31,8 +31,8 @@ except ImportError:
     asyncio = None
 
 
-MAGIC = b'HAMD1\n'
-BUNDLE_TYPES = {MAGIC: 'hamd', b'IOTA1\n': 'iotapp'}
+MAGIC = b'IOTA1\n'
+BUNDLE_TYPES = {MAGIC: 'iotapp'}
 BUNDLE_PATH = '.app-update.bundle'
 STATE_PATH = '.app-update-state.json'
 BACKUP_ROOT = '.app-update-backup'
@@ -41,7 +41,7 @@ RELEASE_SEQUENCE_PATH = '.app-release-sequence'
 SLOT_ROOT = '.app-slots'
 SLOT_STATE_PATH = '.app-slot-state.json'
 SLOT_NAMES = ('a', 'b')
-APPLICATION_ENTRY = 'HA-Device.py'
+APPLICATION_ENTRY = 'iotmd.py'
 SLOT_INTEGRITY_FILE = '.slot-integrity.json'
 CHUNK_SIZE = 1024
 DEFAULT_MAX_BUNDLE_BYTES = 2 * 1024 * 1024
@@ -60,6 +60,8 @@ RECOVERY_FILES = (
     '.update-verification-key',
     '.recovery-state.json'
 )
+
+
 def _hex_digest(hasher):
     return binascii.hexlify(hasher.digest()).decode()
 

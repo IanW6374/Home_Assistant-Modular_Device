@@ -1,4 +1,4 @@
-# HAMD security operations
+# IoTMD security operations
 
 ## Trust domains
 

@@ -25,8 +25,7 @@ def operational_renderer(route, logging_renderer=None):
         '/portal-settings': render_portal_settings_page,
         '/wifi-settings': render_wifi_settings_page,
         '/ntp-settings': render_ntp_settings_page,
-        '/mqtt': render_mqtt_page,
-        '/home-assistant': render_home_assistant_page,
+        '/messaging': render_messaging_page,
         '/device-api': render_device_api_page,
         '/logging-settings': logging_renderer or render_settings_page,
         '/user': render_user_settings_page,
@@ -48,7 +47,7 @@ def render_operational(route, token, current_settings, message='', error=False,
 def render_login_page(username='', error=''):
     body = (
         '<section class="auth-card card"><span class="eyebrow">Secure device portal</span>'
-        '<h1>Welcome back</h1><p class="lead">Sign in to manage this HAMD device.</p>' +
+        '<h1>Welcome back</h1><p class="lead">Sign in to manage this IoTMD device.</p>' +
         _notice(error, True) +
         '<form id="login-form" action="/login" method="post">'
         '<label class="field">Username<input name="username" autocomplete="username" value="' +
@@ -64,7 +63,7 @@ def render_login_page(username='', error=''):
         '"auth-status").textContent="Securely verifying your password…";};'
     )
     return portal_ui.shell(
-        'HAMD login', '', body, script=script, authenticated=False
+        'IoTMD login', '', body, script=script, authenticated=False
     )
 
 def render_password_change_form(csrf, error='', required=False):
@@ -94,7 +93,7 @@ def render_password_change_page(csrf, error='', required=False):
         portal_ui.page_heading('User', 'Account', message) +
         render_password_change_form(csrf, error, required)
     )
-    return portal_ui.shell('HAMD account', 'user_settings', body, csrf)
+    return portal_ui.shell('IoTMD account', 'user_settings', body, csrf)
 
 def render_operational_hidden_fields(settings, excluded=()):
     settings = settings or {}
@@ -117,7 +116,29 @@ def render_operational_hidden_fields(settings, excluded=()):
         ('mqtt_server', settings.get('mqtt_server', '')),
         ('mqtt_port', settings.get('mqtt_port', 8883)),
         ('mqtt_username', settings.get('mqtt_username', '')),
+        ('mqtt_enabled', 'true' if settings.get('mqtt_enabled') else 'false'),
+        ('mqtt_base_topic', settings.get('mqtt_base_topic', 'iotmd')),
+        ('mqtt_state_topic', settings.get(
+            'mqtt_state_topic', '{base}/{device_id}/{module_id}/state'
+        )),
+        ('mqtt_command_topic', settings.get(
+            'mqtt_command_topic', '{base}/{device_id}/{module_id}/set'
+        )),
+        ('mqtt_response_topic', settings.get(
+            'mqtt_response_topic', '{base}/{device_id}/{module_id}/response'
+        )),
+        ('mqtt_availability_topic', settings.get(
+            'mqtt_availability_topic', '{base}/{device_id}/availability'
+        )),
+        ('mqtt_qos', settings.get('mqtt_qos', 0)),
+        ('mqtt_retain_state', 'true' if settings.get('mqtt_retain_state') else 'false'),
+        ('mqtt_command_subscriptions', 'true' if settings.get(
+            'mqtt_command_subscriptions', True
+        ) else 'false'),
         ('ha_discovery', 'true' if settings.get('ha_discovery') else 'false'),
+        ('ha_discovery_prefix', settings.get(
+            'ha_discovery_prefix', 'homeassistant'
+        )),
         ('log_buffer_lines', settings.get('log_buffer_lines', 200)),
         ('syslog_enabled', 'true' if settings.get('syslog_enabled') else 'false'),
         ('syslog_audit_enabled', 'true' if settings.get(
@@ -218,7 +239,7 @@ def render_settings_page(csrf, settings, message='', error=False):
         'for(var i=0;i<fields.length;i++)fields[i].required=manual;}dhcp.onchange=syncNetworkMode;'
         'syncNetworkMode();'
     )
-    return portal_ui.shell('HAMD network', 'settings', body, csrf, script)
+    return portal_ui.shell('IoTMD network', 'settings', body, csrf, script)
 
 def render_portal_settings_page(csrf, settings, message='', error=False):
     settings = settings or {}
@@ -253,7 +274,7 @@ def render_portal_settings_page(csrf, settings, message='', error=False):
         'certificate enrollment and recovery.</p><div class="actions"><span></span>'
         '<button type="submit">Save changes</button></div></section></form>'
     )
-    return portal_ui.shell('HAMD portal settings', 'portal_settings', body, csrf)
+    return portal_ui.shell('IoTMD portal settings', 'portal_settings', body, csrf)
 
 def render_wifi_settings_page(csrf, settings, message='', error=False):
     # Keep the former URL working for bookmarks while presenting the merged page.
@@ -294,11 +315,15 @@ def render_ntp_settings_page(csrf, settings, message='', error=False):
         '<div class="actions"><span></span><button type="submit">Save changes</button>'
         '</div></section></form>'
     )
-    return portal_ui.shell('HAMD time and date settings', 'ntp_settings', body, csrf)
+    return portal_ui.shell('IoTMD time and date settings', 'ntp_settings', body, csrf)
 
-def render_mqtt_page(csrf, settings, message='', error=False):
+def render_messaging_page(csrf, settings, message='', error=False):
     settings = settings or {}
     stored = bool(settings.get('mqtt_password_set'))
+    enabled = ' checked' if settings.get('mqtt_enabled') else ''
+    commands = ' checked' if settings.get('mqtt_command_subscriptions', True) else ''
+    retained = ' checked' if settings.get('mqtt_retain_state') else ''
+    discovery = ' checked' if settings.get('ha_discovery') else ''
     placeholder = ' placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"' if stored else ''
     mqtt_hint = (
         'A password is stored. Overtype the masked field to replace it.'
@@ -306,15 +331,23 @@ def render_mqtt_page(csrf, settings, message='', error=False):
     )
     body = (
         portal_ui.page_heading(
-            'System', 'MQTT',
-            'Configure the secure MQTT broker connection used for published values.'
+            'System', 'Messaging',
+            'Configure platform-neutral MQTT messaging and the optional Home Assistant integration.'
         ) + _notice(message, error) +
-        '<form action="/mqtt" method="post" autocomplete="off">'
+        '<form action="/messaging" method="post" autocomplete="off">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">' +
         render_operational_hidden_fields(
-            settings, ('mqtt_server', 'mqtt_port', 'mqtt_username')
+            settings, (
+                'mqtt_server', 'mqtt_port', 'mqtt_username', 'mqtt_enabled',
+                'mqtt_base_topic', 'mqtt_state_topic', 'mqtt_command_topic',
+                'mqtt_response_topic', 'mqtt_availability_topic', 'mqtt_qos',
+                'mqtt_retain_state', 'mqtt_command_subscriptions',
+                'ha_discovery', 'ha_discovery_prefix'
+            )
         ) +
         '<section class="card"><div class="section-title"><h2>MQTT connection</h2></div>'
+        '<label class="check"><input type="checkbox" name="mqtt_enabled"' + enabled +
+        '>Enable MQTT messaging</label>'
         '<div class="grid"><label class="field">Broker hostname<input name="mqtt_server" maxlength="253" '
         'value="' + html_escape(settings.get('mqtt_server', '')) + '"></label>'
         '<label class="field">Broker port<input name="mqtt_port" type="number" min="1" max="65535" '
@@ -324,27 +357,32 @@ def render_mqtt_page(csrf, settings, message='', error=False):
         '<label class="field">MQTT password<input name="mqtt_password" type="password" '
         'maxlength="256" autocomplete="new-password"' + placeholder + '></label></div>'
         '<p class="muted">' + mqtt_hint +
-        ' MQTT TLS is mandatory. Leave hostname blank to disable MQTT.</p>'
-        '<div class="actions"><span></span>'
-        '<button type="submit">Save changes</button></div></section></form>'
-    )
-    return portal_ui.shell('HAMD MQTT', 'mqtt', body, csrf)
-
-def render_home_assistant_page(csrf, settings, message='', error=False):
-    settings = settings or {}
-    discovery_checked = ' checked' if settings.get('ha_discovery') else ''
-    body = (
-        portal_ui.page_heading(
-            'System', 'Home Assistant',
-            'Control discovery and republish entity configuration to Home Assistant.'
-        ) + _notice(message, error) +
-        '<form action="/home-assistant" method="post" autocomplete="off">'
-        '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">' +
-        render_operational_hidden_fields(settings, ('ha_discovery',)) +
-        '<section class="card"><div class="section-title"><h2>Home Assistant discovery</h2></div>'
-        '<label class="check"><input type="checkbox" name="ha_discovery"' +
-        discovery_checked + '>Enable Home Assistant discovery</label>'
-        '<p class="muted">Discovery publishes entity configuration to Home Assistant over MQTT.</p>'
+        ' MQTT TLS is mandatory.</p></section>'
+        '<section class="card"><div class="section-title"><h2>Topic contract</h2></div>'
+        '<label class="field">Base topic<input name="mqtt_base_topic" maxlength="256" value="' +
+        html_escape(settings.get('mqtt_base_topic', 'iotmd')) + '"></label>'
+        '<div class="grid"><label class="field">State topic template<input name="mqtt_state_topic" maxlength="256" value="' +
+        html_escape(settings.get('mqtt_state_topic', '{base}/{device_id}/{module_id}/state')) + '"></label>'
+        '<label class="field">Command topic template<input name="mqtt_command_topic" maxlength="256" value="' +
+        html_escape(settings.get('mqtt_command_topic', '{base}/{device_id}/{module_id}/set')) + '"></label>'
+        '<label class="field">Response topic template<input name="mqtt_response_topic" maxlength="256" value="' +
+        html_escape(settings.get('mqtt_response_topic', '{base}/{device_id}/{module_id}/response')) + '"></label>'
+        '<label class="field">Availability topic template<input name="mqtt_availability_topic" maxlength="256" value="' +
+        html_escape(settings.get('mqtt_availability_topic', '{base}/{device_id}/availability')) + '"></label>'
+        '<label class="field">QoS<select name="mqtt_qos"><option value="0"' +
+        (' selected' if int(settings.get('mqtt_qos', 0)) == 0 else '') + '>0 — at most once</option><option value="1"' +
+        (' selected' if int(settings.get('mqtt_qos', 0)) == 1 else '') + '>1 — at least once</option></select></label></div>'
+        '<p class="muted">Templates support {base}, {device_id}, {module_id} and {component}. The resolved topics are independent of Home Assistant.</p>'
+        '<label class="check"><input type="checkbox" name="mqtt_command_subscriptions"' + commands +
+        '>Enable MQTT command subscriptions</label>'
+        '<label class="check"><input type="checkbox" name="mqtt_retain_state"' + retained +
+        '>Retain module state by default</label></section>'
+        '<section class="card"><div class="section-title"><h2>Home Assistant integration</h2></div>'
+        '<label class="check"><input type="checkbox" name="ha_discovery"' + discovery +
+        '>Enable Home Assistant integration</label>'
+        '<label class="field">Discovery prefix<input name="ha_discovery_prefix" maxlength="256" value="' +
+        html_escape(settings.get('ha_discovery_prefix', 'homeassistant')) + '"></label>'
+        '<p class="muted">Home Assistant discovery points to the operational MQTT topics above. Disabling it does not disable MQTT.</p>'
         '<div class="actions"><span></span><button type="submit">Save changes</button>'
         '</div></section></form>'
         '<section class="card"><div class="section-title"><h2>Publish configuration</h2></div>'
@@ -352,7 +390,7 @@ def render_home_assistant_page(csrf, settings, message='', error=False):
         '<form action="/discover" method="post"><input type="hidden" name="csrf" value="' +
         html_escape(csrf) + '"><button type="submit">Publish discovery</button></form></div></section>'
     )
-    return portal_ui.shell('HAMD Home Assistant', 'home_assistant', body, csrf)
+    return portal_ui.shell('IoTMD messaging', 'messaging', body, csrf)
 
 def render_device_api_page(csrf, settings, message='', error=False):
     enabled = ' checked' if settings.get('api_enabled') else ''
@@ -408,7 +446,7 @@ def render_device_api_page(csrf, settings, message='', error=False):
         '<h2>Enrolled clients</h2></div><div class="module-grid">' + ''.join(rows) +
         '</div></section>'
     )
-    return portal_ui.shell('HAMD Device API', 'device_api', body, csrf)
+    return portal_ui.shell('IoTMD Device API', 'device_api', body, csrf)
 
 def render_user_settings_page(
     csrf, settings, message='', error=False, password_message='', password_error=False,
@@ -472,7 +510,7 @@ def render_user_settings_page(
         '<div class="actions"><span></span><button type="submit">Add portal user</button></div>'
         '</form></section>'
     )
-    return portal_ui.shell('HAMD account', 'user_settings', body, csrf)
+    return portal_ui.shell('IoTMD account', 'user_settings', body, csrf)
 
 def render_module_settings_page(csrf, module_json='{"devices":[]}', message='', error=False):
     body = (
@@ -510,7 +548,7 @@ def render_module_settings_page(csrf, module_json='{"devices":[]}', message='', 
         'document.getElementById("module-progress").hidden=false;document.getElementById("module-submit").disabled=true;};'
         'formatJson(false);'
     )
-    return portal_ui.shell('HAMD modules', 'modules', body, csrf, script)
+    return portal_ui.shell('IoTMD modules', 'modules', body, csrf, script)
 
 def render_certificate_details(certificates):
     certificates = certificates or {}
@@ -677,7 +715,7 @@ def render_certificate_page(csrf, message='', certificates=None):
         'catch(e){out.textContent=e.message;box.classList.add("failed");label.textContent="Installation failed";'
         'this.disabled=false;}};'
     )
-    return portal_ui.shell('HAMD certificates', 'certificates', body, csrf, script)
+    return portal_ui.shell('IoTMD certificates', 'certificates', body, csrf, script)
 
 def render_device_control_page(csrf, error=''):
     body = (
@@ -710,12 +748,12 @@ def render_device_control_page(csrf, error=''):
         'maxlength="63" required></label>'
         '<label class="field">Type RESET to confirm<input name="reset_confirmation" '
         'autocomplete="off" maxlength="5" pattern="RESET" required></label></div>'
-        '<p class="muted">After restart, connect to the HAMD-Setup access point using the new '
+        '<p class="muted">After restart, connect to the IoTMD-Setup access point using the new '
         'setup password, then browse to http://192.168.4.1.</p><div class="actions">'
         '<span></span><button class="danger" type="submit">Erase settings and restart</button>'
         '</div></form></section>'
     )
-    return portal_ui.shell('HAMD device control', 'device_control', body, csrf)
+    return portal_ui.shell('IoTMD device control', 'device_control', body, csrf)
 
 
 def render_factory_default_page(csrf, error=''):
@@ -863,7 +901,7 @@ def render_configuration_backup_page(csrf, message=''):
         'previewImport.call(actionButton);};'
     )
     return portal_ui.shell(
-        'HAMD configuration backup', 'configuration_backup', body, csrf, script
+        'IoTMD configuration backup', 'configuration_backup', body, csrf, script
     )
 
 def _health_time_text(epoch, timezone_name='UTC'):
@@ -997,7 +1035,7 @@ def render_health_history_page(csrf, status):
         html_escape(csrf) + '"><div class="actions"><span></span><button class="danger" '
         'type="submit">Reset health history</button></div></form></section>'
     )
-    return portal_ui.shell('HAMD health history', 'health_history', body, csrf)
+    return portal_ui.shell('IoTMD health history', 'health_history', body, csrf)
 
 def render_factory_default_complete_page(csrf):
     body = (
@@ -1005,11 +1043,11 @@ def render_factory_default_complete_page(csrf):
             'Maintenance', 'Factory reset armed',
             'The immutable recovery layer will erase user data and open first-boot setup.'
         ) + '<section class="card"><p class="notice">The device is restarting.</p>'
-        '<p>When this network disconnects, join the <strong>HAMD-Setup-xxxxxx</strong> '
+        '<p>When this network disconnects, join the <strong>IoTMD-Setup-xxxxxx</strong> '
         'access point with the setup password you just chose and browse to '
         '<strong>http://192.168.4.1</strong>.</p></section>'
     )
-    return portal_ui.shell('HAMD factory reset', 'device_control', body, csrf)
+    return portal_ui.shell('IoTMD factory reset', 'device_control', body, csrf)
 
 
 def render_shutdown_complete_page(message):
@@ -1021,5 +1059,5 @@ def render_shutdown_complete_page(message):
         '</p><p>No configuration or installed software is erased.</p></section>'
     )
     return portal_ui.shell(
-        'HAMD device shutdown', 'device_control', body, authenticated=False
+        'IoTMD device shutdown', 'device_control', body, authenticated=False
     )

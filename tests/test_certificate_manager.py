@@ -139,17 +139,17 @@ class CertificateManagerTests(unittest.TestCase):
         self.assertEqual(key.key_size, 256)
 
         request = x509.load_der_x509_csr(
-            certificate_manager._csr(private, 'hamd-kitchen.home.arpa')
+            certificate_manager._csr(private, 'iotmd-kitchen.home.arpa')
         )
         self.assertTrue(request.is_signature_valid)
         self.assertEqual(
             request.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value,
-            'hamd-kitchen.home.arpa'
+            'iotmd-kitchen.home.arpa'
         )
         self.assertEqual(
             request.extensions.get_extension_for_class(x509.SubjectAlternativeName)
             .value.get_values_for_type(x509.DNSName),
-            ['hamd-kitchen.home.arpa']
+            ['iotmd-kitchen.home.arpa']
         )
 
     def test_generated_self_signed_certificate_matches_selected_mdns_name(self):
@@ -245,7 +245,7 @@ class CertificateManagerTests(unittest.TestCase):
         certificates = web_portal.render_certificate_page('csrf', certificates={
             'portal': {
                 'installed': True, 'subject': 'CN=whes01.local',
-                'issuer': 'CN=HAMD CA', 'not_before': '2026-01-01 00:00:00 UTC',
+                'issuer': 'CN=IoTMD CA', 'not_before': '2026-01-01 00:00:00 UTC',
                 'not_after': '2027-01-01 00:00:00 UTC', 'serial_number': '01',
                 'size': 512,
             },
@@ -261,7 +261,7 @@ class CertificateManagerTests(unittest.TestCase):
         self.assertIn('Device Certificates', certificates)
         self.assertLess(certificates.index('CA Trust'), certificates.index('Device Certificates'))
         self.assertIn('CN=whes01.local', certificates)
-        self.assertIn('CN=HAMD CA', certificates)
+        self.assertIn('CN=IoTMD CA', certificates)
         self.assertIn('not installed', certificates)
         self.assertIn('No separate CA trust anchor is installed.', certificates)
         self.assertIn('self-signed portal certificate is listed under Device Certificates', certificates)

@@ -125,7 +125,7 @@ async def _response_unbounded(url, method, ca_path, body=b'', content_type='', a
     host_header = host if port == 443 else host + ':' + str(port)
     headers = (
         method + ' ' + path + ' HTTP/1.1\r\nHost: ' + host_header +
-        '\r\nUser-Agent: HAMD-ACME/1\r\nConnection: close\r\n'
+        '\r\nUser-Agent: IoTMD-ACME/1\r\nConnection: close\r\n'
     )
     if content_type:
         headers += 'Content-Type: ' + content_type + '\r\n'

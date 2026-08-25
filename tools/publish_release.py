@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish a signed HAMD application or firmware bundle to a static host tree."""
+"""Publish a signed IoTMD application or firmware bundle to a static host tree."""
 
 import argparse
 import hashlib
@@ -27,8 +27,8 @@ except ImportError:  # Direct execution: python tools/publish_release.py ...
 
 
 BUNDLE_TYPES = {
-    b'HAMD1\n': 'application',
-    b'HAMF1\n': 'firmware',
+    b'IOTA1\n': 'application',
+    b'IOTC1\n': 'firmware',
 }
 
 
@@ -57,7 +57,7 @@ def read_bundle_manifest(path):
         magic = stream.read(6)
         release_type = BUNDLE_TYPES.get(magic)
         if not release_type:
-            raise ValueError('input is not a HAMD .hamd or .hamf bundle')
+            raise ValueError('input is not a IoTMD .iotapp or .iotcore bundle')
         length = int.from_bytes(stream.read(4), 'big')
         if length <= 0 or length > 65535:
             raise ValueError('bundle manifest length is invalid')
@@ -72,7 +72,7 @@ def verify_bundle_manifest(release_type, manifest, private_key):
         update_security._bytes_to_int(public[32:]),
     )
     signature = str(manifest.get('signature', ''))
-    bundle_type = 'hamd' if release_type == 'application' else 'hamf'
+    bundle_type = 'iotapp' if release_type == 'application' else 'iotcore'
     if not update_security.verify_manifest_signature(
         bundle_type, manifest, signature, point
     ):
@@ -219,7 +219,7 @@ def publish_release(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Create a static, signed HAMD stable/beta release tree'
+        description='Create a static, signed IoTMD stable/beta release tree'
     )
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--output-root', required=True)

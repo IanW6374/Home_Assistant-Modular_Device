@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 REVISION_PATTERN = re.compile(r'^[0-9a-f]{40}$')
-SOURCE_MARKER = b'HAMD_SOURCE_REVISION:'
+SOURCE_MARKER = b'IoTMD_SOURCE_REVISION:'
 
 
 def validate_source_revision(value):

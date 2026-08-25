@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.1.0 - 2026-08-25
+
+- Rebrand the product as IoT Modular Device (IoTMD), including the runtime,
+  firmware board, native module, repository references and signed update
+  formats (`.iotapp`, `.iotcore` and `.iotuni`).
+- Replace platform-specific MQTT topics with administrator-defined templates,
+  QoS, retained-state and command-subscription controls.
+- Make Home Assistant discovery an optional integration layered over the same
+  MQTT connection and combine both settings under **Messaging**.
+- Publish a complete API contract, MQTT and Home Assistant integration guides,
+  detailed per-module references and the WHES calculation assumptions.
+- Define the companion IoTMD Management Suite for fleet and secure release
+  management while retaining the generic IoT Certificate Authority and IoT
+  Syslog Server as independent add-ons.
+- Persist upgrade upload, verification, staging, download and activation
+  failures in the Device log and structured health/update history with the
+  original failure detail.
+
+### Required transition from v2.0
+
+- Install the signed v2.0.15 universal transition update first. It copies and
+  verifies encrypted device configuration into the IoTMD namespace while
+  retaining the v2.0 copy for interrupted-upgrade recovery.
+- After v2.0.15 has restarted successfully, install the v2.1.0 `.iotuni` file.
+
 ## 2.0.14 - 2026-08-25
 
 - Add a one-time transition core that accepts both the established v2 update
@@ -29,15 +54,15 @@
 - Reclaim only the inactive application generation when a universal resumable
   upload would otherwise exceed available storage; the active generation is
   never removed.
-- Compact a completed `.hamu` in place after its core component is written,
-  adopting the verified inner `.hamd` without temporarily storing both files.
+- Compact a completed `.iotuni` in place after its core component is written,
+  adopting the verified inner `.iotapp` without temporarily storing both files.
 - Release resumable metadata before installation mutates its artifact so an
   interrupted compaction is safely replaced by the next upload attempt.
 
 ### Upgrade from 2.0.9 or 2.0.10
 
-- Install `application-2.0.11.hamd` first to update the uploader, restart and
-  confirm it, then install `universal-2.0.11.hamu` to update the core.
+- Install `application-2.0.11.iotapp` first to update the uploader, restart and
+  confirm it, then install `universal-2.0.11.iotuni` to update the core.
 
 ## 2.0.10 - 2026-08-25
 
@@ -52,7 +77,7 @@
 
 ## 2.0.9 - 2026-08-25
 
-- Resume interrupted universal `.hamu` uploads from their last committed chunk
+- Resume interrupted universal `.iotuni` uploads from their last committed chunk
   and reclaim only an inactive application generation when staging space is
   otherwise insufficient.
 - Report remote syslog delivery failures and recovery in the local Device log,
@@ -83,9 +108,9 @@
 
 ### Upgrade order
 
-- The universal `.hamu` release activates core firmware before the application.
-- When installing the component files manually, install the `.hamf` first and
-  the `.hamd` second so the shutdown capability is available to the portal.
+- The universal `.iotuni` release activates core firmware before the application.
+- When installing the component files manually, install the `.iotcore` first and
+  the `.iotapp` second so the shutdown capability is available to the portal.
 
 ## 2.0.7 - 2026-08-24
 
@@ -150,14 +175,14 @@
 
 ### Fixed
 
-- Stream universal `.hamu` upgrades directly into the transactional installers
+- Stream universal `.iotuni` upgrades directly into the transactional installers
   instead of caching the complete container on constrained device storage.
 - Reclaim superseded or unfinishable resumable uploads automatically and reject
   uploads that cannot fit before they consume the remaining filesystem space.
 
 ## 2.0.0 - 2026-08-24
 
-HAMD v2 is the first production release of the clean-seed ESP32-S3 platform.
+IoTMD v2 is the first production release of the clean-seed ESP32-S3 platform.
 
 ### Added
 
@@ -177,7 +202,7 @@ HAMD v2 is the first production release of the clean-seed ESP32-S3 platform.
 - Replaced the original monolithic runtime with explicit application, service,
   transport, storage, driver and recovery boundaries.
 - Moved Home Assistant fleet management to the standalone
-  `HAMD-Home-Assistant-Addons` repository.
+  `IoTMD-Home-Assistant-Addons` repository.
 
 ### Fixed
 

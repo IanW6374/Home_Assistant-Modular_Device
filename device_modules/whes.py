@@ -4,18 +4,20 @@ Reads the small set of WHES Modbus values needed from RS485 and publishes a
 Home Assistant presentation payload with calculated PV and home-load power.
 """
 
+import settings_loader as device_settings
+
 MODULE_VERSION = 1
 
 try:
     from . import rs485_modbus as rs485_module
     from .base import ha_safe_id
-    from .base import ha_state_topic
+    from .base import mqtt_state_topic
     from .base import homeassistant_device_info
     from .base import sensor_discovery_payload
 except ImportError:
     import rs485_modbus as rs485_module
     from base import ha_safe_id
-    from base import ha_state_topic
+    from base import mqtt_state_topic
     from base import homeassistant_device_info
     from base import sensor_discovery_payload
 
@@ -214,10 +216,13 @@ class WHESDriver(rs485_module.RS485ModbusDriver):
         payload.update(self.health_state_payload())
         data = {
             'payload': payload,
-            'topic': ha_state_topic('sensor', deviceid, self.device['uuid']),
-            'log': 'HA Update: ' + self.device['name']
+            'topic': mqtt_state_topic('sensor', deviceid, self.device['uuid']),
+            'log': 'MQTT State: ' + self.device['name']
         }
-        publish_callable(data, 0, False, bool(self.device.get('retain_state', False)))
+        publish_callable(
+            data, device_settings.mqtt_qos, False,
+            bool(self.device.get('retain_state', device_settings.mqtt_retain_state))
+        )
 
     def _source_values(self):
         values = {}

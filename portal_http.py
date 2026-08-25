@@ -142,10 +142,10 @@ def parse_cookies(headers):
     return cookies
 
 def has_portal_session(headers, session_id):
-    return bool(session_id) and parse_cookies(headers).get('ham_session') == session_id
+    return bool(session_id) and parse_cookies(headers).get('iotmd_session') == session_id
 
 def session_cookie(session_id, secure=False, clear=False):
-    cookie = 'ham_session=' + str(session_id) + '; Path=/; HttpOnly; SameSite=Strict'
+    cookie = 'iotmd_session=' + str(session_id) + '; Path=/; HttpOnly; SameSite=Strict'
     if clear:
         cookie += '; Max-Age=0'
     if secure:
@@ -243,8 +243,19 @@ def apply_portal_action(action, path, action_handler, log_output, params=None):
 
     notice = result.get('message', '') if isinstance(result, dict) else str(result)
     if notice:
-        log_output('Local', 'Web portal', {'log': notice, 'force': True}, 'INFO')
+        failed = 'failed' in notice.lower()
+        log_output(
+            'Local', 'Web portal', {'log': notice, 'force': True},
+            'ERROR' if failed else 'INFO'
+        )
     return result
+
+def log_upgrade_upload_failure(log_output, phase, exc):
+    log_output(
+        'Local', 'Upgrade',
+        {'log': 'Upload ' + str(phase) + ' failed - ' + str(exc), 'force': True},
+        'ERROR'
+    )
 
 def query_value(path, key, default=''):
     return parse_query(path).get(key, default)
@@ -308,7 +319,7 @@ def response(status, body, content_type='text/html'):
         body
     )
 
-def download_response(body, filename='ha-device-logs.txt'):
+def download_response(body, filename='iotmd-logs.txt'):
     return (
         'HTTP/1.1 200 OK\r\n'
         'Content-Type: text/plain; charset=utf-8\r\n'
@@ -333,9 +344,9 @@ def configuration_backup_filename(complete=False, epoch=None):
     except Exception:
         stamp = 'time-unavailable'
     return (
-        'ha-device-complete-' + stamp + '.encrypted.json'
+        'iotmd-complete-' + stamp + '.encrypted.json'
         if complete else
-        'ha-device-configuration-' + stamp + '.json'
+        'iotmd-configuration-' + stamp + '.json'
     )
 
 async def write_buffered_response(

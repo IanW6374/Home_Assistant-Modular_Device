@@ -1,7 +1,7 @@
-# HAMD fleet protocol v1
+# IoTMD fleet protocol v1
 
 The independently released
-[HAMD Fleet Manager](https://github.com/IanW6374/HAMD-Home-Assistant-Addons)
+[IoTMD Fleet Manager](https://github.com/IanW6374/IoTMD-Home-Assistant-Addons)
 uses the device's `/api/v2` endpoints over mandatory mutual TLS.
 
 ## Identity and inventory

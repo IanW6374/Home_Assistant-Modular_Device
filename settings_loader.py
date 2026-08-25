@@ -105,10 +105,12 @@ try:
     _runtime_config = credential_store.load(require_provisioned=True)
     _preferences = _runtime_config.get('preferences', {})
     _portal_preferences = _runtime_config.get('portal', {})
+    _mqtt_preferences = _runtime_config.get('mqtt', {})
     syslog = _runtime_config.get('syslog', {})
 except Exception:
     _preferences = {}
     _portal_preferences = {}
+    _mqtt_preferences = {}
     syslog = {}
 
 module_settings_file = device_config.MODULE_SETTINGS_FILE
@@ -196,6 +198,32 @@ timezone_offset_minutes = timezone_rules.offset_minutes(timezone_name)
 syslog_ca_path = getattr(device_config, 'SYSLOG_CA_PATH', '/certs/trust/syslog-ca.der')
 loglevel = _preferences.get('loglevel', 'INFO')
 ha_discovery = _preferences.get('ha_discovery', True) is True
+ha_discovery_prefix = str(
+    _preferences.get('ha_discovery_prefix', 'homeassistant')
+).strip().strip('/') or 'homeassistant'
+mqtt_enabled = _mqtt_preferences.get(
+    'enabled', _mqtt_preferences.get('configured', False)
+) is True
+mqtt_base_topic = str(
+    _mqtt_preferences.get('base_topic', 'iotmd')
+).strip().strip('/') or 'iotmd'
+mqtt_state_topic = str(_mqtt_preferences.get(
+    'state_topic', '{base}/{device_id}/{module_id}/state'
+)).strip().strip('/')
+mqtt_command_topic = str(_mqtt_preferences.get(
+    'command_topic', '{base}/{device_id}/{module_id}/set'
+)).strip().strip('/')
+mqtt_response_topic = str(_mqtt_preferences.get(
+    'response_topic', '{base}/{device_id}/{module_id}/response'
+)).strip().strip('/')
+mqtt_availability_topic = str(_mqtt_preferences.get(
+    'availability_topic', '{base}/{device_id}/availability'
+)).strip().strip('/')
+mqtt_qos = int(_mqtt_preferences.get('qos', 0))
+mqtt_retain_state = _mqtt_preferences.get('retain_state', False) is True
+mqtt_command_subscriptions = _mqtt_preferences.get(
+    'command_subscriptions', True
+) is True
 release_auto_download = _preferences.get('release_auto_download', False) is True
 release_auto_activate = _preferences.get('release_auto_activate', False) is True
 

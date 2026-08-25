@@ -1,4 +1,4 @@
-"""Transport-neutral HAMD application composition primitives."""
+"""Transport-neutral IoTMD application composition primitives."""
 
 from .context import ApplicationContext, RuntimeState, TaskSupervisor
 

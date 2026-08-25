@@ -1,0 +1,161 @@
+openapi: 3.1.0
+info:
+  title: IoT Modular Device API
+  version: 2.1.0
+  description: Mutual-TLS JSON API exposed by an IoTMD device.
+servers:
+  - url: https://{device}:8444
+    variables:
+      device:
+        default: iotmd.local
+security:
+  - mutualTLS: []
+paths:
+  /api/v2/device/inventory:
+    get:
+      summary: Device and module inventory
+      responses:
+        '200': {description: Inventory, content: {application/json: {schema: {$ref: '#/components/schemas/Inventory'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v2/health:
+    get:
+      summary: Health history snapshot
+      responses:
+        '200': {description: Health snapshot, content: {application/json: {schema: {type: object, required: [api_version, health], properties: {api_version: {const: 2}, health: {type: object, additionalProperties: true}}}}}}
+  /api/v2/events:
+    get:
+      summary: Read events after a cursor
+      parameters:
+        - {name: cursor, in: query, schema: {type: integer, minimum: 0, default: 0}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 256, default: 32}}
+      responses:
+        '200': {description: Event page, content: {application/json: {schema: {$ref: '#/components/schemas/EventPage'}}}}
+  /api/v2/support:
+    get:
+      summary: Redacted support snapshot
+      responses:
+        '200': {description: Support data, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/v2/modules:
+    get:
+      summary: List modules
+      responses:
+        '200': {description: Module catalog, content: {application/json: {schema: {type: object, required: [api_version, modules], properties: {api_version: {const: 2}, modules: {type: array, items: {$ref: '#/components/schemas/Module'}}}}}}}
+  /api/v2/modules/{uuid}/state:
+    parameters: [{$ref: '#/components/parameters/ModuleUuid'}]
+    get:
+      summary: Current module state
+      responses:
+        '200': {description: State, content: {application/json: {schema: {$ref: '#/components/schemas/ModulePayload'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v2/modules/{uuid}/diagnostics:
+    parameters: [{$ref: '#/components/parameters/ModuleUuid'}]
+    get:
+      summary: Current module diagnostics
+      responses:
+        '200': {description: Diagnostics, content: {application/json: {schema: {$ref: '#/components/schemas/ModulePayload'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v2/modules/{uuid}/commands:
+    parameters: [{$ref: '#/components/parameters/ModuleUuid'}]
+    post:
+      summary: Submit a driver command
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, additionalProperties: true}}}
+      responses:
+        '202': {description: Accepted operation, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v2/operations/{id}:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string, minLength: 1}}
+    get:
+      summary: Read operation status
+      responses:
+        '200': {description: Operation, content: {application/json: {schema: {$ref: '#/components/schemas/Operation'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v2/fleet:
+    get:
+      summary: Fleet state
+      responses:
+        '200': {description: Fleet state, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/v2/fleet/policy:
+    post:
+      summary: Apply fleet policy
+      requestBody:
+        required: true
+        content: {application/json: {schema: {type: object, additionalProperties: true}}}
+      responses:
+        '202': {description: Policy accepted, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+  /api/v2/fleet/commands/{id}/result:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: string, minLength: 1}}
+    post:
+      summary: Complete a fleet command
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                result: {type: string, default: complete}
+                detail: {type: string}
+      responses:
+        '200': {description: Updated command, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+components:
+  securitySchemes:
+    mutualTLS: {type: mutualTLS, description: Enrolled client certificate and scope registry}
+  parameters:
+    ModuleUuid: {name: uuid, in: path, required: true, schema: {type: string, pattern: '^[0-9A-Fa-f]{4}$'}}
+  schemas:
+    Inventory:
+      type: object
+      required: [api_version, device, modules]
+      properties:
+        api_version: {const: 2}
+        device: {type: object, additionalProperties: true}
+        modules: {type: array, items: {$ref: '#/components/schemas/Module'}}
+        fleet: {oneOf: [{type: object, additionalProperties: true}, {type: 'null'}]}
+    Module:
+      type: object
+      additionalProperties: true
+      properties:
+        uuid: {type: string, pattern: '^[0-9A-Fa-f]{4}$'}
+        name: {type: string}
+        type: {type: object, additionalProperties: true}
+        capabilities: {type: array, items: {type: string}}
+    ModulePayload:
+      type: object
+      required: [module]
+      properties:
+        module: {type: string}
+        state: {type: object, additionalProperties: true}
+        diagnostics: {type: object, additionalProperties: true}
+    Operation:
+      type: object
+      required: [id, status]
+      additionalProperties: true
+      properties:
+        id: {type: string}
+        status: {enum: [pending, running, complete, failed]}
+        result: {}
+        error: {type: string}
+    EventPage:
+      type: object
+      additionalProperties: true
+      properties:
+        cursor: {type: integer}
+        next_cursor: {type: integer}
+        events: {type: array, items: {type: object, additionalProperties: true}}
+    Error:
+      type: object
+      required: [error]
+      properties: {error: {type: string}}
+  responses:
+    BadRequest: {description: Invalid request, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Forbidden: {description: Client lacks the required scope, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    NotFound: {description: Resource not found, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Unavailable: {description: Service unavailable, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}

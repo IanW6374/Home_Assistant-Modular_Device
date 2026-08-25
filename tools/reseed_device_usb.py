@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Return a secured HAMD device to its shipping first-run state over USB.
+"""Return a secured IoTMD device to its shipping first-run state over USB.
 
 This tool is for devices whose Secure Boot and release-mode Flash Encryption
 eFuses are already committed.  It deliberately leaves those eFuses and the
@@ -17,8 +17,8 @@ import time
 from pathlib import Path
 
 
-MAGIC = b"HAMF1\n"
-APPLICATION_MAGIC = b"HAMD1\n"
+MAGIC = b"IOTC1\n"
+APPLICATION_MAGIC = b"IOTA1\n"
 BLOCK_SIZE = 4096
 
 
@@ -49,7 +49,7 @@ def load_bundle(path, signing_key_path, update_security):
 
     signature = str(manifest.get("signature", ""))
     if not update_security.verify_manifest_signature(
-        "hamf", manifest, signature, public_point
+        "iotcore", manifest, signature, public_point
     ):
         raise ValueError("firmware manifest signature verification failed")
     if int(manifest.get("format_version", 0)) != 6:
@@ -122,14 +122,14 @@ def reset_board(board):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Install a signed core and reset a secured HAMD device to first-run setup"
+        description="Install a signed core and reset a secured IoTMD device to first-run setup"
     )
     parser.add_argument("--device", required=True)
     parser.add_argument("--bundle", required=True)
     parser.add_argument(
         "--application-bundle",
         required=True,
-        help="signed .hamd application to preload for first-run setup",
+        help="signed .iotapp application to preload for first-run setup",
     )
     parser.add_argument("--micropython-root", required=True)
     parser.add_argument("--setup-password-file", required=True)
@@ -178,12 +178,12 @@ def main():
         exec_text(
             board,
             "import esp32,machine,uhashlib,ubinascii\n"
-            "_hamd_running=esp32.Partition(esp32.Partition.RUNNING)\n"
-            "_hamd_target=_hamd_running.get_next_update()\n"
-            "_hamd_wdt=machine.WDT(0)\n"
-            "def _hamd_write(block,data):\n"
-            " _hamd_target.writeblocks(block,data)\n"
-            " _hamd_wdt.feed()",
+            "_iotmd_running=esp32.Partition(esp32.Partition.RUNNING)\n"
+            "_iotmd_target=_iotmd_running.get_next_update()\n"
+            "_iotmd_wdt=machine.WDT(0)\n"
+            "def _iotmd_write(block,data):\n"
+            " _iotmd_target.writeblocks(block,data)\n"
+            " _iotmd_wdt.feed()",
         )
         total_blocks = len(payload) // BLOCK_SIZE
         for block_number in range(total_blocks):
@@ -191,7 +191,7 @@ def main():
             block = payload[start : start + BLOCK_SIZE]
             exec_text(
                 board,
-                "_hamd_write(%d,%r)" % (block_number, block),
+                "_iotmd_write(%d,%r)" % (block_number, block),
                 timeout=30,
             )
             completed = block_number + 1
@@ -200,13 +200,13 @@ def main():
 
         verified = exec_text(
             board,
-            "_hamd_hash=uhashlib.sha256()\n"
-            "_hamd_buf=bytearray(%d)\n"
-            "for _hamd_block in range(%d):\n"
-            " _hamd_target.readblocks(_hamd_block,_hamd_buf)\n"
-            " _hamd_hash.update(_hamd_buf)\n"
-            " _hamd_wdt.feed()\n"
-            "print(ubinascii.hexlify(_hamd_hash.digest()).decode())"
+            "_iotmd_hash=uhashlib.sha256()\n"
+            "_iotmd_buf=bytearray(%d)\n"
+            "for _iotmd_block in range(%d):\n"
+            " _iotmd_target.readblocks(_iotmd_block,_iotmd_buf)\n"
+            " _iotmd_hash.update(_iotmd_buf)\n"
+            " _iotmd_wdt.feed()\n"
+            "print(ubinascii.hexlify(_iotmd_hash.digest()).decode())"
             % (BLOCK_SIZE, total_blocks),
             timeout=180,
         )
@@ -218,25 +218,25 @@ def main():
 
         reset_state = (
             "import esp32,uos as os\n"
-            "def _hamd_remove_tree(path):\n"
+            "def _iotmd_remove_tree(path):\n"
             " for item in list(os.ilistdir(path)):\n"
             "  name=item[0]\n"
             "  child=(path.rstrip('/')+'/'+name) or '/'\n"
             "  if item[1]&0x4000:\n"
-            "   _hamd_remove_tree(child)\n"
+            "   _iotmd_remove_tree(child)\n"
             "   os.rmdir(child)\n"
             "  else:\n"
             "   os.remove(child)\n"
-            "_hamd_store=esp32.NVS('ham_config')\n"
-            "for _hamd_key in ('cfg0','cfg1','active','bootkey','verifykey'):\n"
-            " try:_hamd_store.erase_key(_hamd_key)\n"
+            "_iotmd_store=esp32.NVS('iotmd_config')\n"
+            "for _iotmd_key in ('cfg0','cfg1','active','bootkey','verifykey'):\n"
+            " try:_iotmd_store.erase_key(_iotmd_key)\n"
             " except OSError:pass\n"
-            "_hamd_store.set_blob('bootkey',%r)\n"
-            "_hamd_store.set_blob('verifykey',%r)\n"
-            "_hamd_store.commit()\n"
-            "_hamd_remove_tree('/')\n"
-            "_hamd_target.set_boot()\n"
-            "print('reseed-ready',_hamd_target.info()[4])"
+            "_iotmd_store.set_blob('bootkey',%r)\n"
+            "_iotmd_store.set_blob('verifykey',%r)\n"
+            "_iotmd_store.commit()\n"
+            "_iotmd_remove_tree('/')\n"
+            "_iotmd_target.set_boot()\n"
+            "print('reseed-ready',_iotmd_target.info()[4])"
             % (setup_password.encode(), public_key)
         )
         print(exec_text(board, reset_state, timeout=60))
@@ -281,10 +281,10 @@ def main():
         staged = exec_text(
             board,
             "import app_update\n"
-            "_hamd_app=app_update.stage_bundle('.app-update.bundle',False)\n"
-            "print(_hamd_app.get('status'),_hamd_app.get('version'),"
-            "_hamd_app.get('has_application'),"
-            "'app_settings.json' in _hamd_app.get('selected_paths',()))",
+            "_iotmd_app=app_update.stage_bundle('.app-update.bundle',False)\n"
+            "print(_iotmd_app.get('status'),_iotmd_app.get('version'),"
+            "_iotmd_app.get('has_application'),"
+            "'app_settings.json' in _iotmd_app.get('selected_paths',()))",
             timeout=180,
         )
         print("preloaded application", staged)

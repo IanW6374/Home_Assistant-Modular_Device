@@ -143,11 +143,11 @@ def _recovery_ap_name():
         suffix = binascii.hexlify(hardware_platform.unique_id()).decode()[-6:]
     except Exception:
         suffix = 'device'
-    return 'HAMD-Recovery-' + suffix
+    return 'IoTMD-Recovery-' + suffix
 
 
 def _setup_ap_name():
-    return _recovery_ap_name().replace('HAMD-Recovery-', 'HAMD-Setup-', 1)
+    return _recovery_ap_name().replace('IoTMD-Recovery-', 'IoTMD-Setup-', 1)
 
 
 def _run_initial_setup():

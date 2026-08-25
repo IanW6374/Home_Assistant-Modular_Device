@@ -1,4 +1,4 @@
-"""Generated mapping used to import only configured HAMD device drivers."""
+"""Generated mapping used to import only configured IoTMD device drivers."""
 
 DRIVER_MODULES = {
     'light:brightness': 'light',

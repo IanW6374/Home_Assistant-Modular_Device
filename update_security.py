@@ -218,7 +218,7 @@ def manifest_message(bundle_type, manifest):
         str(format_version),
         str(manifest.get('target_board', manifest.get('platform', ''))),
     ]
-    if bundle_type in ('hamd', 'iotapp'):
+    if bundle_type == 'iotapp':
         fields.extend((
             str(manifest.get('min_recovery_api', 1)),
             str(manifest.get('max_recovery_api', RECOVERY_API_VERSION)),
@@ -240,7 +240,7 @@ def manifest_message(bundle_type, manifest):
             ))
         for entry in sorted(entries):
             fields.extend(entry)
-    elif bundle_type in ('hamf', 'iotcore'):
+    elif bundle_type == 'iotcore':
         fields.append(str(manifest.get('version', '')))
         fields.extend((
             str(manifest.get('release_sequence', '')),
@@ -250,7 +250,7 @@ def manifest_message(bundle_type, manifest):
             str(manifest.get('size', '')),
             str(manifest.get('sha256', '')).lower(),
         ))
-    elif bundle_type in ('hamu', 'iotuni'):
+    elif bundle_type == 'iotuni':
         fields.extend((
             str(manifest.get('version', '')),
             str(manifest.get('release_sequence', '')),
@@ -411,7 +411,7 @@ def validate_manifest(bundle_type, manifest, key_path=VERIFICATION_KEY_PATH):
     format_version = int(manifest.get('format_version', 0))
     if format_version != 6:
         raise ValueError('unsupported update format version: ' + str(format_version))
-    if bundle_type in ('hamd', 'iotapp'):
+    if bundle_type == 'iotapp':
         validate_components(manifest.get('components'))
         minimum = int(manifest.get('min_recovery_api', 0))
         maximum = int(manifest.get('max_recovery_api', 0))
@@ -439,7 +439,7 @@ def validate_manifest(bundle_type, manifest, key_path=VERIFICATION_KEY_PATH):
                 str(minimum_config) + '..' + str(maximum_config) +
                 '; installed API is ' + str(CONFIG_API_VERSION)
             )
-    elif bundle_type in ('hamf', 'iotcore'):
+    elif bundle_type == 'iotcore':
         if int(manifest.get('release_sequence', 0)) <= 0:
             raise ValueError('firmware update has no valid release sequence')
         minimum_core = int(manifest.get('minimum_core_api', 0))
@@ -465,10 +465,10 @@ def validate_manifest(bundle_type, manifest, key_path=VERIFICATION_KEY_PATH):
 
 
 def validate_universal_manifest(
-    manifest, key_path=VERIFICATION_KEY_PATH, bundle_type='hamu'
+    manifest, key_path=VERIFICATION_KEY_PATH, bundle_type='iotuni'
 ):
     """Validate a signed manifest binding one core and one application bundle."""
-    if bundle_type not in ('hamu', 'iotuni'):
+    if bundle_type != 'iotuni':
         raise ValueError('universal update bundle type is invalid')
     if not isinstance(manifest, dict) or int(manifest.get('format_version', 0)) != 2:
         raise ValueError('unsupported universal update format')

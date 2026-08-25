@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Recover a HAMD portal whose authenticated HTML renderer is broken.
+"""Recover a IoTMD portal whose authenticated HTML renderer is broken.
 
 Affected portals can still authenticate and serve JSON endpoints even though
 personalising an HTML response raises on MicroPython.  This utility reuses
-those authenticated endpoints to stage and activate a signed HAMD bundle.
+those authenticated endpoints to stage and activate a signed IoTMD bundle.
 """
 
 import argparse
@@ -154,10 +154,10 @@ def wait_for_verification(opener, base_url, identifier):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Install a HAMD through the authenticated portal recovery endpoints'
+        description='Install a IoTMD through the authenticated portal recovery endpoints'
     )
     parser.add_argument('portal_url', help='for example https://whes02.local:8443')
-    parser.add_argument('bundle', type=Path, help='signed .hamd bundle')
+    parser.add_argument('bundle', type=Path, help='signed .iotapp bundle')
     parser.add_argument('--username', default='admin')
     args = parser.parse_args()
 
@@ -165,8 +165,8 @@ def main():
     parsed = urllib.parse.urlsplit(base_url)
     if parsed.scheme not in ('http', 'https') or not parsed.hostname:
         parser.error('portal_url must be an http(s) device URL')
-    if args.bundle.suffix.lower() != '.hamd' or not args.bundle.is_file():
-        parser.error('bundle must be an existing .hamd file')
+    if args.bundle.suffix.lower() != '.iotapp' or not args.bundle.is_file():
+        parser.error('bundle must be an existing .iotapp file')
 
     context = ssl.create_default_context()
     if parsed.scheme == 'https':

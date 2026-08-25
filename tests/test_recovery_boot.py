@@ -11,9 +11,9 @@ import credential_store
 
 
 class RecoveryBootTests(unittest.TestCase):
-    def test_user_visible_access_point_names_use_hamd_brand(self):
-        self.assertTrue(recovery_boot._setup_ap_name().startswith('HAMD-Setup-'))
-        self.assertTrue(recovery_boot._recovery_ap_name().startswith('HAMD-Recovery-'))
+    def test_user_visible_access_point_names_use_iotmd_brand(self):
+        self.assertTrue(recovery_boot._setup_ap_name().startswith('IoTMD-Setup-'))
+        self.assertTrue(recovery_boot._recovery_ap_name().startswith('IoTMD-Recovery-'))
 
     def setUp(self):
         self.previous_cwd = os.getcwd()
@@ -224,7 +224,7 @@ class RecoveryBootTests(unittest.TestCase):
         self.assertIsNone(recovery_boot._trial_timer)
 
     def test_application_confirms_updates_only_after_portal_startup(self):
-        source = (Path(self.previous_cwd) / 'HA-Device.py').read_text()
+        source = (Path(self.previous_cwd) / 'iotmd.py').read_text()
         portal_start = source.index('portal_started = await start_admin_portal()')
         firmware_confirmation = source.index('if firmware_update.confirm_update():')
         application_confirmation = source.index('if app_update.confirm_update():')

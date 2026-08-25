@@ -20,7 +20,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
 
     def test_every_authenticated_portal_route_has_explicit_policy(self):
         for route in (
-            '/settings', '/wifi-settings', '/mqtt', '/device-api',
+            '/settings', '/wifi-settings', '/messaging', '/device-api',
             '/certificates', '/configuration-backup', '/updates', '/logs',
             '/api/restart-required', '/restart-device', '/shutdown-device',
         ):

@@ -267,7 +267,7 @@ async def start_web_portal(portal):
 
             action_path = path or ''
             route = action_path.split('?', 1)[0]
-            cookie_session_id = parse_cookies(headers).get('ham_session', '')
+            cookie_session_id = parse_cookies(headers).get('iotmd_session', '')
             session = sessions.get(cookie_session_id)
             session_id = cookie_session_id
             csrf_token = session.get('csrf', '') if session else ''
@@ -282,15 +282,14 @@ async def start_web_portal(portal):
             is_portal_settings = route == '/portal-settings'
             is_wifi_settings = route == '/wifi-settings'
             is_ntp_settings = route == '/ntp-settings'
-            is_mqtt = route == '/mqtt'
-            is_home_assistant = route == '/home-assistant'
+            is_messaging = route == '/messaging'
             is_device_api = route == '/device-api'
             is_logging_settings = route == '/logging-settings'
             is_user_settings = route == '/user'
             is_user_management = route in ('/user/add', '/user/update', '/user/remove')
             is_operational_settings = (
                 is_settings or is_portal_settings or is_wifi_settings or
-                is_ntp_settings or is_mqtt or is_home_assistant or is_device_api or
+                is_ntp_settings or is_messaging or is_device_api or
                 is_logging_settings or is_user_settings
             )
             is_module_settings = route == '/module-settings'
@@ -934,6 +933,7 @@ async def start_web_portal(portal):
                     try:
                         result = resumable_begin(request)
                     except Exception as exc:
+                        log_upgrade_upload_failure(log_output, 'begin', exc)
                         upload_progress_by_id[identifier] = {
                             'phase': 'failed', 'percent': 0,
                             'message': 'Upload rejected: ' + str(exc)
@@ -964,6 +964,7 @@ async def start_web_portal(portal):
                             int(headers.get('content-length', '0') or 0)
                         )
                     except Exception as exc:
+                        log_upgrade_upload_failure(log_output, 'chunk', exc)
                         upload_progress_by_id[identifier] = {
                             'phase': 'failed', 'percent': 0,
                             'message': 'Upload rejected: ' + str(exc)
@@ -1072,10 +1073,10 @@ async def start_web_portal(portal):
                 await send_response(writer, '200 OK', body, 'text/plain')
             elif path.startswith('/download-audit-logs'):
                 await send_log_download(
-                    writer, audit_log_getter(), 'ha-device-audit-logs.txt'
+                    writer, audit_log_getter(), 'iotmd-audit-logs.txt'
                 )
             elif path.startswith('/download-logs'):
-                await send_log_download(writer, log_getter(), 'ha-device-logs.txt')
+                await send_log_download(writer, log_getter(), 'iotmd-logs.txt')
             elif path.startswith('/download-diagnostics'):
                 safe_logs = []
                 for line in list(log_getter())[-100:]:
@@ -1090,7 +1091,7 @@ async def start_web_portal(portal):
                     '200 OK',
                     json.dumps(diagnostic_payload),
                     'application/json; charset=utf-8',
-                    (('Content-Disposition', 'attachment; filename="ha-device-diagnostics.json"'),)
+                    (('Content-Disposition', 'attachment; filename="iotmd-diagnostics.json"'),)
                 )
             elif path.startswith('/download-configuration'):
                 if config_backup_getter is None:

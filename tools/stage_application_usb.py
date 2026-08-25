@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a signed HAMD application bundle over USB without erasing user state."""
+"""Stage a signed IoTMD application bundle over USB without erasing user state."""
 
 import argparse
 import sys
@@ -14,7 +14,7 @@ USB_MAINTENANCE_WATCHDOG_TIMEOUT_MS = 300000
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Copy and stage a signed .hamd bundle over the MicroPython USB REPL'
+        description='Copy and stage a signed .iotapp bundle over the MicroPython USB REPL'
     )
     parser.add_argument('--device', required=True)
     parser.add_argument('--bundle', required=True)
@@ -28,7 +28,7 @@ def main():
     bundle = Path(args.bundle).resolve()
     if not bundle.is_file():
         raise SystemExit('application bundle not found: ' + str(bundle))
-    if bundle.read_bytes()[:6] != b'HAMD1\n':
+    if bundle.read_bytes()[:6] != b'IOTA1\n':
         raise SystemExit('application bundle has an invalid header')
 
     tools_dir = Path(args.micropython_root).resolve() / 'tools'
@@ -37,18 +37,18 @@ def main():
     sys.path.insert(0, str(tools_dir))
     import pyboard
 
-    remote_path = '/.hamd-usb-application.hamd'
+    remote_path = '/.iotapp-usb-application.iotapp'
 
     def open_maintenance_session():
         board = pyboard.Pyboard(args.device)
         board.enter_raw_repl(soft_reset=False)
         board.exec_(
             "import machine\n"
-            "_hamd_wdt=machine.WDT(0,timeout=" +
+            "_iotmd_wdt=machine.WDT(0,timeout=" +
             str(USB_MAINTENANCE_WATCHDOG_TIMEOUT_MS) + ")\n"
-            "def _hamd_feed():\n"
-            " _hamd_wdt.feed()\n"
-            "_hamd_feed()"
+            "def _iotmd_feed():\n"
+            " _iotmd_wdt.feed()\n"
+            "_iotmd_feed()"
         )
         return board
 
@@ -76,21 +76,21 @@ def main():
             first_phase = True
             while written < total:
                 board.exec_(
-                    "_hamd_upload=open('" + remote_path + "','" +
+                    "_iotmd_upload=open('" + remote_path + "','" +
                     ('wb' if first_phase else 'ab') + "')\n"
-                    "_hamd_write=_hamd_upload.write"
+                    "_iotmd_write=_iotmd_upload.write"
                 )
                 first_phase = False
                 phase_end = min(total, written + TRANSFER_PHASE_BYTES)
                 while written < phase_end:
                     chunk = stream.read(min(TRANSFER_CHUNK_BYTES, phase_end - written))
                     if not chunk:
-                        raise RuntimeError('local HAMD bundle ended early')
-                    board.exec_('_hamd_write(' + repr(chunk) + ')\n_hamd_feed()')
+                        raise RuntimeError('local IoTMD bundle ended early')
+                    board.exec_('_iotmd_write(' + repr(chunk) + ')\n_iotmd_feed()')
                     written += len(chunk)
                     if written == total or written % (64 * 1024) < TRANSFER_CHUNK_BYTES:
                         print('copied', written, 'of', total, 'bytes', flush=True)
-                board.exec_('_hamd_upload.close()\n_hamd_feed()')
+                board.exec_('_iotmd_upload.close()\n_iotmd_feed()')
                 if written < total:
                     print('transfer phase complete; restarting USB session', flush=True)
                     board = reset_and_reconnect(board)
@@ -106,23 +106,23 @@ def main():
         # second full copy on storage-constrained devices.
         stage_code = """
 import os
-import app_update as _hamd_application
-import recovery_boot as _hamd_recovery
-_hamd_state=_hamd_application.update_status()
-if _hamd_state.get('status') == 'ready':
- _hamd_application.discard_pending_update()
-elif _hamd_state.get('status') != 'idle':
- raise ValueError('cannot replace application update in state '+str(_hamd_state.get('status')))
-_hamd_manifest=_hamd_application.validate_bundle('%s',False)
+import app_update as _iotmd_application
+import recovery_boot as _iotmd_recovery
+_iotmd_state=_iotmd_application.update_status()
+if _iotmd_state.get('status') == 'ready':
+ _iotmd_application.discard_pending_update()
+elif _iotmd_state.get('status') != 'idle':
+ raise ValueError('cannot replace application update in state '+str(_iotmd_state.get('status')))
+_iotmd_manifest=_iotmd_application.validate_bundle('%s',False)
 try:
- os.remove(_hamd_application.BUNDLE_PATH)
+ os.remove(_iotmd_application.BUNDLE_PATH)
 except OSError:
  pass
-os.rename('%s',_hamd_application.BUNDLE_PATH)
-_hamd_state=_hamd_application.stage_bundle(
- _hamd_application.BUNDLE_PATH,False,manifest=_hamd_manifest)
-_hamd_recovery.clear_recovery_request()
-print(_hamd_state)
+os.rename('%s',_iotmd_application.BUNDLE_PATH)
+_iotmd_state=_iotmd_application.stage_bundle(
+ _iotmd_application.BUNDLE_PATH,False,manifest=_iotmd_manifest)
+_iotmd_recovery.clear_recovery_request()
+print(_iotmd_state)
 """ % (remote_path, remote_path)
         result = board.exec_(stage_code, timeout=180)
         print('signed staging call returned', flush=True)

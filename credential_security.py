@@ -112,14 +112,14 @@ def _constant_time_equal(left, right):
 def _pbkdf2_sha256(password, salt, iterations):
     """Derive a key using the mandatory native ESP-IDF/mbedTLS module."""
     try:
-        import _hamd_crypto
+        import _iotmd_crypto
     except ImportError:
         raise RuntimeError(
-            'HAMD native PBKDF2 support is required; install compatible core firmware'
+            'IoTMD native PBKDF2 support is required; install compatible core firmware'
         )
     _report_progress(True)
     try:
-        return _hamd_crypto.pbkdf2_sha256(
+        return _iotmd_crypto.pbkdf2_sha256(
             bytes(password), bytes(salt), int(iterations)
         )
     finally:
