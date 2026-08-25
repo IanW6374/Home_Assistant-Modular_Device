@@ -32,6 +32,7 @@ except ImportError:
 
 
 MAGIC = b'HAMD1\n'
+BUNDLE_TYPES = {MAGIC: 'hamd', b'IOTA1\n': 'iotapp'}
 BUNDLE_PATH = '.app-update.bundle'
 STATE_PATH = '.app-update-state.json'
 BACKUP_ROOT = '.app-update-backup'
@@ -59,8 +60,6 @@ RECOVERY_FILES = (
     '.update-verification-key',
     '.recovery-state.json'
 )
-
-
 def _hex_digest(hasher):
     return binascii.hexlify(hasher.digest()).decode()
 
@@ -191,7 +190,8 @@ def _read_exact(stream, size):
 
 
 def read_manifest(stream):
-    if _read_exact(stream, len(MAGIC)) != MAGIC:
+    bundle_type = BUNDLE_TYPES.get(_read_exact(stream, len(MAGIC)))
+    if not bundle_type:
         raise ValueError('invalid update bundle magic')
     length_bytes = _read_exact(stream, 4)
     length = int.from_bytes(length_bytes, 'big')
@@ -200,7 +200,7 @@ def read_manifest(stream):
     manifest = json.loads(_read_exact(stream, length).decode())
     if not isinstance(manifest, dict) or not isinstance(manifest.get('files'), list):
         raise ValueError('invalid update manifest')
-    update_security.validate_manifest('hamd', manifest)
+    update_security.validate_manifest(bundle_type, manifest)
     return manifest
 
 

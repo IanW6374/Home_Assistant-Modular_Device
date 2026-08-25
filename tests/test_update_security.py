@@ -254,7 +254,9 @@ class UpdateSecurityTests(unittest.TestCase):
 
         self.assertIn('HAMD core recovery', html)
         self.assertIn('Wi-Fi credentials', html)
-        self.assertIn('accept=".hamd,.hamf,.hamu"', html)
+        self.assertIn(
+            'accept=".hamd,.hamf,.hamu,.iotapp,.iotcore,.iotuni"', html
+        )
         self.assertIn('X-CSRF-Token', html)
         self.assertIn('application failed', html)
 

@@ -697,11 +697,11 @@ def update_upload_script():
         'document.getElementById("update-bundle"),f=input.files&&input.files[0],out=document.getElementById('
         '"update-result"),box=document.getElementById("update-progress"),'
         'label=box.querySelector(".status-text");if(!f){portalRequire(input,'
-        '"Choose a .hamd, .hamf or .hamu update bundle");return;}var firmware=/\\.hamf$/i.test(f.name),'
-        'application=/\\.hamd$/i.test(f.name),universal=/\\.hamu$/i.test(f.name);'
+        '"Choose a legacy or IoTMD update bundle");return;}var firmware=/\\.(?:hamf|iotcore)$/i.test(f.name),'
+        'application=/\\.(?:hamd|iotapp)$/i.test(f.name),universal=/\\.(?:hamu|iotuni)$/i.test(f.name);'
         'function previous(text){out.className="status-history complete";out.textContent=text;}'
         'function failure(text){out.className="status-history failed";out.textContent=text;}'
-        'if(!firmware&&!application&&!universal){failure("Choose a .hamd, .hamf or .hamu update bundle.");return;}'
+        'if(!firmware&&!application&&!universal){failure("Choose a legacy or IoTMD update bundle.");return;}'
         'box.classList.remove("complete","failed");box.hidden=false;label.textContent="Uploading 0%";'
         'out.className="status-history";out.textContent="";'
         'var id="",polling=false,finished=false,timer=null;function schedulePoll(){if(!finished)timer=setTimeout(poll,1000);}'
@@ -767,7 +767,7 @@ def render_updates_page(token, status=None, settings=None, message='', error=Fal
         manual_content = (
             '<form id="update-upload-form" data-csrf="' + html_escape(token) + '">'
             '<div class="actions"><span><input id="update-bundle" class="file-input-hidden" type="file" required '
-            'accept=".hamd,.hamf,.hamu"><label class="button secondary file-button" for="update-bundle">'
+            'accept=".hamd,.hamf,.hamu,.iotapp,.iotcore,.iotuni"><label class="button secondary file-button" for="update-bundle">'
             'Choose update file</label> <span id="update-file-name" class="file-name">No file selected</span></span>'
             '<button type="submit">Upload and verify</button></div></form>' +
             portal_ui.progress('update-progress', '0%', True) +

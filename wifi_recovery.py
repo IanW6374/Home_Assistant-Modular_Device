@@ -330,7 +330,7 @@ def _recovery_page(reason, csrf, message=''):
     )
     if signed_ready:
         upload_controls += (
-            '<div class="upload"><input id="bundle" type="file" accept=".hamd,.hamf,.hamu">'
+            '<div class="upload"><input id="bundle" type="file" accept=".hamd,.hamf,.hamu,.iotapp,.iotcore,.iotuni">'
             '<button id="upload" type="button">Upload and verify</button></div>'
             '<p id="upload-result" class="muted"></p>'
         )
@@ -372,9 +372,9 @@ def _recovery_page(reason, csrf, message=''):
         '</section></main><script>var csrf=' + repr(str(csrf)) + ';'
         'var button=document.getElementById("upload");if(button){button.onclick=function(){'
         'var input=document.getElementById("bundle"),out=document.getElementById("upload-result");'
-        'if(!input.files.length){return;}var file=input.files[0],firmware=/\\.hamf$/i.test(file.name),'
-        'application=/\\.hamd$/i.test(file.name),universal=/\\.hamu$/i.test(file.name);'
-        'if(!firmware&&!application&&!universal){out.textContent="Choose a .hamd, .hamf or .hamu bundle.";return;}'
+        'if(!input.files.length){return;}var file=input.files[0],firmware=/\\.(?:hamf|iotcore)$/i.test(file.name),'
+        'application=/\\.(?:hamd|iotapp)$/i.test(file.name),universal=/\\.(?:hamu|iotuni)$/i.test(file.name);'
+        'if(!firmware&&!application&&!universal){out.textContent="Choose a legacy or IoTMD bundle.";return;}'
         'button.disabled=true;out.textContent="Uploading and verifying...";var request=new XMLHttpRequest();'
         'request.open("POST",universal?"/upload-universal":(firmware?"/upload-firmware":"/upload-application"),true);'
         'request.setRequestHeader("X-CSRF-Token",csrf);request.onload=function(){button.disabled=false;'

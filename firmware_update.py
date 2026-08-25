@@ -39,6 +39,8 @@ except ImportError:
 
 
 MAGIC = b'HAMF1\n'
+IOTMD_MAGIC = b'IOTC1\n'
+BUNDLE_TYPES = {MAGIC: 'hamf', IOTMD_MAGIC: 'iotcore'}
 STATE_PATH = '.firmware-update-state.json'
 VERSION_PATH = '.firmware-version'
 RELEASE_SEQUENCE_PATH = '.firmware-release-sequence'
@@ -173,7 +175,8 @@ async def _receive_bundle_locked(
     content_length = int(content_length)
     if content_length < len(MAGIC) + 4 or content_length > int(max_bytes):
         raise ValueError('firmware bundle size is not allowed')
-    if await _read_exact(reader, len(MAGIC)) != MAGIC:
+    bundle_type = BUNDLE_TYPES.get(await _read_exact(reader, len(MAGIC)))
+    if not bundle_type:
         raise ValueError('invalid firmware bundle header')
     manifest_size = int.from_bytes(await _read_exact(reader, 4), 'big')
     if manifest_size <= 0 or manifest_size > MAX_MANIFEST_BYTES:
@@ -183,7 +186,7 @@ async def _receive_bundle_locked(
     except Exception as exc:
         raise ValueError('invalid firmware manifest: ' + str(exc))
 
-    update_security.validate_manifest('hamf', manifest)
+    update_security.validate_manifest(bundle_type, manifest)
     version = str(manifest.get('version', '')).strip()
     release_sequence = int(manifest.get('release_sequence', 0))
     expected = str(manifest.get('sha256', '')).lower()

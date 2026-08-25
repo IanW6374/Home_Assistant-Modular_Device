@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.14 - 2026-08-25
+
+- Add a one-time transition core that accepts both the established v2 update
+  containers and the new IoTMD application, core and universal formats.
+- Allow the normal and recovery upload interfaces to select either generation
+  so a deployed v2.0.13 device can cross the v2.1 format boundary safely.
+
 ## 2.0.13 - 2026-08-25
 
 - Replace unsupported frozen `bytearray` slice deletion with MicroPython-safe

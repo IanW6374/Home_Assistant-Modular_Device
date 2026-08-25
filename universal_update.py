@@ -27,6 +27,8 @@ import update_support
 
 
 MAGIC = b'HAMU1\n'
+IOTMD_MAGIC = b'IOTU1\n'
+BUNDLE_TYPES = {MAGIC: 'hamu', IOTMD_MAGIC: 'iotuni'}
 STATE_PATH = '.universal-update-state.json'
 MAX_MANIFEST_BYTES = 4096
 DEFAULT_MAX_BYTES = 4 * 1024 * 1024
@@ -163,7 +165,8 @@ async def receive_bundle(
     content_length = int(content_length)
     if content_length < len(MAGIC) + 4 or content_length > int(max_bytes):
         raise ValueError('universal update size is not allowed')
-    if await _read_exact(reader, len(MAGIC)) != MAGIC:
+    bundle_type = BUNDLE_TYPES.get(await _read_exact(reader, len(MAGIC)))
+    if not bundle_type:
         raise ValueError('invalid universal update header')
     manifest_size = int.from_bytes(await _read_exact(reader, 4), 'big')
     if manifest_size <= 0 or manifest_size > MAX_MANIFEST_BYTES:
@@ -172,7 +175,7 @@ async def receive_bundle(
         manifest = json.loads((await _read_exact(reader, manifest_size)).decode())
     except Exception as exc:
         raise ValueError('invalid universal update manifest: ' + str(exc))
-    update_security.validate_universal_manifest(manifest)
+    update_security.validate_universal_manifest(manifest, bundle_type=bundle_type)
     firmware = _component(manifest, 'firmware')
     application = _component(manifest, 'application')
     firmware_size = int(firmware.get('size', 0))
