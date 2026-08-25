@@ -4,7 +4,10 @@
 import ast
 from pathlib import Path
 
-from build_update import collect_files
+try:
+    from .build_update import collect_files
+except ImportError:
+    from build_update import collect_files
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +25,16 @@ def compatibility_errors(path):
     errors = []
     hash_objects = set()
     for node in ast.walk(tree):
+        if isinstance(node, ast.Delete):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript) and
+                    isinstance(target.slice, ast.Slice)
+                ):
+                    errors.append(
+                        'slice deletion is not portable to MicroPython at line ' +
+                        str(node.lineno)
+                    )
         if (
             isinstance(node, ast.Call) and
             isinstance(node.func, ast.Attribute) and

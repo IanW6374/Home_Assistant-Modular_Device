@@ -267,7 +267,8 @@ def is_client_disconnect_error(exc):
 def compatible_http_reader(reader):
     """Use buffered core reads when available, retaining older-core startup."""
     buffer_reader = getattr(http_support, 'buffered', None)
-    return buffer_reader(reader) if buffer_reader else reader
+    buffered_api = int(getattr(http_support, 'BUFFERED_READER_API', 0) or 0)
+    return buffer_reader(reader) if buffer_reader and buffered_api >= 2 else reader
 
 
 def is_http_timeout_error(exc):

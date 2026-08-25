@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.13 - 2026-08-25
+
+- Replace unsupported frozen `bytearray` slice deletion with MicroPython-safe
+  buffer slicing so portal and API requests parse correctly on the device.
+- Version the optional buffered-reader capability and bypass implementations
+  that do not advertise the corrected contract during application-first upgrades.
+- Extend the MicroPython compatibility gate to reject slice deletion in future
+  application or frozen-core changes.
+
 ## 2.0.12 - 2026-08-25
 
 - Restore Web Portal and Device API request handling when the v2.0.11

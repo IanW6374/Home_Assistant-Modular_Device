@@ -13,6 +13,7 @@ MAX_HEADER_COUNT = 40
 REQUEST_TIMEOUT_SECONDS = 10
 BODY_TIMEOUT_SECONDS = 20
 READ_BUFFER_BYTES = 512
+BUFFERED_READER_API = 2
 
 SECURITY_HEADERS = (
     ('Referrer-Policy', 'no-referrer'),
@@ -47,7 +48,7 @@ class BufferedReader:
             self.buffer.extend(chunk)
         count = min(size, len(self.buffer))
         result = bytes(self.buffer[:count])
-        del self.buffer[:count]
+        self.buffer = self.buffer[count:]
         return result
 
     async def read_bounded_line(self, maximum):
@@ -59,7 +60,7 @@ class BufferedReader:
                 if count > maximum:
                     raise ValueError('HTTP line exceeds the configured limit')
                 result = bytes(self.buffer[:count])
-                del self.buffer[:count]
+                self.buffer = self.buffer[count:]
                 return result
             if len(self.buffer) > maximum:
                 raise ValueError('HTTP line exceeds the configured limit')

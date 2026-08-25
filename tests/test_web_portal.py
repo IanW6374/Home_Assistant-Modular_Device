@@ -12,6 +12,7 @@ from portal_contracts import PortalDependencies
 import credential_security
 import http_support
 import web_portal_ui as portal_ui
+from tools.check_micropython_compat import compatibility_errors
 from web_portal import (
     apply_loglevel_change,
     apply_logging_change,
@@ -267,10 +268,22 @@ class WebPortalTests(unittest.TestCase):
         reader = object()
         timeout = TimeoutError()
 
-        with mock.patch.object(http_support, 'buffered', None):
+        with (
+            mock.patch.object(http_support, 'BUFFERED_READER_API', 0),
+            mock.patch.object(http_support, 'buffered') as buffered,
+        ):
             self.assertIs(portal_http.compatible_http_reader(reader), reader)
+            buffered.assert_not_called()
         with mock.patch.object(http_support, 'is_timeout_error', None):
             self.assertTrue(portal_http.is_http_timeout_error(timeout))
+
+    def test_compatibility_gate_rejects_slice_deletion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'bad_buffer.py'
+            source.write_text('value = bytearray()\ndel value[:1]\n')
+            errors = compatibility_errors(source)
+
+        self.assertTrue(any('slice deletion' in error for error in errors))
 
     def test_request_line_parsing(self):
         self.assertEqual(
