@@ -16,6 +16,7 @@ except ImportError:
     import ssl
 
 import http_support
+from portal_http import compatible_http_reader, is_http_timeout_error
 
 
 API_VERSION = 2
@@ -290,7 +291,7 @@ async def start_device_api(settings, api):
 
     async def handle(reader, writer):
         peer = _peer_address(reader, writer)
-        reader = http_support.buffered(reader)
+        reader = compatible_http_reader(reader)
         try:
             # MicroPython's TLS server defers the handshake until the first
             # stream read. Inspecting the certificate before that read resets
@@ -345,7 +346,7 @@ async def start_device_api(settings, api):
                 api.health.increment('api_failures')
             await _write_response(writer, 503, {'error': str(exc)})
         except Exception as exc:
-            if http_support.is_timeout_error(exc):
+            if is_http_timeout_error(exc):
                 return
             if api.health:
                 api.health.increment('api_failures')

@@ -263,6 +263,17 @@ def is_client_disconnect_error(exc):
         'MBEDTLS_ERR_SSL_FATAL_ALERT_MESSAGE' in detail
     )
 
+
+def compatible_http_reader(reader):
+    """Use buffered core reads when available, retaining older-core startup."""
+    buffer_reader = getattr(http_support, 'buffered', None)
+    return buffer_reader(reader) if buffer_reader else reader
+
+
+def is_http_timeout_error(exc):
+    checker = getattr(http_support, 'is_timeout_error', None)
+    return checker(exc) if checker else exc.__class__.__name__ == 'TimeoutError'
+
 def request_peer_address(reader, writer=None):
     """Return a useful audit address across CPython and MicroPython streams."""
     for stream in (reader, writer):

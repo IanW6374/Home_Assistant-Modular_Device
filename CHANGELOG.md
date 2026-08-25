@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.12 - 2026-08-25
+
+- Restore Web Portal and Device API request handling when the v2.0.11
+  application is bootstrapped on a v2.0.9 core that does not yet provide the
+  optional buffered HTTP reader and timeout classifier.
+- Retain the persistent-connection performance improvements automatically
+  after the matching core has been installed.
+
 ## 2.0.11 - 2026-08-25
 
 - Reclaim only the inactive application generation when a universal resumable

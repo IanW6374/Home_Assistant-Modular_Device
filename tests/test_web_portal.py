@@ -263,6 +263,15 @@ class WebPortalTests(unittest.TestCase):
             web_portal.request_peer_address(Stream()), '192.0.2.44'
         )
 
+    def test_http_reader_optimisations_are_optional_on_an_older_core(self):
+        reader = object()
+        timeout = TimeoutError()
+
+        with mock.patch.object(http_support, 'buffered', None):
+            self.assertIs(portal_http.compatible_http_reader(reader), reader)
+        with mock.patch.object(http_support, 'is_timeout_error', None):
+            self.assertTrue(portal_http.is_http_timeout_error(timeout))
+
     def test_request_line_parsing(self):
         self.assertEqual(
             parse_request_line('GET /?view=all HTTP/1.1'),

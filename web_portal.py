@@ -144,7 +144,7 @@ async def start_web_portal(portal):
     async def handle_client(reader, writer, remaining_requests=32):
         nonlocal login_failures
         nonlocal password_verifier, password_change_required
-        reader = http_support.buffered(reader)
+        reader = compatible_http_reader(reader)
         path = ''
         upload_state = ''
         progress_response_started = False
@@ -1285,7 +1285,7 @@ async def start_web_portal(portal):
         except Exception as exc:
             if (
                 is_client_disconnect_error(exc) or
-                http_support.is_timeout_error(exc)
+                is_http_timeout_error(exc)
             ):
                 return
             try:
