@@ -383,12 +383,12 @@ def render_messaging_page(csrf, settings, message='', error=False):
         '<label class="field">Discovery prefix<input name="ha_discovery_prefix" maxlength="256" value="' +
         html_escape(settings.get('ha_discovery_prefix', 'homeassistant')) + '"></label>'
         '<p class="muted">Home Assistant discovery points to the operational MQTT topics above. Disabling it does not disable MQTT.</p>'
-        '<div class="actions"><span></span><button type="submit">Save changes</button>'
-        '</div></form>'
         '<div class="section-title"><h3>Discovery publishing</h3></div>'
         '<div class="actions"><p class="muted">Republish discovery configuration for all loaded entities.</p>'
-        '<form action="/discover" method="post"><input type="hidden" name="csrf" value="' +
-        html_escape(csrf) + '"><button type="submit">Publish discovery</button></form></div></section>'
+        '<button type="submit" form="discovery-publish-form">Publish discovery</button></div></section>'
+        '<div class="actions"><span></span><button type="submit">Save changes</button></div></form>'
+        '<form id="discovery-publish-form" action="/discover" method="post">'
+        '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '"></form>'
     )
     return portal_ui.shell('IoTMD messaging', 'messaging', body, csrf)
 
