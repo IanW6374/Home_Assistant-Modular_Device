@@ -341,10 +341,26 @@ fleet_service = fleet_management.FleetService(
     now=lambda: int(time.time()),
     localtime=lambda epoch: timezone_rules.localtime(epoch, timezone_name)
 )
+
+
+def reclaim_resumable_update_storage(kind, _required):
+    """Sacrifice only the inactive application generation for a `.hamu`."""
+    if str(kind) != 'universal':
+        return False
+    reclaimed = app_update.reclaim_inactive_slot()
+    if reclaimed:
+        update_support.record_update_event(
+            'application', 'reclaimed',
+            detail='inactive slot reclaimed for universal upload'
+        )
+    return reclaimed
+
+
 resumable_update_store = resumable_upload.ResumableUploadStore(
     maximum_bytes=(
         web_portal_update_max_bytes + web_portal_firmware_update_max_bytes + 8192
-    )
+    ),
+    storage_reclaimer=reclaim_resumable_update_storage
 )
 runtime_health.record_boot(hardware_platform.reset_cause())
 saved_release_check = runtime_health.snapshot().get('observations', {}).get(

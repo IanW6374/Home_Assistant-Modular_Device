@@ -1,15 +1,65 @@
 """Transport-neutral update upload and installer coordination."""
 
+try:
+    import uasyncio as asyncio
+except ImportError:
+    import asyncio
+
+try:
+    import uhashlib as hashlib
+except ImportError:
+    import hashlib
+
+try:
+    import ubinascii as binascii
+except ImportError:
+    import binascii
+
 
 class _ArtifactReader:
     def __init__(self, path):
-        self.stream = open(path, 'rb')
+        self.path = str(path)
+        self.stream = open(self.path, 'rb')
 
     async def read(self, size):
         return self.stream.read(size)
 
-    def close(self):
+    async def compact_remaining(self, length, progress_callback=None):
+        """Move the unread tail to byte zero and release its consumed prefix."""
+        length = int(length)
+        source_offset = int(self.stream.tell())
         self.stream.close()
+        self.stream = None
+        moved = 0
+        digest = hashlib.sha256()
+        with open(self.path, 'r+b') as stream:
+            while moved < length:
+                stream.seek(source_offset + moved)
+                chunk = stream.read(min(
+                    4096, max(1, source_offset), length - moved
+                ))
+                if not chunk:
+                    raise ValueError('update artifact tail ended early')
+                digest.update(chunk)
+                stream.seek(moved)
+                stream.write(chunk)
+                moved += len(chunk)
+                if progress_callback:
+                    result = progress_callback('compacting', moved, length)
+                    if result is not None:
+                        await result
+                await asyncio.sleep(0)
+            stream.truncate(length)
+        return {
+            'path': self.path,
+            'size': moved,
+            'sha256': binascii.hexlify(digest.digest()).decode(),
+        }
+
+    def close(self):
+        if self.stream is not None:
+            self.stream.close()
+            self.stream = None
 
 
 class UpdateService:
@@ -69,6 +119,9 @@ class UpdateService:
         reader = None
         try:
             artifact = self.store.complete(identifier)
+            handoff = getattr(self.store, 'handoff', None)
+            if handoff:
+                handoff(identifier)
             reader = _ArtifactReader(artifact['path'])
             installer = self.receiver(artifact['kind'])
             return await installer(

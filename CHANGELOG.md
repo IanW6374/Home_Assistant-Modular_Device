@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.11 - 2026-08-25
+
+- Reclaim only the inactive application generation when a universal resumable
+  upload would otherwise exceed available storage; the active generation is
+  never removed.
+- Compact a completed `.hamu` in place after its core component is written,
+  adopting the verified inner `.hamd` without temporarily storing both files.
+- Release resumable metadata before installation mutates its artifact so an
+  interrupted compaction is safely replaced by the next upload attempt.
+
+### Upgrade from 2.0.9 or 2.0.10
+
+- Install `application-2.0.11.hamd` first to update the uploader, restart and
+  confirm it, then install `universal-2.0.11.hamu` to update the core.
+
 ## 2.0.10 - 2026-08-25
 
 - Reuse normal Web Portal and mTLS API connections for up to 32 requests,

@@ -32,6 +32,18 @@ class ResumableUploadTests(unittest.TestCase):
         self.assertTrue(complete['complete'])
         self.assertEqual(complete['percent'], 100)
 
+    def test_handoff_removes_metadata_but_retains_installer_payload(self):
+        self.store.begin(
+            'session-handoff', 'universal', len(self.payload), self.digest
+        )
+        self.store.append('session-handoff', 0, self.payload)
+        self.store.complete('session-handoff')
+
+        path = self.store.handoff('session-handoff')
+
+        self.assertFalse((Path(self.temp.name) / 'session-handoff.json').exists())
+        self.assertEqual(Path(path).read_bytes(), self.payload)
+
     def test_rejects_wrong_offset_digest_and_oversize(self):
         self.store.begin('session-1234', 'application', len(self.payload), '0' * 64)
         with self.assertRaisesRegex(ValueError, 'offset'):
@@ -98,6 +110,27 @@ class ResumableUploadTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'insufficient storage'):
                 store.begin('session-storage', 'firmware', 4096, self.digest)
         self.assertFalse((Path(self.temp.name) / 'session-storage.part').exists())
+
+    def test_universal_begin_reclaims_storage_then_rechecks_capacity(self):
+        values = (4096, 4096, 10, 1, 1, 0, 0, 0, 255)
+        recovered = (4096, 4096, 10, 4, 4, 0, 0, 0, 255)
+        reclaimed = []
+        store = ResumableUploadStore(
+            self.temp.name, maximum_bytes=8192, storage_reserve_bytes=1024,
+            storage_reclaimer=lambda kind, required: (
+                reclaimed.append((kind, required)) or True
+            )
+        )
+
+        with mock.patch.object(
+            resumable_upload.os, 'statvfs', side_effect=(values, recovered)
+        ):
+            status = store.begin(
+                'session-storage', 'universal', 4096, self.digest
+            )
+
+        self.assertEqual(status['received_bytes'], 0)
+        self.assertEqual(reclaimed, [('universal', 4096)])
 
     def test_resuming_same_artifact_preserves_committed_bytes(self):
         self.store.begin('session-resume', 'application', len(self.payload), self.digest)

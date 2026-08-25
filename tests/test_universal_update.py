@@ -12,6 +12,7 @@ import firmware_update
 import universal_update
 import update_security
 import update_support
+from services.update_service import _ArtifactReader
 from tools.build_firmware_update import build_firmware_bundle
 from tools.build_universal_update import build_universal_bundle
 from tools.build_update import build_bundle
@@ -149,6 +150,89 @@ class UniversalUpdateTests(unittest.TestCase):
             call.args[:2] == ('application', 'reclaimed')
             for call in record.call_args_list
         ))
+
+    def test_file_backed_bundle_compacts_to_application_without_second_copy(self):
+        firmware_payload = b'firmware bundle'
+        application_payload = b'application bundle' * 600
+        payload = self.package(firmware_payload, application_payload)
+        artifact = Path('resumable.part')
+        artifact.write_bytes(payload)
+        reader = _ArtifactReader(artifact)
+        adopted = []
+
+        async def firmware_receiver(reader, length, maximum, progress_callback=None):
+            self.assertEqual(await reader.read(length), firmware_payload)
+            return {'version': '2.0.0', 'release_sequence': 40}
+
+        async def application_adopter(path, allow_protected=False,
+                                      selections=None, progress_callback=None):
+            adopted.append(Path(path).read_bytes())
+            return {'version': '2.0.0', 'release_sequence': 40}
+
+        with patch.object(update_support, 'require_free_space') as require_space:
+            state = asyncio.run(universal_update.receive_bundle(
+                reader, len(payload), firmware_receiver=firmware_receiver,
+                application_adopter=application_adopter
+            ))
+        reader.close()
+
+        self.assertEqual(state['status'], 'ready')
+        self.assertEqual(adopted, [application_payload])
+        self.assertEqual(artifact.read_bytes(), application_payload)
+        require_space.assert_not_called()
+
+    def test_file_backed_default_adopter_retains_inner_application_bundle(self):
+        source = Path('source.py')
+        source.write_text('VALUE = 1')
+        settings = Path('settings.json')
+        settings.write_text('{}')
+        application = Path('application.hamd')
+        build_bundle(
+            application, '2.0.0',
+            [('HA-Device.py', source), ('app_settings.json', settings)],
+            signing_key=self.private_key, release_sequence=40,
+            minimum_core_api=1,
+            components={'runtime': 1, 'modules': {}},
+        )
+        artifact = Path('resumable.part')
+        payload = self.package(b'firmware bundle', application.read_bytes())
+        artifact.write_bytes(payload)
+        reader = _ArtifactReader(artifact)
+
+        async def firmware_receiver(reader, length, maximum, progress_callback=None):
+            await reader.read(length)
+            return {'version': '2.0.0', 'release_sequence': 40}
+
+        state = asyncio.run(universal_update.receive_bundle(
+            reader, len(payload), firmware_receiver=firmware_receiver
+        ))
+        reader.close()
+
+        self.assertEqual(state['status'], 'ready')
+        self.assertFalse(artifact.exists())
+        self.assertEqual(
+            Path(app_update.BUNDLE_PATH).read_bytes(), application.read_bytes()
+        )
+
+    def test_file_backed_matching_application_is_still_hash_verified(self):
+        payload = bytearray(self.package())
+        payload[-1] ^= 1
+        artifact = Path('resumable.part')
+        artifact.write_bytes(payload)
+        reader = _ArtifactReader(artifact)
+
+        async def firmware_receiver(reader, length, maximum, progress_callback=None):
+            await reader.read(length)
+            return {'version': '2.0.0', 'release_sequence': 40}
+
+        with (
+            patch.object(app_update, 'running_release_sequence', return_value=40),
+            self.assertRaisesRegex(ValueError, 'application bundle SHA-256'),
+        ):
+            asyncio.run(universal_update.receive_bundle(
+                reader, len(payload), firmware_receiver=firmware_receiver
+            ))
+        reader.close()
 
     def test_outer_signature_and_component_hashes_are_enforced(self):
         payload = bytearray(self.package())

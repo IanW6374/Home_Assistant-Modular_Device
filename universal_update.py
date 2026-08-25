@@ -121,9 +121,43 @@ def _component(manifest, name):
     return value
 
 
+async def _adopt_application_bundle(
+    path, allow_protected=False, selections=None, progress_callback=None
+):
+    """Turn the compacted universal tail into the pending application."""
+    update_support.acquire_update_lock()
+    adopted = False
+    try:
+        manifest = await app_update.validate_bundle_async(
+            path, allow_protected, progress_callback
+        )
+        if str(path) != app_update.BUNDLE_PATH:
+            _replace(str(path), app_update.BUNDLE_PATH)
+            adopted = True
+        state = app_update.stage_bundle(
+            app_update.BUNDLE_PATH, allow_protected, selections,
+            manifest=manifest
+        )
+        update_support.record_update_event(
+            'application', 'staged', state.get('version', ''),
+            digest=str(manifest.get('signature', ''))
+        )
+        return state
+    except Exception as exc:
+        if adopted:
+            _remove(app_update.BUNDLE_PATH)
+            _remove(app_update.STATE_PATH)
+        update_support.record_update_event(
+            'application', 'rejected', detail=str(exc)
+        )
+        raise
+    finally:
+        update_support.release_update_lock()
+
+
 async def receive_bundle(
     reader, content_length, max_bytes=DEFAULT_MAX_BYTES, progress_callback=None,
-    firmware_receiver=None, application_receiver=None
+    firmware_receiver=None, application_receiver=None, application_adopter=None
 ):
     """Verify and stage both inner bundles from one streaming upload."""
     content_length = int(content_length)
@@ -148,7 +182,12 @@ async def receive_bundle(
         raise ValueError('universal update length does not match its manifest')
 
     firmware_receiver = firmware_receiver or firmware_update.receive_bundle
+    file_backed_application = (
+        application_receiver is None and
+        hasattr(reader, 'compact_remaining')
+    )
     application_receiver = application_receiver or app_update.receive_bundle
+    application_adopter = application_adopter or _adopt_application_bundle
     firmware_required = (
         firmware_update.running_release_sequence() <
         int(firmware.get('release_sequence', 0))
@@ -171,6 +210,7 @@ async def receive_bundle(
     firmware_reader = _ComponentReader(reader, firmware_size)
     firmware_staged = False
     application_staged = False
+    application_compacted = False
     try:
         if firmware_required:
             firmware_state = await firmware_receiver(
@@ -203,21 +243,39 @@ async def receive_bundle(
             # both components verify. If it crowds application staging,
             # discard only the inactive A/B generation; the active generation
             # is never touched.
-            try:
-                update_support.require_free_space(application_size)
-            except ValueError:
-                reclaimed = app_update.reclaim_inactive_slot()
-                update_support.require_free_space(application_size)
-                if reclaimed:
-                    update_support.record_update_event(
-                        'application', 'reclaimed',
-                        detail='inactive slot reclaimed for universal staging'
-                    )
-            application_state = await application_receiver(
-                application_reader, application_size, False,
-                app_update.DEFAULT_MAX_BUNDLE_BYTES,
-                progress_callback=application_progress
-            )
+            if not file_backed_application:
+                try:
+                    update_support.require_free_space(application_size)
+                except ValueError:
+                    reclaimed = app_update.reclaim_inactive_slot()
+                    update_support.require_free_space(application_size)
+                    if reclaimed:
+                        update_support.record_update_event(
+                            'application', 'reclaimed',
+                            detail='inactive slot reclaimed for universal staging'
+                        )
+            if file_backed_application:
+                adopted = await reader.compact_remaining(
+                    application_size, application_progress
+                )
+                application_compacted = True
+                application_reader.remaining = 0
+                application_reader.count = application_size
+                application_digest = str(adopted.get('sha256', '')).lower()
+                if application_digest != str(
+                    application.get('sha256', '')
+                ).lower():
+                    raise ValueError('universal application bundle SHA-256 mismatch')
+                application_state = await application_adopter(
+                    adopted.get('path', ''), False,
+                    progress_callback=application_progress
+                )
+            else:
+                application_state = await application_receiver(
+                    application_reader, application_size, False,
+                    app_update.DEFAULT_MAX_BUNDLE_BYTES,
+                    progress_callback=application_progress
+                )
             application_staged = True
         else:
             await _consume_component(
@@ -229,7 +287,11 @@ async def receive_bundle(
             }
         if application_reader.remaining or application_reader.count != application_size:
             raise ValueError('universal application bundle ended early')
-        if application_reader.hexdigest() != str(application.get('sha256', '')).lower():
+        if (
+            not application_compacted and
+            application_reader.hexdigest() !=
+            str(application.get('sha256', '')).lower()
+        ):
             raise ValueError('universal application bundle SHA-256 mismatch')
         if (
             str(application_state.get('version', '')) != str(application.get('version', '')) or

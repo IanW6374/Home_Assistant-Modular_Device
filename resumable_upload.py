@@ -52,11 +52,13 @@ def _mkdir(path):
 class ResumableUploadStore:
     def __init__(self, directory='.update-uploads', maximum_bytes=7 * 1024 * 1024,
                  maximum_sessions=2,
-                 storage_reserve_bytes=DEFAULT_STORAGE_RESERVE_BYTES):
+                 storage_reserve_bytes=DEFAULT_STORAGE_RESERVE_BYTES,
+                 storage_reclaimer=None):
         self.directory = str(directory).rstrip('/')
         self.maximum_bytes = max(1, int(maximum_bytes))
         self.maximum_sessions = max(1, int(maximum_sessions))
         self.storage_reserve_bytes = max(0, int(storage_reserve_bytes))
+        self.storage_reclaimer = storage_reclaimer
         _mkdir(self.directory)
 
     def _paths(self, identifier):
@@ -163,6 +165,16 @@ class ResumableUploadStore:
                 str(required) + ' bytes, have ' + str(free)
             )
 
+    def _ensure_upload_space(self, required, kind):
+        try:
+            self._require_upload_space(required)
+        except ValueError:
+            if not self.storage_reclaimer or not self.storage_reclaimer(
+                str(kind), int(required)
+            ):
+                raise
+            self._require_upload_space(required)
+
     def begin(self, identifier, kind, total_bytes, sha256):
         identifier = _safe_identifier(identifier)
         kind = str(kind)
@@ -186,8 +198,9 @@ class ResumableUploadStore:
             ):
                 self._discard_other_sessions(identifier)
                 try:
-                    self._require_upload_space(
-                        total_bytes - int(current.get('received_bytes', 0))
+                    self._ensure_upload_space(
+                        total_bytes - int(current.get('received_bytes', 0)),
+                        kind
                     )
                 except ValueError:
                     # A partial artifact that cannot accept its remaining
@@ -207,7 +220,7 @@ class ResumableUploadStore:
         existing = self._session_names()
         if identifier not in existing and len(existing) >= self.maximum_sessions:
             raise ValueError('too many update uploads are active')
-        self._require_upload_space(total_bytes)
+        self._ensure_upload_space(total_bytes, kind)
         metadata_path, payload_path = self._paths(identifier)
         value = {
             'format_version': FORMAT_VERSION,
@@ -263,6 +276,17 @@ class ResumableUploadStore:
         result = self.status(identifier)
         result['path'] = value['_payload_path']
         return result
+
+    def handoff(self, identifier):
+        """Release resumable metadata before an installer mutates the artifact."""
+        value = self._load(identifier)
+        if not value.get('complete'):
+            raise ValueError('upload is not complete')
+        try:
+            os.remove(value['_metadata_path'])
+        except OSError:
+            pass
+        return value['_payload_path']
 
     def status(self, identifier):
         value = self._load(identifier)
