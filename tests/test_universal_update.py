@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+import services.update_service as update_service
 from pathlib import Path
 from unittest.mock import patch
 
@@ -180,6 +181,53 @@ class UniversalUpdateTests(unittest.TestCase):
         self.assertEqual(adopted, [application_payload])
         self.assertEqual(artifact.read_bytes(), application_payload)
         require_space.assert_not_called()
+
+    def test_non_overlapping_compaction_releases_source_blocks_incrementally(self):
+        prefix = b'F' * 20000
+        application = b'A' * 12000
+        artifact = Path('bounded-compaction.part')
+        artifact.write_bytes(prefix + application)
+        reader = _ArtifactReader(artifact)
+        asyncio.run(reader.read(len(prefix)))
+        real_open = open
+        truncations = []
+
+        class RecordingStream:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def __enter__(self):
+                self.stream.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                return self.stream.__exit__(*args)
+
+            def __getattr__(self, name):
+                return getattr(self.stream, name)
+
+            def truncate(self, size=None):
+                truncations.append(size)
+                return self.stream.truncate(size)
+
+        def recording_open(path, mode='r', *args, **kwargs):
+            stream = real_open(path, mode, *args, **kwargs)
+            if str(path) == str(artifact) and mode == 'r+b':
+                return RecordingStream(stream)
+            return stream
+
+        with patch.object(update_service, 'open', side_effect=recording_open, create=True):
+            result = asyncio.run(reader.compact_remaining(len(application)))
+        reader.close()
+
+        self.assertEqual(artifact.read_bytes(), application)
+        self.assertEqual(result['sha256'], hashlib.sha256(application).hexdigest())
+        self.assertGreater(len(truncations), 2)
+        self.assertEqual(truncations[-1], len(application))
+        self.assertTrue(all(
+            earlier > later
+            for earlier, later in zip(truncations[:-2], truncations[1:-1])
+        ))
 
     def test_file_backed_default_adopter_retains_inner_application_bundle(self):
         source = Path('source.py')

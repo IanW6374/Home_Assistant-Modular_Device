@@ -25,31 +25,64 @@ class _ArtifactReader:
         return self.stream.read(size)
 
     async def compact_remaining(self, length, progress_callback=None):
-        """Move the unread tail to byte zero and release its consumed prefix."""
+        """Move the unread tail to byte zero with bounded LittleFS free space."""
         length = int(length)
         source_offset = int(self.stream.tell())
         self.stream.close()
         self.stream = None
         moved = 0
-        digest = hashlib.sha256()
         with open(self.path, 'r+b') as stream:
-            while moved < length:
-                stream.seek(source_offset + moved)
-                chunk = stream.read(min(
-                    4096, max(1, source_offset), length - moved
-                ))
-                if not chunk:
-                    raise ValueError('update artifact tail ended early')
-                digest.update(chunk)
-                stream.seek(moved)
-                stream.write(chunk)
-                moved += len(chunk)
-                if progress_callback:
-                    result = progress_callback('compacting', moved, length)
-                    if result is not None:
-                        await result
-                await asyncio.sleep(0)
+            if source_offset >= length:
+                # The universal core prefix is larger than the application
+                # tail. Copy from the end and truncate each released source
+                # block immediately. LittleFS is copy-on-write, so postponing
+                # the truncate until the end can exhaust its free blocks even
+                # though the operation has no logical storage growth.
+                remaining = length
+                while remaining:
+                    size = min(4096, remaining)
+                    start = remaining - size
+                    stream.seek(source_offset + start)
+                    chunk = stream.read(size)
+                    if len(chunk) != size:
+                        raise ValueError('update artifact tail ended early')
+                    stream.seek(start)
+                    stream.write(chunk)
+                    stream.truncate(source_offset + start)
+                    remaining = start
+                    moved += size
+                    if progress_callback:
+                        result = progress_callback('compacting', moved, length)
+                        if result is not None:
+                            await result
+                    await asyncio.sleep(0)
+            else:
+                # Retain memmove-safe forward copying for overlapping ranges.
+                while moved < length:
+                    stream.seek(source_offset + moved)
+                    chunk = stream.read(min(
+                        4096, max(1, source_offset), length - moved
+                    ))
+                    if not chunk:
+                        raise ValueError('update artifact tail ended early')
+                    stream.seek(moved)
+                    stream.write(chunk)
+                    moved += len(chunk)
+                    if progress_callback:
+                        result = progress_callback('compacting', moved, length)
+                        if result is not None:
+                            await result
+                    await asyncio.sleep(0)
             stream.truncate(length)
+            stream.seek(0)
+            digest = hashlib.sha256()
+            remaining = length
+            while remaining:
+                chunk = stream.read(min(4096, remaining))
+                if not chunk:
+                    raise ValueError('compacted update artifact ended early')
+                digest.update(chunk)
+                remaining -= len(chunk)
         return {
             'path': self.path,
             'size': moved,

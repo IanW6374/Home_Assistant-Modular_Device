@@ -45,7 +45,7 @@ configured response topic.
 
 ## Home Assistant profile
 
-Selecting **Enable Home Assistant integration** publishes MQTT discovery under
+Selecting **Enable Home Assistant Discovery Integration** publishes MQTT discovery under
 the configured discovery prefix (`homeassistant` by default) and subscribes to
 Home Assistant's status topic so discovery is republished after HA restarts.
 Discovery payloads point at the administrator-defined operational topics; Home
@@ -54,7 +54,7 @@ Assistant does not require the operational base to be `homeassistant` or
 
 Disabling the profile leaves generic MQTT telemetry and commands operational.
 It stops discovery publication and the Home Assistant status subscription. Use
-**Republish discovery** after changing entity metadata or restoring an HA
+**Publish discovery** after changing entity metadata or restoring an HA
 instance.
 
 ## Delivery behaviour

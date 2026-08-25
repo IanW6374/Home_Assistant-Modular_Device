@@ -379,13 +379,13 @@ def render_messaging_page(csrf, settings, message='', error=False):
         '>Retain module state by default</label></section>'
         '<section class="card"><div class="section-title"><h2>Home Assistant integration</h2></div>'
         '<label class="check"><input type="checkbox" name="ha_discovery"' + discovery +
-        '>Enable Home Assistant integration</label>'
+        '>Enable Home Assistant Discovery Integration</label>'
         '<label class="field">Discovery prefix<input name="ha_discovery_prefix" maxlength="256" value="' +
         html_escape(settings.get('ha_discovery_prefix', 'homeassistant')) + '"></label>'
         '<p class="muted">Home Assistant discovery points to the operational MQTT topics above. Disabling it does not disable MQTT.</p>'
         '<div class="actions"><span></span><button type="submit">Save changes</button>'
-        '</div></section></form>'
-        '<section class="card"><div class="section-title"><h2>Publish configuration</h2></div>'
+        '</div></form>'
+        '<div class="section-title"><h3>Discovery publishing</h3></div>'
         '<div class="actions"><p class="muted">Republish discovery configuration for all loaded entities.</p>'
         '<form action="/discover" method="post"><input type="hidden" name="csrf" value="' +
         html_escape(csrf) + '"><button type="submit">Publish discovery</button></form></div></section>'

@@ -366,6 +366,10 @@ class WebPortalTests(unittest.TestCase):
             self.assertIn('IoTMD', html)
             self.assertIn('IoT Modular Device', html)
             self.assertIn('class="brand-mark"', html)
+            self.assertIn('class="brand-mark" aria-label="IoTMD"', html)
+            self.assertIn('<span aria-hidden="true">IoT</span>', html)
+            self.assertIn('<span aria-hidden="true">MD</span>', html)
+            self.assertNotIn('class="brand-mark">IM</span>', html)
             self.assertIn(
                 'href="/assets/portal.css?v=' + portal_ui.ASSET_VERSION + '"',
                 html,
@@ -582,11 +586,17 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('action="/messaging"', html)
         self.assertIn('name="mqtt_server"', html)
         self.assertIn('name="ha_discovery" checked', html)
+        self.assertIn('>Enable Home Assistant Discovery Integration</label>', html)
+        self.assertNotIn('>Enable Home Assistant integration</label>', html)
         self.assertIn('name="mqtt_state_topic"', html)
         self.assertIn('name="ha_discovery_prefix"', html)
         self.assertIn('action="/discover" method="post"', html)
         discovery_card = html.split('<h2>Home Assistant integration</h2>', 1)[1].split('</section>', 1)[0]
         self.assertIn('Save changes', discovery_card)
+        self.assertIn('<h3>Discovery publishing</h3>', discovery_card)
+        self.assertIn('action="/discover" method="post"', discovery_card)
+        self.assertIn('>Publish discovery</button>', discovery_card)
+        self.assertNotIn('<h2>Publish configuration</h2>', html)
         self.assertIn('aria-label="System submenu"', html)
         self.assertIn('<h2>MQTT connection</h2>', html)
 

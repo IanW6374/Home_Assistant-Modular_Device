@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.1 - 2026-08-25
+
+- Keep Home Assistant discovery publishing inside the Home Assistant section
+  of **Messaging** and clarify the discovery integration label.
+- Replace the compact `IM` portal mark with a stacked, accessible `IoT` / `MD`
+  mark in both the application and recovery portal shells.
+- Compact universal application tails with block-by-block LittleFS reclamation
+  so copy-on-write storage does not fail with raw error 28 (`ENOSPC`).
+- Correct the documented v2.0 transition to use the v2.0.15 application/core
+  components, the v2.0.16 core bridge, then the v2.1 components in order.
+
 ## 2.1.0 - 2026-08-25
 
 - Rebrand the product as IoT Modular Device (IoTMD), including the runtime,
@@ -20,10 +31,9 @@
 
 ### Required transition from v2.0
 
-- Install the signed v2.0.15 universal transition update first. It copies and
-  verifies encrypted device configuration into the IoTMD namespace while
-  retaining the v2.0 copy for interrupted-upgrade recovery.
-- After v2.0.15 has restarted successfully, install the v2.1.0 `.iotuni` file.
+- Install the v2.0.15 application and core components separately, followed by
+  the v2.0.16 core bridge and then the v2.1 application and core components.
+- Do not use a universal container while crossing the v2.0/v2.1 boundary.
 
 ## 2.0.14 - 2026-08-25
 

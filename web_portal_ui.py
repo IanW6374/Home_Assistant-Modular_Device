@@ -28,7 +28,8 @@ PORTAL_CSS = (
     'gap:11px;min-width:0;color:var(--ink)}.brand-mark{display:grid;place-items:center;'
     'width:38px;height:38px;flex:0 0 auto;border-radius:11px;color:#fff;'
     'font-size:.68rem;font-weight:850;letter-spacing:.04em;background:linear-gradient('
-    '145deg,var(--accent),var(--accent2))}.brand-copy{min-width:0}.brand-copy>.eyebrow{display:none}'
+    '145deg,var(--accent),var(--accent2))}.brand-mark>span{display:block;line-height:.88}'
+    '.brand-copy{min-width:0}.brand-copy>.eyebrow{display:none}'
     '.brand-title{display:block;font-weight:800;white-space:nowrap}.nav-toggle{display:none}'
     '.portal-identity{display:inline-grid;place-items:center;position:relative;width:32px;height:32px;'
     'padding:0;flex:0 0 32px;border:1px solid var(--accent);border-radius:50%;background:var(--bg);'
@@ -316,7 +317,9 @@ def capitalized(value):
 
 def brand():
     return (
-        '<div class="brand"><span class="brand-mark">IM</span><span class="brand-copy">'
+        '<div class="brand"><span class="brand-mark" aria-label="IoTMD">'
+        '<span aria-hidden="true">IoT</span><span aria-hidden="true">MD</span></span>'
+        '<span class="brand-copy">'
         '<span class="eyebrow">IoTMD</span><span class="brand-title">'
         'IoT Modular Device</span></span></div>'
     )

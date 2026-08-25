@@ -15,11 +15,19 @@ source revision and carries a monotonically increasing release sequence.
 ### Transition from v2.0.x
 
 The v2.1 formats and encrypted configuration namespace are intentionally a clean
-break. On the existing test device, first install
-`universal-2.0.15.hamu`. After it restarts and the portal confirms v2.0.15, install
-`universal-2.1.0.iotuni`. The transition copies and byte-verifies the encrypted
-configuration while retaining the v2.0 source namespace for rollback. Do not
-install a v2.1 component directly on v2.0.13 or earlier.
+break. Do not use a universal container while crossing this boundary. On the
+existing v2.0.13 test device, install and restart after every component:
+
+1. `application-2.0.15.hamd`
+2. `ham-core-2.0.15.hamf`
+3. `ham-core-2.0.16.hamf`
+4. `application-2.1.1.iotapp`
+5. `iotmd-core-2.1.1.iotcore`
+
+If the device already reports application v2.0.15 and core v2.0.16, begin at
+step 4. The transition application copies and byte-verifies the encrypted
+configuration while retaining the v2.0 namespace for rollback. v2.0.16 allows
+the frozen recovery supervisor to validate and boot the `iotmd.py` entry point.
 
 1. Back up the current configuration.
 2. Open **Maintenance > Upgrades**.
@@ -35,7 +43,9 @@ artifact discards the interrupted upload and reclaims its storage. The portal
 rejects an artifact before accepting bytes when the complete upload cannot fit
 with the required storage reserve. When a completed universal upload leaves too
 little space for application staging, the updater may reclaim the inactive
-application generation. The active generation is never removed.
+application generation. v2.1.1 also releases each consumed LittleFS source
+block while compacting the application tail. The active generation is never
+removed.
 
 Do not interrupt power during core activation. A rejected or failed artifact
 must remain visibly failed in the portal; consult the structured log for its
@@ -44,27 +54,27 @@ reason.
 ## Production build
 
 Build only from a clean, tested commit. This example uses production version
-`2.1.0` and release sequence `2300`:
+`2.1.1` and release sequence `2301`:
 
 ```sh
-python3 tools/build_update.py releases/v2.1.0/application-2.1.0.iotapp \
-  --version 2.1.0 --release-sequence 2300 \
+python3 tools/build_update.py releases/v2.1.1/application-2.1.1.iotapp \
+  --version 2.1.1 --release-sequence 2301 \
   --signing-key /secure/update.signing-key
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.1.0 --release-sequence 2300 \
-  --output releases/v2.1.0/iotmd-core-2.1.0.iotcore \
-  --factory-output /secure-output/iotmd-core-2.1.0.factory.bin \
+  --version 2.1.1 --release-sequence 2301 \
+  --output releases/v2.1.1/iotmd-core-2.1.1.iotcore \
+  --factory-output /secure-output/iotmd-core-2.1.1.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
   --factory-setup-password-output /secure-output/device-v2.1.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.1.0/universal-2.1.0.iotuni \
-  --application releases/v2.1.0/application-2.1.0.iotapp \
-  --firmware releases/v2.1.0/iotmd-core-2.1.0.iotcore \
-  --version 2.1.0 --release-sequence 2300 \
+  releases/v2.1.1/universal-2.1.1.iotuni \
+  --application releases/v2.1.1/application-2.1.1.iotapp \
+  --firmware releases/v2.1.1/iotmd-core-2.1.1.iotcore \
+  --version 2.1.1 --release-sequence 2301 \
   --signing-key /secure/update.signing-key
 ```
 
@@ -80,8 +90,8 @@ logs. Use the exact serial device and acknowledge erasure explicitly:
 ```sh
 python3 tools/reseed_device_usb.py \
   --device /dev/cu.usbmodemXXXX \
-  --bundle releases/v2.1.0/iotmd-core-2.1.0.iotcore \
-  --application-bundle releases/v2.1.0/application-2.1.0.iotapp \
+  --bundle releases/v2.1.1/iotmd-core-2.1.1.iotcore \
+  --application-bundle releases/v2.1.1/application-2.1.1.iotapp \
   --micropython-root /path/to/micropython \
   --setup-password-file /secure-output/device-v2.1.setup-password.txt \
   --update-signing-key /secure/update.signing-key \
