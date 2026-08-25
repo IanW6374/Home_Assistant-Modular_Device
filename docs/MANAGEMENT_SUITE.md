@@ -1,11 +1,11 @@
-# IoTMD management ecosystem
+# IoT MD management ecosystem
 
 The device project has one IoTMD-specific management add-on and two generic
 security/logging add-ons. They intentionally remain independently installable.
 
-## IoTMD Management Suite
+## IoT MD Management Suite
 
-The public `HA-IoTMD-Management-Suite` Home Assistant add-on combines:
+The public `HA-IoT-MD-Management-Suite` Home Assistant add-on combines:
 
 - device enrollment, inventory, health and event history;
 - signed fleet policy and queued command coordination;
@@ -22,7 +22,7 @@ authenticate the release server with the installed Release trusted CA.
 
 - **IoT Certificate Authority** issues and renews certificates for IoTMD and
   unrelated services. It remains a separate trust boundary and repository.
-- **IoT Syslog Server** receives encrypted RFC 5425/5424-style device and audit
+- **IoT Syslog** receives encrypted RFC 5425/5424-style device and audit
   events, provides search/filtering and applies administrator-defined retention.
 
 Keeping these generic avoids forcing CA or logging users to install fleet and
@@ -35,7 +35,7 @@ single global certificate.
 ```text
 IoT Certificate Authority -> server/client certificates -> /ssl and devices
 offline IoTMD signing key  -> signed release artifacts -> Management Suite
-IoTMD devices              -> TLS syslog events        -> IoT Syslog Server
+IoTMD devices              -> TLS syslog events        -> IoT Syslog
 Management Suite           <-> mTLS fleet API          <-> IoTMD devices
 ```
 
