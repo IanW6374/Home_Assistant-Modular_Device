@@ -18,6 +18,33 @@ def _notice(message='', error=False):
         html_escape(message) + '</p>'
     )
 
+
+def operational_renderer(route, logging_renderer=None):
+    return {
+        '/settings': render_settings_page,
+        '/portal-settings': render_portal_settings_page,
+        '/wifi-settings': render_wifi_settings_page,
+        '/ntp-settings': render_ntp_settings_page,
+        '/mqtt': render_mqtt_page,
+        '/home-assistant': render_home_assistant_page,
+        '/device-api': render_device_api_page,
+        '/logging-settings': logging_renderer or render_settings_page,
+        '/user': render_user_settings_page,
+    }.get(route, render_settings_page)
+
+
+def render_operational(route, token, current_settings, message='', error=False,
+                       current_user='', portal_user_getter=None,
+                       logging_renderer=None):
+    renderer = operational_renderer(route, logging_renderer)
+    if route == '/user':
+        return renderer(
+            token, current_settings, message, error,
+            users=portal_user_getter() if portal_user_getter else (),
+            current_user=current_user
+        )
+    return renderer(token, current_settings, message, error)
+
 def render_login_page(username='', error=''):
     body = (
         '<section class="auth-card card"><span class="eyebrow">Secure device portal</span>'

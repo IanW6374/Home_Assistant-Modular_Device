@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.10 - 2026-08-25
+
+- Reuse normal Web Portal and mTLS API connections for up to 32 requests,
+  avoiding a new TLS handshake for every navigation, asset, or API call.
+- Buffer encrypted HTTP reads, briefly cache read-only portal status snapshots,
+  and allow versioned CSS and JavaScript assets to remain in the browser cache.
+- Reuse the API client fingerprint within its TLS connection while checking the
+  live registry on every request so scope changes and revocation remain immediate.
+- Make the Device restarting page enter readiness checks even when a fast reboot
+  occurs between offline probes, and cache-bust every automatic reconnect probe.
+
 ## 2.0.9 - 2026-08-25
 
 - Resume interrupted universal `.hamu` uploads from their last committed chunk

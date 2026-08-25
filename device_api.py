@@ -19,6 +19,8 @@ import http_support
 
 
 API_VERSION = 2
+API_KEEP_ALIVE_REQUESTS = 32
+API_KEEP_ALIVE_TIMEOUT_SECONDS = 30
 
 
 def make_mtls_context(cert_path, key_path, client_ca_path):
@@ -67,13 +69,21 @@ class DeviceAPI:
             )
         return client
 
-    def dispatch(self, method, path, body, identity):
+    def dispatch(self, method, path, body, identity, authenticated_client=None):
         route = str(path).split('?', 1)[0]
         is_fleet = route.startswith('/api/v2/fleet')
         scope = (
             'fleet:write' if method == 'POST' else 'fleet:read'
         ) if is_fleet else ('write' if method == 'POST' else 'read')
-        client = self.registry.authenticate(identity, scope)
+        if authenticated_client is None:
+            client = self.registry.authenticate(identity, scope)
+        else:
+            # Recheck the cached fingerprint against the live registry so
+            # revocation remains immediate without rehashing the DER
+            # certificate on every request in this TLS connection.
+            client = self.registry.authenticate_fingerprint(
+                authenticated_client.get('fingerprint', ''), scope
+            )
         self._record_request(client, method, route)
 
         if method == 'GET' and route == '/api/v2/device/inventory':
@@ -280,18 +290,22 @@ async def start_device_api(settings, api):
 
     async def handle(reader, writer):
         peer = _peer_address(reader, writer)
+        reader = http_support.buffered(reader)
         try:
             # MicroPython's TLS server defers the handshake until the first
             # stream read. Inspecting the certificate before that read resets
             # otherwise valid clients during ClientHello.
             identity = None
-            for request_number in range(8):
-                line, headers = await http_support.read_request(reader)
+            authenticated_client = None
+            for request_number in range(API_KEEP_ALIVE_REQUESTS):
+                line, headers = await http_support.read_request(
+                    reader, API_KEEP_ALIVE_TIMEOUT_SECONDS
+                )
                 if not line:
                     return
                 if identity is None:
                     identity = _peer_certificate(reader)
-                    api.connection_opened(identity, peer)
+                    authenticated_client = api.connection_opened(identity, peer)
                 parts = line.decode().strip().split()
                 if len(parts) != 3:
                     raise ValueError('invalid HTTP request line')
@@ -301,10 +315,12 @@ async def start_device_api(settings, api):
                     return
                 length = int(headers.get('content-length', '0') or 0)
                 body = await http_support.read_exact_body(reader, length, maximum) if length else b''
-                status, payload = api.dispatch(method, path, body, identity)
+                status, payload = api.dispatch(
+                    method, path, body, identity, authenticated_client
+                )
                 connection = str(headers.get('connection', '')).lower()
                 keep_alive = (
-                    request_number < 7 and
+                    request_number < API_KEEP_ALIVE_REQUESTS - 1 and
                     connection != 'close' and
                     (version == 'HTTP/1.1' or connection == 'keep-alive')
                 )
@@ -329,6 +345,8 @@ async def start_device_api(settings, api):
                 api.health.increment('api_failures')
             await _write_response(writer, 503, {'error': str(exc)})
         except Exception as exc:
+            if http_support.is_timeout_error(exc):
+                return
             if api.health:
                 api.health.increment('api_failures')
             if api.log_output:

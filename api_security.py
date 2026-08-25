@@ -229,6 +229,19 @@ class ClientRegistry:
 
     def authenticate(self, certificate_der, required_scope='read'):
         client = self.identify(certificate_der)
+        return self.authenticate_fingerprint(
+            client.get('fingerprint', ''), required_scope
+        )
+
+    def authenticate_fingerprint(self, fingerprint, required_scope='read'):
+        fingerprint = str(fingerprint or '').lower()
+        client = next(
+            (item for item in self._load()['clients']
+             if str(item.get('fingerprint', '')).lower() == fingerprint),
+            None
+        )
+        if client is None:
+            raise PermissionError('client certificate is not enrolled')
         if required_scope not in client.get('scopes', ()):
             raise PermissionError('client certificate does not have ' + required_scope + ' scope')
-        return client
+        return dict(client)

@@ -151,6 +151,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('probe(a,":root{")', page)
         self.assertIn('Portal ready — opening login…', page)
         self.assertIn('"reconnect="+Date.now()', page)
+        self.assertIn('Date.now()-started>=6000', page)
+        self.assertIn('restart_probe', page)
 
     def test_health_history_groups_protocols_formats_values_and_can_reset(self):
         page = web_portal.render_health_history_page('csrf', {
@@ -221,6 +223,36 @@ class WebPortalTests(unittest.TestCase):
                 b'Content-Length: 2\r\n',
                 b'\r\n',
             ))))
+
+    def test_buffered_request_reader_preserves_body_and_next_request(self):
+        class Reader:
+            def __init__(self, data):
+                self.data = data
+                self.reads = 0
+
+            async def read(self, size):
+                self.reads += 1
+                value, self.data = self.data[:size], self.data[size:]
+                return value
+
+        source = Reader(
+            b'POST /first HTTP/1.1\r\nContent-Length: 4\r\n\r\nbody'
+            b'GET /second HTTP/1.1\r\nConnection: close\r\n\r\n'
+        )
+
+        async def parse():
+            reader = http_support.buffered(source)
+            first, headers = await http_support.read_request(reader)
+            body = await http_support.read_exact_body(reader, 4, 4)
+            second, _headers = await http_support.read_request(reader)
+            return first, headers, body, second
+
+        first, headers, body, second = asyncio.run(parse())
+        self.assertEqual(first, b'POST /first HTTP/1.1\r\n')
+        self.assertEqual(headers['content-length'], '4')
+        self.assertEqual(body, b'body')
+        self.assertEqual(second, b'GET /second HTTP/1.1\r\n')
+        self.assertEqual(source.reads, 1)
 
     def test_audit_peer_address_uses_stream_metadata(self):
         class Stream:
@@ -789,6 +821,8 @@ class WebPortalTests(unittest.TestCase):
             async def request(raw):
                 writer = Writer()
                 await captured['handler'](Reader(raw), writer)
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
                 return b''.join(writer.chunks).decode()
 
             web_portal.asyncio.start_server = fake_start_server
@@ -874,6 +908,15 @@ class WebPortalTests(unittest.TestCase):
                     ),
                     }
                 ))
+
+                persistent = await request(
+                    ('GET /login HTTP/1.1\r\n\r\nGET /assets/portal.css?v=' +
+                     portal_ui.ASSET_VERSION +
+                     ' HTTP/1.1\r\nConnection: close\r\n\r\n').encode()
+                )
+                self.assertEqual(persistent.count('HTTP/1.1 200 OK'), 2)
+                self.assertIn('Connection: keep-alive', persistent)
+                self.assertIn('Connection: close', persistent)
 
                 unauthorized = await request(b'GET / HTTP/1.1\r\n\r\n')
                 self.assertIn('401 Unauthorized', unauthorized)
@@ -979,7 +1022,10 @@ class WebPortalTests(unittest.TestCase):
                      ' HTTP/1.1\r\n\r\n').encode()
                 )
                 self.assertIn('200 OK', stylesheet)
-                self.assertIn('Cache-Control: no-store', stylesheet)
+                self.assertIn(
+                    'Cache-Control: public, max-age=31536000, immutable',
+                    stylesheet
+                )
                 self.assertIn('.nav-group:hover>.nav-dropdown', stylesheet)
 
                 javascript = await request(
@@ -987,7 +1033,10 @@ class WebPortalTests(unittest.TestCase):
                      ' HTTP/1.1\r\n\r\n').encode()
                 )
                 self.assertIn('200 OK', javascript)
-                self.assertIn('Cache-Control: no-store', javascript)
+                self.assertIn(
+                    'Cache-Control: public, max-age=31536000, immutable',
+                    javascript
+                )
                 self.assertIn('nav-menu-trigger', javascript)
 
                 diagnostics = await request(
@@ -1461,7 +1510,9 @@ class WebPortalTests(unittest.TestCase):
         writer = Writer()
         body = '£' * 2000
 
-        asyncio.run(write_buffered_response(writer, '200 OK', body, 'text/plain'))
+        asyncio.run(write_buffered_response(
+            writer, '200 OK', body, 'text/plain', keep_alive=True
+        ))
 
         raw = b''.join(writer.chunks)
         headers, payload = raw.split(b'\r\n\r\n', 1)
@@ -1469,6 +1520,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn(b'X-Content-Type-Options: nosniff', headers)
         self.assertIn(b'X-Frame-Options: DENY', headers)
         self.assertIn(b"Content-Security-Policy: frame-ancestors 'none'", headers)
+        self.assertIn(b'Connection: keep-alive', headers)
         self.assertEqual(payload.decode(), body)
         self.assertEqual(writer.drains, 1)
 

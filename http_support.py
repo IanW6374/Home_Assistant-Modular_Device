@@ -12,6 +12,7 @@ MAX_HEADER_BYTES = 8192
 MAX_HEADER_COUNT = 40
 REQUEST_TIMEOUT_SECONDS = 10
 BODY_TIMEOUT_SECONDS = 20
+READ_BUFFER_BYTES = 512
 
 SECURITY_HEADERS = (
     ('Referrer-Policy', 'no-referrer'),
@@ -22,7 +23,69 @@ SECURITY_HEADERS = (
 )
 
 
+class BufferedReader:
+    """Preserve over-read bytes while reducing encrypted socket read calls."""
+    def __init__(self, reader, chunk_size=READ_BUFFER_BYTES):
+        self.reader = reader
+        self.chunk_size = max(64, int(chunk_size))
+        self.buffer = bytearray()
+        # TLS peer-certificate helpers inspect the stream's underlying socket.
+        self.s = getattr(reader, 's', None)
+
+    def get_extra_info(self, name):
+        getter = getattr(self.reader, 'get_extra_info', None)
+        return getter(name) if getter else None
+
+    async def read(self, size):
+        size = int(size)
+        if size <= 0:
+            return b''
+        while len(self.buffer) < size:
+            chunk = await self.reader.read(max(self.chunk_size, size - len(self.buffer)))
+            if not chunk:
+                break
+            self.buffer.extend(chunk)
+        count = min(size, len(self.buffer))
+        result = bytes(self.buffer[:count])
+        del self.buffer[:count]
+        return result
+
+    async def read_bounded_line(self, maximum):
+        maximum = int(maximum)
+        while True:
+            newline = self.buffer.find(b'\n')
+            if newline >= 0:
+                count = newline + 1
+                if count > maximum:
+                    raise ValueError('HTTP line exceeds the configured limit')
+                result = bytes(self.buffer[:count])
+                del self.buffer[:count]
+                return result
+            if len(self.buffer) > maximum:
+                raise ValueError('HTTP line exceeds the configured limit')
+            chunk = await self.reader.read(self.chunk_size)
+            if not chunk:
+                result = bytes(self.buffer)
+                self.buffer = bytearray()
+                if len(result) > maximum:
+                    raise ValueError('HTTP line exceeds the configured limit')
+                return result
+            self.buffer.extend(chunk)
+
+
+def buffered(reader):
+    return reader if isinstance(reader, BufferedReader) else BufferedReader(reader)
+
+
+def is_timeout_error(exc):
+    """Recognise CPython and MicroPython async idle timeouts."""
+    return exc.__class__.__name__ == 'TimeoutError'
+
+
 async def _line(reader, maximum):
+    bounded = getattr(reader, 'read_bounded_line', None)
+    if bounded:
+        return await bounded(maximum)
     byte_reader = getattr(reader, 'read', None)
     if not byte_reader:
         line_reader = getattr(reader, 'readline', None)

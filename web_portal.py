@@ -110,11 +110,18 @@ async def start_web_portal(portal):
     )
     login_failures = 0
     cached_page = {'level': None, 'body': None}
+    status_snapshot = TimedSnapshot(status_getter, 1000, {})
+    module_snapshot = TimedSnapshot(module_getter, 1000, [])
     secure_cookie = settings.get('https', False)
     login_url = settings.get('login_url', '/login')
 
-    async def send_raw_response(writer, status, body, content_type='text/html; charset=utf-8', extra_headers=None):
-        await write_buffered_response(writer, status, body, content_type, extra_headers)
+    async def send_raw_response(
+        writer, status, body, content_type='text/html; charset=utf-8',
+        extra_headers=None, keep_alive=False
+    ):
+        await write_buffered_response(
+            writer, status, body, content_type, extra_headers, keep_alive
+        )
 
     async def send_log_download(writer, lines, filename):
         await send_raw_response(
@@ -134,33 +141,10 @@ async def start_web_portal(portal):
             tuple(headers)
         )
 
-    def operational_renderer(route):
-        return {
-            '/settings': render_settings_page,
-            '/portal-settings': render_portal_settings_page,
-            '/wifi-settings': render_wifi_settings_page,
-            '/ntp-settings': render_ntp_settings_page,
-            '/mqtt': render_mqtt_page,
-            '/home-assistant': render_home_assistant_page,
-            '/device-api': render_device_api_page,
-            '/logging-settings': render_logging_settings_page,
-            '/user': render_user_settings_page,
-        }.get(route, render_settings_page)
-
-    def render_operational(route, token, current_settings, message='', error=False,
-                           current_user=''):
-        renderer = operational_renderer(route)
-        if route == '/user':
-            return renderer(
-                token, current_settings, message, error,
-                users=portal_user_getter() if portal_user_getter else (),
-                current_user=current_user
-            )
-        return renderer(token, current_settings, message, error)
-
-    async def handle_client(reader, writer):
+    async def handle_client(reader, writer, remaining_requests=32):
         nonlocal login_failures
         nonlocal password_verifier, password_change_required
+        reader = http_support.buffered(reader)
         path = ''
         upload_state = ''
         progress_response_started = False
@@ -171,16 +155,22 @@ async def start_web_portal(portal):
         peer_address = request_peer_address(reader, writer)
         session_role = ''
         session_username = ''
+        request_keep_alive = False
+        response_keep_alive = False
+        handed_off = False
 
         async def send_response(writer, status, body,
                                 content_type='text/html; charset=utf-8',
                                 extra_headers=None):
+            nonlocal response_keep_alive
             if content_type.startswith('text/html') and session_username:
                 body = portal_ui.personalise_page(
                     body, session_username, session_role
                 )
+            response_keep_alive = request_keep_alive
             await send_raw_response(
-                writer, status, body, content_type, extra_headers
+                writer, status, body, content_type, extra_headers,
+                response_keep_alive
             )
 
         async def report_upload_progress(phase, completed=0, total=0):
@@ -254,6 +244,17 @@ async def start_web_portal(portal):
                 request_line = ''
 
             method, path = parse_request_line(request_line)
+            if method == 'POST':
+                status_snapshot.invalidate()
+                module_snapshot.invalidate()
+            request_parts = request_line.split()
+            request_version = request_parts[2] if len(request_parts) == 3 else ''
+            request_keep_alive = (
+                remaining_requests > 1 and
+                headers.get('connection', '').lower() != 'close' and
+                (request_version == 'HTTP/1.1' or
+                 headers.get('connection', '').lower() == 'keep-alive')
+            )
 
             progress_id = headers.get('x-update-id', '')[:64]
             if progress_id:
@@ -316,6 +317,8 @@ async def start_web_portal(portal):
                     path.startswith('/certificate-upload')
                 )
             )
+            if is_upload:
+                request_keep_alive = False
             if method == 'POST' and not is_upload:
                 length = int(headers.get('content-length', '0') or 0)
                 is_json_validation = (
@@ -372,7 +375,7 @@ async def start_web_portal(portal):
                     writer, '200 OK', asset,
                     'text/css; charset=utf-8' if route.endswith('.css')
                     else 'application/javascript; charset=utf-8',
-                    (('Cache-Control', 'no-store'),)
+                    (('Cache-Control', 'public, max-age=31536000, immutable'),)
                 )
             elif not path or method not in ('GET', 'POST'):
                 body = 'Method not allowed'
@@ -652,7 +655,9 @@ async def start_web_portal(portal):
                         writer, '200 OK',
                         render_operational(
                             route, csrf_token, settings_getter(),
-                            current_user=session_username
+                            current_user=session_username,
+                            portal_user_getter=portal_user_getter,
+                            logging_renderer=render_logging_settings_page
                         )
                     )
             elif method == 'POST' and is_user_management:
@@ -700,7 +705,8 @@ async def start_web_portal(portal):
                         writer, '400 Bad Request',
                         render_operational(
                             route, csrf_token, current_settings, str(exc), True,
-                            session_username
+                            session_username, portal_user_getter,
+                            render_logging_settings_page
                         )
                     )
                 else:
@@ -717,7 +723,8 @@ async def start_web_portal(portal):
                         writer, '200 OK',
                         render_operational(
                             route, csrf_token, current_settings, text, False,
-                            session_username
+                            session_username, portal_user_getter,
+                            render_logging_settings_page
                         )
                     )
             elif method == 'GET' and is_module_settings:
@@ -767,7 +774,7 @@ async def start_web_portal(portal):
                     writer, '200 OK',
                     render_updates_page(
                         csrf_token,
-                        status_getter() if status_getter else {},
+                        status_snapshot.get(),
                         settings_getter() if settings_getter else {}
                     )
                 )
@@ -776,7 +783,7 @@ async def start_web_portal(portal):
                     writer, '200 OK',
                     render_module_diagnostics_page(
                         csrf_token,
-                        module_getter() if module_getter else [],
+                        module_snapshot.get(),
                         value_refresh_ms or 5000,
                         session_role
                     )
@@ -823,7 +830,7 @@ async def start_web_portal(portal):
             elif method == 'GET' and is_health_history:
                 await send_response(
                     writer, '200 OK', render_health_history_page(
-                        csrf_token, status_getter() if status_getter else {}
+                        csrf_token, status_snapshot.get()
                     )
                 )
             elif method == 'POST' and route == '/reset-health-history':
@@ -893,7 +900,7 @@ async def start_web_portal(portal):
                         writer, '400 Bad Request',
                         render_updates_page(
                             csrf_token,
-                            status_getter() if status_getter else {},
+                            status_snapshot.get(),
                             settings_getter() if settings_getter else {},
                             str(exc), True
                         )
@@ -1074,8 +1081,8 @@ async def start_web_portal(portal):
                 for line in list(log_getter())[-100:]:
                     safe_logs.append(str(line))
                 diagnostic_payload = {
-                    'status': status_getter() if status_getter else {},
-                    'modules': module_getter() if module_getter else [],
+                    'status': status_snapshot.get(),
+                    'modules': module_snapshot.get(),
                     'logs': safe_logs
                 }
                 await send_response(
@@ -1103,35 +1110,35 @@ async def start_web_portal(portal):
                     )
             elif path.startswith('/api/status'):
                 payload = {
-                    'status': status_getter() if status_getter else {},
-                    'modules': module_getter() if module_getter else []
+                    'status': status_snapshot.get(),
+                    'modules': module_snapshot.get()
                 }
                 body = json.dumps(payload) if json else '{}'
                 await send_response(writer, '200 OK', body, 'application/json')
             elif path.startswith('/api/overview'):
                 body = json.dumps({
                     'status': render_overview_status(
-                        status_getter() if status_getter else {}
+                        status_snapshot.get()
                     ),
                     'modules': render_overview_modules(
-                        module_getter() if module_getter else []
+                        module_snapshot.get()
                     )
                 })
                 await send_response(writer, '200 OK', body, 'application/json')
             elif path.startswith('/api/module-diagnostics'):
                 body = json.dumps({
                     'modules': render_modules_html(
-                        module_getter() if module_getter else [], csrf_token,
+                        module_snapshot.get(), csrf_token,
                         session_role
                     )
                 })
                 await send_response(writer, '200 OK', body, 'application/json')
             elif path.startswith('/partials'):
-                current_status = status_getter() if status_getter else {}
+                current_status = status_snapshot.get()
                 payload = {
                     'live_sections': render_live_sections_html(
                         current_status,
-                        module_getter() if module_getter else [],
+                        module_snapshot.get(),
                         csrf_token,
                         session_role
                     ),
@@ -1262,20 +1269,31 @@ async def start_web_portal(portal):
             else:
                 body = render_overview_page(
                     csrf_token,
-                    status_getter() if status_getter else {},
-                    module_getter() if module_getter else [],
+                    status_snapshot.get(),
+                    module_snapshot.get(),
                     value_refresh_ms or 5000
                 )
                 await send_response(writer, '200 OK', body)
 
+            if response_keep_alive and remaining_requests > 1:
+                handed_off = True
+                asyncio.create_task(handle_client(
+                    reader, writer, remaining_requests - 1
+                ))
+                await asyncio.sleep(0)
+
         except Exception as exc:
-            if is_client_disconnect_error(exc):
+            if (
+                is_client_disconnect_error(exc) or
+                http_support.is_timeout_error(exc)
+            ):
                 return
             try:
                 log_output('Local', 'Web portal', {'log': 'Request failed - ' + str(exc)}, 'ERROR')
             except Exception:
                 pass
             try:
+                request_keep_alive = False
                 await send_response(
                     writer, '500 Internal Server Error',
                     'Portal request failed. See Maintenance > Device log for details.',
@@ -1284,7 +1302,8 @@ async def start_web_portal(portal):
             except Exception:
                 pass
         finally:
-            await close_writer()
+            if not handed_off:
+                await close_writer()
 
     ssl_context = None
     if settings.get('https', False):

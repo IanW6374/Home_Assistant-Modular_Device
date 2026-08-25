@@ -144,6 +144,23 @@ class DeviceAPITests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.api.dispatch('GET', '/api/v2/device/inventory', b'', self.cert)
 
+    def test_cached_connection_identity_honours_immediate_revocation(self):
+        record = self.registry.enrol(self.cert, 'reader', ('read',))
+        client = self.api.connection_opened(self.cert)
+
+        status, _payload = self.api.dispatch(
+            'GET', '/api/v2/device/inventory', b'', self.cert,
+            authenticated_client=client
+        )
+        self.assertEqual(status, 200)
+
+        self.assertTrue(self.registry.revoke(record['fingerprint']))
+        with self.assertRaises(PermissionError):
+            self.api.dispatch(
+                'GET', '/api/v2/device/inventory', b'', self.cert,
+                authenticated_client=client
+            )
+
     def test_registry_creates_nested_absolute_directory(self):
         path = Path(self.temp.name) / 'nested' / 'certs' / 'clients.json'
         registry = api_security.ClientRegistry(str(path))

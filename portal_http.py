@@ -176,6 +176,28 @@ def elapsed_ms(start):
         return time.ticks_diff(monotonic_ms(), start)
     return monotonic_ms() - start
 
+
+class TimedSnapshot:
+    """Briefly reuse expensive read-only portal view models."""
+    def __init__(self, getter, ttl_ms=1000, fallback=None):
+        self.getter = getter
+        self.ttl_ms = int(ttl_ms)
+        self.fallback = fallback
+        self.value = None
+        self.started = None
+
+    def get(self):
+        if (
+            self.started is None or
+            elapsed_ms(self.started) >= self.ttl_ms
+        ):
+            self.value = self.getter() if self.getter else self.fallback
+            self.started = monotonic_ms()
+        return self.value
+
+    def invalidate(self):
+        self.started = None
+
 def requested_loglevel(path, allowed_levels):
     level = parse_query(path).get('level', '').upper()
     if level in allowed_levels:
@@ -309,7 +331,8 @@ async def write_buffered_response(
     status,
     body,
     content_type='text/html; charset=utf-8',
-    extra_headers=None
+    extra_headers=None,
+    keep_alive=False
 ):
     """Send one encoded response, favouring throughput over minimum heap use."""
     body_bytes = str(body).encode()
@@ -322,7 +345,7 @@ async def write_buffered_response(
         'HTTP/1.1 ' + status + '\r\n'
         'Content-Type: ' + content_type + '\r\n'
         + ('' if supplied_cache_control else 'Cache-Control: no-store\r\n') +
-        'Connection: close\r\n'
+        'Connection: ' + ('keep-alive' if keep_alive else 'close') + '\r\n'
         'Content-Length: ' + str(len(body_bytes)) + '\r\n'
     )
     for name, value in extra_headers:
