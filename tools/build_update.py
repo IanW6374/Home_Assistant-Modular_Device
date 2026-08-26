@@ -19,6 +19,7 @@ CORE_FILES = (
     'iotmd.py',
     'app_settings.json',
     'component_versions.py',
+    'certificate_status.py',
     'settings_loader.py',
     'display.py',
     'web_portal_ui.py',

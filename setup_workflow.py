@@ -35,6 +35,8 @@ CERTIFICATE_PATHS = {
     'trust-ca': 'certs/trust/home-rca-root.der',
     'portal-cert': 'certs/web.crt.der',
     'portal-key': 'certs/web.key.der',
+    'api-server-cert': 'certs/api-server.crt.der',
+    'api-server-key': 'certs/api-server.key.der',
 }
 
 def _file_exists(path):
@@ -77,8 +79,8 @@ def _write_certificate(kind, payload, suffix=''):
     payload = bytes(payload)
     if not payload or len(payload) > MAX_CERTIFICATE_BYTES:
         raise ValueError('certificate file size is invalid')
-    if b'-----BEGIN' in payload:
-        raise ValueError('certificate files must use DER, not PEM')
+    if b'-----BEGIN' in payload and kind != 'portal-cert':
+        raise ValueError('only the portal certificate chain may use PEM')
     try:
         os.mkdir('certs')
     except OSError:
@@ -95,13 +97,19 @@ def _write_certificate(kind, payload, suffix=''):
     return path
 
 def _validate_certificates(
-    require_trust=True, portal_cert=None, portal_key=None, trust_ca=None
+    require_trust=True, portal_cert=None, portal_key=None, trust_ca=None,
+    api_server_cert=None, api_server_key=None,
 ):
     portal_cert = portal_cert or CERTIFICATE_PATHS['portal-cert']
     portal_key = portal_key or CERTIFICATE_PATHS['portal-key']
     trust_ca = trust_ca or CERTIFICATE_PATHS['trust-ca']
     server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     server.load_cert_chain(portal_cert, portal_key)
+    if api_server_cert or api_server_key:
+        if not api_server_cert or not api_server_key:
+            raise ValueError('Device API server certificate and key must be provided together')
+        api_server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        api_server.load_cert_chain(api_server_cert, api_server_key)
     if not require_trust:
         return True
     client = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -139,6 +147,12 @@ def _validate_certificate_files(certificate_mode):
             raise ValueError(
                 'trusted CA certificate could not be decoded: ' + str(trusted_ca['error'])
             )
+    if certificate_mode == 'manual':
+        _validate_certificates(
+            False,
+            api_server_cert=CERTIFICATE_PATHS['api-server-cert'],
+            api_server_key=CERTIFICATE_PATHS['api-server-key'],
+        )
     return True
 
 def _validate_certificate_selection(config, selected_mode):

@@ -47,6 +47,7 @@ class SetupWizardTests(unittest.TestCase):
             '.section-title{display:flex',
             'label.field{display:grid',
             '.task-progress{display:flex',
+            '.portal-status,.task-progress,.status-history{',
             '.status-spinner{width:1rem',
             '.page-load-action{display:flex',
             '.button.secondary{border-color:var(--accent);background:var(--accent);color:#fff}',
@@ -65,6 +66,8 @@ class SetupWizardTests(unittest.TestCase):
             self.assertIn(rule, web_portal_ui.PORTAL_CSS)
         self.assertIn('document.addEventListener("invalid"', setup_wizard.portal_ui.PORTAL_JS)
         self.assertIn('document.addEventListener("invalid"', web_portal_ui.PORTAL_JS)
+        self.assertIn('window.portalStatus=function', setup_wizard.portal_ui.PORTAL_JS)
+        self.assertIn('window.portalStatus=function', web_portal_ui.PORTAL_JS)
 
     def test_wifi_scan_deduplicates_and_orders_visible_networks(self):
         class Station:
@@ -235,6 +238,10 @@ class SetupWizardTests(unittest.TestCase):
         self.assertNotIn('id="update-ca"', certificates)
         self.assertIn('id="portal-cert"', certificates)
         self.assertIn('id="portal-key"', certificates)
+        self.assertIn('id="api-server-cert"', certificates)
+        self.assertIn('id="api-server-key"', certificates)
+        self.assertIn('name="portal_hostname"', certificates)
+        self.assertIn('IoT CA provisioning package', certificates)
         self.assertIn('id="acme-directory"', certificates)
         self.assertIn('id="certificate-hostname"', certificates)
         self.assertIn('value="whes01.local" readonly', certificates)

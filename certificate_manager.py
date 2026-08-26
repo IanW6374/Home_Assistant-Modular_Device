@@ -396,6 +396,27 @@ def commit_certificate_files(pairs, validator=None):
     return True
 
 
+def ensure_server_identity(cert_path, key_path, fallback_cert, fallback_key, marker):
+    """Copy a legacy server pair once, then keep both identities independent."""
+    installed = (_exists(cert_path), _exists(key_path))
+    if all(installed):
+        return False
+    if any(installed):
+        raise ValueError('server certificate identity is incomplete')
+    if not all((_exists(fallback_cert), _exists(fallback_key))):
+        raise ValueError('server certificate identity is not installed')
+    staged_cert = cert_path + '.migration'
+    staged_key = key_path + '.migration'
+    _copy(fallback_cert, staged_cert)
+    _copy(fallback_key, staged_key)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(staged_cert, staged_key)
+    commit_certificate_files(((staged_cert, cert_path), (staged_key, key_path)))
+    with open(marker, 'w') as stream:
+        stream.write('replace-with-private-ca-identity\n')
+    return True
+
+
 def _write(path, value):
     temporary = path + '.tmp'
     with open(temporary, 'wb') as stream:

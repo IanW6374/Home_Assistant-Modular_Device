@@ -5,6 +5,10 @@ commands, events, support data and fleet coordination. It listens on port 8444
 by default and always requires mutual TLS. The machine-readable contract is
 [`openapi.yaml`](openapi.yaml).
 
+Its server certificate is stored independently from the web portal identity
+and is expected to chain to the private IoT CA. A public portal renewal never
+changes the Device API/fleet server identity.
+
 ## Authentication and authorization
 
 Install one or more API client CAs under **Maintenance > Certificates**, then

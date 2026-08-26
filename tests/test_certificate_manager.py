@@ -1,5 +1,6 @@
 import json
 import os
+import base64
 import tempfile
 import time
 import unittest
@@ -185,6 +186,14 @@ class CertificateManagerTests(unittest.TestCase):
         self.assertEqual(details['not_before'], '2026-01-01 00:00:00 UTC')
         self.assertEqual(details['not_after'], '2036-12-31 23:59:59 UTC')
         self.assertTrue(details['serial_number'])
+        pem_chain = (
+            b'-----BEGIN CERTIFICATE-----\n' + base64.b64encode(payload) +
+            b'\n-----END CERTIFICATE-----\n' +
+            b'-----BEGIN CERTIFICATE-----\n' + base64.b64encode(payload) +
+            b'\n-----END CERTIFICATE-----\n'
+        )
+        pem_details = certificate_manager.decode_certificate(pem_chain)
+        self.assertEqual(pem_details['subject'], 'CN=whes01.local')
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'portal.der'

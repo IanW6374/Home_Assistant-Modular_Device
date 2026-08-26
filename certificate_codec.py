@@ -144,6 +144,8 @@ def _decode_x509_time(payload, tag):
 def decode_certificate(payload):
     """Decode the safe identity fields needed by the local certificate page."""
     payload = bytes(payload)
+    if b'-----BEGIN CERTIFICATE-----' in payload:
+        payload = _first_pem_certificate(payload)
     outer_tag, outer_start, outer_end, outer_next = _asn1_item(payload)
     if outer_tag != 0x30 or outer_next != len(payload):
         raise ValueError('certificate is not a single DER sequence')
@@ -178,7 +180,7 @@ def decode_certificate(payload):
     }
 
 def certificate_details(path):
-    """Return display-safe details for one installed DER certificate."""
+    """Return display-safe details for one installed DER or PEM-chain certificate."""
     try:
         size = int(os.stat(path)[6])
         if size <= 0 or size > MAX_RESPONSE_BYTES:

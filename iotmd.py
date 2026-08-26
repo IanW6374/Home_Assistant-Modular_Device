@@ -25,6 +25,7 @@ import update_orchestrator
 import timezone_rules
 import component_versions
 import certificate_manager
+import certificate_status
 import configuration_manager
 import api_security
 import portal_auth
@@ -158,6 +159,8 @@ web_portal_username = runtime_credentials['portal']['username']
 web_portal_password_verifier = runtime_credentials['portal']['password_verifier']
 web_portal_password_change_required = False
 web_portal_cert_path = device_settings.web_portal_cert_path
+api_server_cert_path = device_settings.api_server_cert_path
+api_server_key_path = device_settings.api_server_key_path
 web_portal_updates_enabled = device_settings.web_portal_updates_enabled
 web_portal_update_max_bytes = device_settings.web_portal_update_max_bytes
 web_portal_allow_protected_updates = device_settings.web_portal_allow_protected_updates
@@ -170,6 +173,7 @@ device_api_config = runtime_credentials.get('api', {
 })
 device_api_enabled = device_api_config.get('enabled') is True
 device_api_port = int(device_api_config.get('port', device_settings.device_api_port))
+API_SERVER_MIGRATION_MARKER = '/certs/api-server.identity-migrated'
 api_client_registry = api_security.ClientRegistry(
     device_settings.api_client_registry_path
 )
@@ -205,6 +209,10 @@ network_trial_timeout_s = device_settings.network_trial_timeout_s
 release_manifest_url = device_settings.release_manifest_url
 release_channel = runtime_credentials['release']['channel']
 certificate_config = runtime_credentials.get('certificate', {'mode': 'manual'})
+portal_certificate_hostname = (
+    certificate_config.get('portal_hostname') or
+    certificate_config.get('hostname', '')
+)
 if network is not None and certificate_config.get('hostname'):
     certificate_manager.configure_network_hostname(certificate_config['hostname'])
 if network is not None and hasattr(credential_store, 'configure_station'):
@@ -676,7 +684,7 @@ def _configured_portal_login_url(settings=None):
     port = settings.get('portal_port')
     if port is None:
         port = 8443 if https else 8080
-    hostname = runtime_credentials.get('certificate', {}).get('hostname', '')
+    hostname = portal_certificate_hostname
     return (
         ('https' if https else 'http') + '://' + hostname + ':' +
         str(port) + '/login'
@@ -793,7 +801,7 @@ def web_portal_url():
         return None
 
     scheme = 'https' if web_portal_https else 'http'
-    host = certificate_config.get('hostname', '') or wifi_ip_address()
+    host = portal_certificate_hostname or wifi_ip_address()
     return scheme + '://' + host + ':' + str(web_portal_port) + '/'
 
 
@@ -1007,6 +1015,8 @@ def _complete_backup_files():
     paths = {
         'portal_certificate': web_portal_cert_path,
         'portal_private_key': web_portal_key_path,
+        'api_server_certificate': api_server_cert_path,
+        'api_server_private_key': api_server_key_path,
         'mqtt_ca': mqtt_ca_cert_path,
         'release_ca': release_ca_cert_path,
         'syslog_ca': device_settings.syslog_ca_path,
@@ -1054,6 +1064,8 @@ def _secure_restore_targets(files):
     fixed = {
         'portal_certificate': web_portal_cert_path,
         'portal_private_key': web_portal_key_path,
+        'api_server_certificate': api_server_cert_path,
+        'api_server_private_key': api_server_key_path,
         'mqtt_ca': mqtt_ca_cert_path,
         'release_ca': release_ca_cert_path,
         'syslog_ca': device_settings.syslog_ca_path,
@@ -1066,7 +1078,10 @@ def _secure_restore_targets(files):
     targets = {}
     for name, payload in files.items():
         if (
-            name in ('portal_certificate', 'mqtt_ca', 'release_ca', 'syslog_ca') or
+            name in (
+                'portal_certificate', 'api_server_certificate',
+                'mqtt_ca', 'release_ca', 'syslog_ca'
+            ) or
             name.startswith('api_client_ca_')
         ):
             certificate_manager.decode_certificate(payload)
@@ -1123,6 +1138,11 @@ def preview_secure_configuration_import(request):
     )
     if any(portal_payloads) and not all(portal_payloads):
         raise ValueError('encrypted backup must contain both portal identity files')
+    api_server_payloads = (
+        targets.get(api_server_cert_path), targets.get(api_server_key_path)
+    )
+    if any(api_server_payloads) and not all(api_server_payloads):
+        raise ValueError('encrypted backup must contain both API server identity files')
     try:
         with open(moduleSettingsFile, 'r') as stream:
             current_modules = json.load(stream)
@@ -1179,6 +1199,15 @@ def apply_secure_configuration_import(token):
     if staged_portal_certificate and staged_portal_key:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(staged_portal_certificate, staged_portal_key)
+    staged_api_certificate = next(
+        (source for source, target in staged_pairs if target == api_server_cert_path), None
+    )
+    staged_api_key = next(
+        (source for source, target in staged_pairs if target == api_server_key_path), None
+    )
+    if staged_api_certificate and staged_api_key:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(staged_api_certificate, staged_api_key)
     if pending['modules'] is not None:
         update_support.commit_file_with_backup(module_temporary, moduleSettingsFile)
     if staged_pairs:
@@ -1269,81 +1298,29 @@ def portal_settings():
 
 
 def installed_certificate_details():
-    return {
-        'portal': certificate_manager.certificate_lifecycle(web_portal_cert_path),
-        'trusted_ca': certificate_manager.certificate_lifecycle(mqtt_ca_cert_path),
-        'mqtt_ca': certificate_manager.certificate_lifecycle(mqtt_ca_cert_path),
-        'release_ca': certificate_manager.certificate_lifecycle(release_ca_cert_path),
-        'api_client_ca': {'installed': False},
-        'api_client_cas': api_client_ca_store.list(),
-        'api_clients': api_client_registry.list_clients(),
-        'syslog_ca': certificate_manager.certificate_lifecycle(
-            device_settings.syslog_ca_path
-        ),
-        'acme_settings': dict(certificate_config),
-    }
+    try:
+        migration_pending = os.stat(API_SERVER_MIGRATION_MARKER)[6] >= 0
+    except OSError:
+        migration_pending = False
+    return certificate_status.installed_details(
+        certificate_manager, {
+            'portal': web_portal_cert_path, 'api_server': api_server_cert_path,
+            'mqtt_ca': mqtt_ca_cert_path, 'release_ca': release_ca_cert_path,
+            'syslog_ca': device_settings.syslog_ca_path,
+        }, api_client_ca_store, api_client_registry, certificate_config,
+        migration_pending
+    )
 
 
 async def certificate_alert_monitor():
-    previous = {}
-    while True:
-        for name, path in (
-            ('portal', web_portal_cert_path),
-            ('mqtt_ca', mqtt_ca_cert_path),
-            ('release_ca', release_ca_cert_path),
-            ('syslog_ca', device_settings.syslog_ca_path),
-        ):
-            details = certificate_manager.certificate_lifecycle(path)
-            level = details.get('expiry_level')
-            if level in ('warning', 'critical', 'expired') and previous.get(name) != level:
-                days = details.get('days_remaining')
-                message = name + ' certificate '
-                message += (
-                    'expired' if level == 'expired' else
-                    'expires in ' + str(days) + ' days'
-                )
-                logOutput('Local', 'Certificate lifecycle', {'log': message}, 'ERROR')
-                runtime_health.record_event(
-                    'certificate_' + level, message,
-                    {'certificate': name, 'days_remaining': days}, force=True
-                )
-            previous[name] = level
-        for ca in api_client_ca_store.list():
-            fingerprint = str(ca.get('fingerprint', ''))
-            key = 'api_ca_' + fingerprint
-            level = ca.get('expiry_level')
-            if level in ('warning', 'critical', 'expired') and previous.get(key) != level:
-                days = ca.get('days_remaining')
-                message = 'API client CA ' + fingerprint[:12] + ' '
-                message += (
-                    'expired' if level == 'expired' else
-                    'expires in ' + str(days) + ' days'
-                )
-                logOutput('Local', 'Certificate lifecycle', {'log': message}, 'ERROR')
-                runtime_health.record_event(
-                    'certificate_' + level, message,
-                    {'certificate': key, 'days_remaining': days}, force=True
-                )
-            previous[key] = level
-        for client in api_client_registry.list_clients():
-            fingerprint = str(client.get('fingerprint', ''))
-            key = 'api_client_' + fingerprint
-            level = client.get('expiry_level')
-            if level in ('warning', 'critical', 'expired') and previous.get(key) != level:
-                days = client.get('days_remaining')
-                label = str(client.get('label', fingerprint[:12]))
-                message = 'API client ' + label + ' certificate '
-                message += (
-                    'expired' if level == 'expired' else
-                    'expires in ' + str(days) + ' days'
-                )
-                logOutput('Local', 'Certificate lifecycle', {'log': message}, 'ERROR')
-                runtime_health.record_event(
-                    'certificate_' + level, message,
-                    {'certificate': key, 'days_remaining': days}, force=True
-                )
-            previous[key] = level
-        await asyncio.sleep(21600)
+    await certificate_status.alert_monitor(
+        certificate_manager, {
+            'portal': web_portal_cert_path, 'api_server': api_server_cert_path,
+            'mqtt_ca': mqtt_ca_cert_path, 'release_ca': release_ca_cert_path,
+            'syslog_ca': device_settings.syslog_ca_path,
+        }, api_client_ca_store, api_client_registry, logOutput, runtime_health,
+        asyncio.sleep
+    )
 
 
 def update_portal_settings(params):
@@ -1553,6 +1530,8 @@ async def upload_certificate_file(kind, reader, length):
         'syslog-ca': device_settings.syslog_ca_path,
         'portal-cert': web_portal_cert_path,
         'portal-key': web_portal_key_path,
+        'api-server-cert': api_server_cert_path,
+        'api-server-key': api_server_key_path,
     }
     path = paths.get(kind)
     if not path:
@@ -1563,8 +1542,8 @@ async def upload_certificate_file(kind, reader, length):
         if not chunk:
             raise ValueError('certificate upload ended early')
         payload.extend(chunk)
-    if b'-----BEGIN' in payload:
-        raise ValueError('certificate files must use DER, not PEM')
+    if b'-----BEGIN' in payload and kind != 'portal-cert':
+        raise ValueError('only the portal certificate chain may use PEM')
     if kind in ('api-client-ca', 'api-client-cert', 'fleet-client-cert'):
         certificate_manager.decode_certificate(bytes(payload))
         fingerprint = api_security.certificate_fingerprint(payload)[:24]
@@ -1612,6 +1591,8 @@ def validate_uploaded_certificates():
     staged_ca = mqtt_ca_cert_path + '.manual'
     staged_cert = web_portal_cert_path + '.manual'
     staged_key = web_portal_key_path + '.manual'
+    staged_api_cert = api_server_cert_path + '.manual'
+    staged_api_key = api_server_key_path + '.manual'
     pairs = []
 
     def exists(path):
@@ -1629,6 +1610,17 @@ def validate_uploaded_certificates():
         pairs.extend((
             (staged_cert, web_portal_cert_path),
             (staged_key, web_portal_key_path),
+        ))
+
+    api_server_staged = [exists(path) for path in (staged_api_cert, staged_api_key)]
+    if any(api_server_staged):
+        if not all(api_server_staged):
+            raise ValueError('API server certificate and key must be uploaded together')
+        server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        server.load_cert_chain(staged_api_cert, staged_api_key)
+        pairs.extend((
+            (staged_api_cert, api_server_cert_path),
+            (staged_api_key, api_server_key_path),
         ))
 
     mqtt_target = getattr(__import__('device_config'), 'MQTT_CA_PATH', mqtt_ca_cert_path)
@@ -1695,6 +1687,11 @@ def validate_uploaded_certificates():
         raise ValueError('no staged certificate files were found')
     if pairs:
         certificate_manager.commit_certificate_files(tuple(pairs))
+    if all(api_server_staged):
+        try:
+            os.remove(API_SERVER_MIGRATION_MARKER)
+        except OSError:
+            pass
     for staged, payload in api_ca_payloads:
         api_client_ca_store.add(payload)
         try:
@@ -1726,9 +1723,11 @@ def validate_uploaded_certificates():
     if all(portal_staged):
         start_task('portal_certificate_reload', reload_portal_listener())
         reloaded.append('portal HTTPS')
-    if api_ca_payloads:
+    if api_ca_payloads or all(api_server_staged):
         start_task('api_trust_reload', reload_device_api_listener())
-        reloaded.append('Device API trust')
+        reloaded.append(
+            'Device API identity' if all(api_server_staged) else 'Device API trust'
+        )
     if reloaded:
         return {
             'message': 'Certificates validated. Reloading ' +
@@ -1787,20 +1786,31 @@ async def start_module_api():
         module_broker, runtime_health, api_client_registry,
         device_api_info, logOutput, fleet_service, device_support_bundle
     )
-    settings = {
-        'enabled': True,
-        'host': device_settings.device_api_host,
-        'port': device_api_port,
-        'cert_path': web_portal_cert_path,
-        'key_path': web_portal_key_path,
-        'client_ca_paths': api_client_ca_store.paths(),
-        'max_body_bytes': device_settings.device_api_max_body_bytes,
-    }
     try:
+        migrated = certificate_manager.ensure_server_identity(
+            api_server_cert_path, api_server_key_path,
+            web_portal_cert_path, web_portal_key_path,
+            API_SERVER_MIGRATION_MARKER
+        )
+        settings = {
+            'enabled': True,
+            'host': device_settings.device_api_host,
+            'port': device_api_port,
+            'cert_path': api_server_cert_path,
+            'key_path': api_server_key_path,
+            'client_ca_paths': api_client_ca_store.paths(),
+            'max_body_bytes': device_settings.device_api_max_body_bytes,
+        }
         device_api_server = await start_device_api(settings, api)
     except Exception as exc:
         logOutput('API', 'Start', {'log': 'Failed - ' + str(exc)}, 'ERROR')
         return None
+    if migrated:
+        logOutput(
+            'API', 'Certificate migration',
+            {'log': 'Portal identity copied to the independent API identity path; '
+                    'replace it with a private-CA API server certificate'}, 'ERROR'
+        )
     logOutput(
         'API', 'Start',
         {'log': 'mTLS API listening on port ' + str(device_api_port)}, 'INFO'
@@ -1966,7 +1976,8 @@ def portal_action(action, params):
             params.get('hostname', certificate_config.get('hostname', ''))
         ).strip().lower().rstrip('.')
         credential_store.update_certificate_settings(
-            'acme' if enabled else 'manual', directory_url, hostname
+            'acme' if enabled else 'manual', directory_url, hostname,
+            portal_hostname=hostname
         )
         mark_restart_required('ACME settings changed')
         return (
@@ -2421,7 +2432,7 @@ async def start_admin_portal():
         return None
 
     scheme = 'https' if web_portal_https else 'http'
-    configured_hostname = certificate_config.get('hostname', '') or wifi_ip_address()
+    configured_hostname = portal_certificate_hostname or wifi_ip_address()
     settings = {
         'https': web_portal_https,
         'host': web_portal_host,

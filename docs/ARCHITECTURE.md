@@ -38,6 +38,11 @@ The portal and API retain independent TLS listeners because their identity and
 authorization models differ. Portal routes declare their required role; API v2
 requires mutual TLS and scoped client certificates.
 
+The portal may use a publicly trusted certificate for its public DNS name.
+Device API/fleet, MQTT, Syslog and release connections remain private-CA
+services. Public portal replacement cannot change the independent API server
+identity. See [Certificate identities](CERTIFICATES.md).
+
 ## Updates and persistence
 
 All update transports use one transaction model:

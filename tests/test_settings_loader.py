@@ -55,6 +55,14 @@ class SettingsLoaderTests(unittest.TestCase):
             device_config.WEB_PORTAL_CERT_PATH
         )
         self.assertEqual(
+            settings_loader.api_server_cert_path,
+            device_config.API_SERVER_CERT_PATH
+        )
+        self.assertNotEqual(
+            settings_loader.api_server_cert_path,
+            settings_loader.web_portal_cert_path
+        )
+        self.assertEqual(
             settings_loader.web_portal_update_max_bytes,
             device_config.WEB_PORTAL_UPDATE_MAX_BYTES
         )

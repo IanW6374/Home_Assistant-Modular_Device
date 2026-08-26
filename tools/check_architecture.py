@@ -43,7 +43,7 @@ RETIRED_SOURCE_MARKERS = {
     'release_update.py': ('_release_manifest_request_url',),
 }
 REQUIRED_APPLICATION_MODULES = (
-    'portal_http.py', 'portal_live_views.py', 'portal_presenters.py',
+    'certificate_status.py', 'portal_http.py', 'portal_live_views.py', 'portal_presenters.py',
     'portal_settings_views.py', 'services/home_assistant_service.py',
 )
 REQUIRED_FROZEN_MODULES = (

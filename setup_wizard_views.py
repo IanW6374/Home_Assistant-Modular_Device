@@ -94,7 +94,8 @@ def _page(csrf, message=''):
         'autocomplete="new-password"></label>'
         '<label class="field">Portal mDNS hostname<input id="mdns-hostname" name="certificate_hostname" required maxlength="253" '
         'placeholder="whes01.local" pattern="[A-Za-z0-9-]+\\.local"></label></div>'
-        '<p id="wifi-scan-status" class="muted">Scanning for nearby networks…</p>'
+        '<p id="wifi-scan-status" class="portal-status" role="status" aria-live="polite">'
+        'Scanning for nearby networks…</p>'
         '<label class="check"><input id="wifi-dhcp" name="wifi_dhcp" type="checkbox" '
         'value="true" checked>Use DHCP to obtain network settings automatically</label>'
         '<div id="wifi-static-settings" class="grid" hidden>'
@@ -149,21 +150,25 @@ def _page(csrf, message=''):
         'var wifiSelect=document.getElementById("wifi-network-select"),wifiInput=document.getElementById('
         '"wifi-ssid-input"),wifiManual=document.getElementById("wifi-manual-field"),wifiStatus='
         'document.getElementById("wifi-scan-status"),wifiRescan=document.getElementById("wifi-rescan");'
+        'function setWifiStatus(state,text){wifiStatus.className="portal-status"+(state?" "+state:"");'
+        'wifiStatus.textContent=text;}'
         'function syncWifiSelection(){var manual=wifiSelect.value==="__manual__";wifiManual.hidden=!manual;'
         'wifiInput.required=manual;if(!manual&&wifiSelect.value)wifiInput.value=wifiSelect.value;}'
         'function wifiOption(value,text){var option=document.createElement("option");option.value=value;'
         'option.textContent=text;return option;}function scanWifi(){var current=wifiInput.value;wifiRescan.disabled=true;'
-        'wifiStatus.textContent="Scanning for nearby networks…";fetch("/wifi-networks",{cache:"no-store",'
+        'setWifiStatus("","Scanning for nearby networks…");fetch("/wifi-networks",{cache:"no-store",'
         'credentials:"same-origin"}).then(function(response){if(!response.ok)throw new Error("HTTP "+response.status);'
         'return response.json();}).then(function(networks){wifiSelect.textContent="";wifiSelect.appendChild('
         'wifiOption("","Select a Wi-Fi network"));var found=false;for(var i=0;i<networks.length;i++){var network='
         'networks[i],label=network.ssid+(typeof network.rssi==="number"?" ("+network.rssi+" dBm)":"");'
         'wifiSelect.appendChild(wifiOption(network.ssid,label));if(network.ssid===current)found=true;}'
         'wifiSelect.appendChild(wifiOption("__manual__","Enter network name manually…"));if(current){wifiSelect.value='
-        'found?current:"__manual__";}else wifiSelect.value="";syncWifiSelection();wifiStatus.textContent=networks.length?'
-        'networks.length+" network"+(networks.length===1?"":"s")+" found.":"No visible networks found; use manual entry.";'
+        'found?current:"__manual__";}else wifiSelect.value="";syncWifiSelection();setWifiStatus('
+        'networks.length?"success":"warning",networks.length?networks.length+" network"+'
+        '(networks.length===1?"":"s")+" found.":"No visible networks found; use manual entry.");'
         'if(!networks.length){wifiSelect.value="__manual__";syncWifiSelection();}}).catch(function(){wifiSelect.value='
-        '"__manual__";syncWifiSelection();wifiStatus.textContent="Network scan unavailable; enter the SSID manually.";'
+        '"__manual__";syncWifiSelection();setWifiStatus("warning",'
+        '"Network scan unavailable; enter the SSID manually.");'
         '}).finally(function(){wifiRescan.disabled=false;});}wifiSelect.onchange=syncWifiSelection;wifiRescan.onclick=scanWifi;'
         'syncWifiSelection();scanWifi();'
         'var dhcp=document.getElementById("wifi-dhcp"),staticBox=document.getElementById('
@@ -187,7 +192,8 @@ def _upload_page(csrf, message=''):
             'Select the signed application bundle. Unsigned or incompatible bundles are rejected.'
         ) + notice + '<section class="card"><label class="field">Application bundle'
         '<input id="bundle" type="file" accept=".iotapp"></label>'
-        '<div class="actions"><span id="result" class="muted"></span>'
+        '<div class="actions"><span id="result" class="portal-status" role="status" '
+        'aria-live="polite"></span>'
         '<button id="install">Upload and verify</button></div>' +
         portal_ui.progress('setup-upload-progress', 'Waiting…', True) +
         '</section></main><script src="' + _asset('/assets/portal.js') + '"></script><script>'
@@ -206,11 +212,14 @@ def _upload_page(csrf, message=''):
         'label.textContent="Verifying 0%";result.textContent="Completed: upload";'
         'if(!polling){polling=true;poll();}};'
         'x.onload=function(){result.textContent=x.responseText;if(x.status>=200&&x.status<300){'
+        'result.className="portal-status success";'
         'finished=true;box.classList.add("complete");label.textContent="Verified 100%";var target=x.getResponseHeader("X-Portal-URL");if(target){setTimeout(function '
         'retry(){fetch(target,{mode:"no-cors",cache:"no-store"}).then(function(){location.replace(target);})'
-        '.catch(function(){setTimeout(retry,2000);});},2500);}}else{finished=true;box.classList.add("failed");label.textContent="Failed";'
+        '.catch(function(){setTimeout(retry,2000);});},2500);}}else{result.className="portal-status error";'
+        'finished=true;box.classList.add("failed");label.textContent="Failed";'
         'document.getElementById("install").disabled=false;}};x.onerror=function(){box.classList.add("failed");label.textContent='
-        '"Connection lost";finished=true;result.textContent="Upload failed";document.getElementById("install").disabled=false;};'
+        '"Connection lost";finished=true;result.className="portal-status error";result.textContent="Upload failed";'
+        'document.getElementById("install").disabled=false;};'
         'x.send(f);};</script></body></html>'
     )
     return body
@@ -261,12 +270,17 @@ def _certificate_page(csrf, hostname='', message='', ready=False):
         'value="' + _escape(hostname) + '" readonly></label>'
         '<button id="enroll" type="submit">Upload root and enroll with ACME</button></form>'
         '<form class="card" action="/manual-certificates" method="post" enctype="multipart/form-data">'
-        '<div class="section-title"><h2>Manual fallback</h2></div>'
+        '<div class="section-title"><h2>IoT CA provisioning package</h2></div>'
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
         '<label class="field">Home IoT trusted CA certificate<input name="trust_ca" type="file" required></label>'
-        '<label class="field">Portal certificate<input id="portal-cert" name="portal_cert" type="file" required></label>'
-        '<label class="field">Portal private key<input id="portal-key" name="portal_key" type="file" required></label>'
-        '<button id="upload" type="submit">Upload and validate certificates</button></form>'
+        '<label class="field">Public portal DNS hostname<input id="portal-public-hostname" name="portal_hostname" '
+        'required maxlength="253" placeholder="device.example.com"></label>'
+        '<label class="field">Public portal certificate chain (<code>web.crt.pem</code>)<input id="portal-cert" name="portal_cert" type="file" accept=".pem,application/x-pem-file" required></label>'
+        '<label class="field">Public portal private key (<code>web.key.der</code>)<input id="portal-key" name="portal_key" type="file" required></label>'
+        '<label class="field">Private Device API certificate (<code>api-server.crt.der</code>)<input id="api-server-cert" name="api_server_cert" type="file" required></label>'
+        '<label class="field">Private Device API key (<code>api-server.key.der</code>)<input id="api-server-key" name="api_server_key" type="file" required></label>'
+        '<p class="muted">These files are produced together by the IoT CA public-portal profile. The public portal and private API identities remain independent.</p>'
+        '<button id="upload" type="submit">Upload and validate provisioning files</button></form>'
         '<form class="page-load-action" action="/install" method="post">'
         '<input type="hidden" name="csrf" value="' +
         _escape(csrf) + '"><input type="hidden" name="certificate_mode" value="self_signed">'
@@ -371,7 +385,8 @@ def _portal_url(config):
     port = config.get('portal', {}).get('port')
     if port is None:
         port = HTTPS_PORT if https else HTTP_PORT
-    hostname = config.get('certificate', {}).get('hostname', '')
+    certificate = config.get('certificate', {})
+    hostname = certificate.get('portal_hostname') or certificate.get('hostname', '')
     if not hostname:
         raise ValueError('portal hostname is unavailable')
     return scheme + '://' + hostname + ':' + str(port) + '/'

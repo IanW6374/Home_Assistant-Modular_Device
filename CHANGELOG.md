@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.1.2 - 2026-08-26
+
+- Separate the public portal and private Device API/fleet server identities so
+  public portal renewal cannot alter private service trust.
+- Extend first-boot provisioning for IoT CA public-portal packages containing
+  public portal files, private API files and private trust anchors.
+- Preserve separate `.local` mDNS and public portal DNS names for correct TLS
+  validation and restart reconnection.
+- Include both server identities in complete encrypted backup and validate each
+  certificate/key pair before restore.
+- Migrate an existing 2.1.1 portal identity once to the independent API path so
+  the test device remains manageable until its private identity is installed.
+- Standardise portal status presentation with semantic information, success,
+  warning and failure boxes, including live upgrade progress and state tiles.
+
 ## 2.1.1 - 2026-08-25
 
 - Keep Home Assistant discovery publishing inside the Home Assistant section

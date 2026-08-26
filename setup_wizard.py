@@ -4,22 +4,18 @@ try:
     import uasyncio as asyncio
 except ImportError:
     import asyncio
-
 try:
     import network
 except ImportError:
     network = None
-
 try:
     import ujson as json
 except ImportError:
     import json
-
 try:
     import machine
 except ImportError:
     machine = None
-
 import app_update
 import credential_store
 import certificate_manager
@@ -28,15 +24,14 @@ import release_update
 import wifi_recovery
 import portal_ui
 import http_support
-from setup_wizard_views import *
-from setup_workflow import *
 from setup_wizard_views import (
+    SELF_SIGNED_READY_MESSAGE, SETUP_ASSET_VERSION,
     _certificate_complete_page, _certificate_page, _certificate_resume_page,
-    _enrollment_page, _handover_page, _page, _portal_handoff_page,
-    _portal_url, _upload_page,
+    _enrollment_page, _handover_page, _page, _portal_handoff_page, _portal_url,
+    _upload_page,
 )
 from setup_workflow import (
-    _connect_station, _download_application, _form_values,
+    CERTIFICATE_PATHS, _connect_station, _download_application, _form_values,
     _file_exists, _preloaded_application_available,
     _prepare_available_application, _prepare_certificate_selection,
     _prepare_setup_application, _set_rtc_from_browser_time,
@@ -48,29 +43,14 @@ try:
     import uos as os
 except ImportError:
     import os
-
 try:
     import ussl as ssl
 except ImportError:
     import ssl
-
-
 SETUP_PORT = 80
 MAX_FORM_BYTES = 8192
 MAX_CERTIFICATE_BYTES = 16384
-MAX_CERTIFICATE_FORM_BYTES = MAX_FORM_BYTES + (MAX_CERTIFICATE_BYTES * 3)
-CERTIFICATE_PATHS = {
-    'trust-ca': 'certs/trust/home-rca-root.der',
-    'portal-cert': 'certs/web.crt.der',
-    'portal-key': 'certs/web.key.der',
-}
-HTTPS_PORT = 8443
-HTTP_PORT = 8080
-SETUP_ASSET_VERSION = '8'
-SELF_SIGNED_READY_MESSAGE = (
-    'Self-signed HTTPS is ready. Choose ACME, manual certificates, or the explicit fallback.'
-)
-
+MAX_CERTIFICATE_FORM_BYTES = MAX_FORM_BYTES + (MAX_CERTIFICATE_BYTES * 5)
 def _parse_request_line(line):
     parts = str(line).split()
     if len(parts) != 3 or not parts[2].startswith('HTTP/'):
@@ -320,17 +300,35 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                     await send(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
                     return
                 config = credential_store.load()
+                portal_hostname = parts.get('portal_hostname', b'').decode().strip().lower().rstrip('.')
+                if (
+                    not portal_hostname or len(portal_hostname) > 253 or
+                    '.' not in portal_hostname or portal_hostname.endswith('.local') or
+                    '..' in portal_hostname or
+                    any(character not in 'abcdefghijklmnopqrstuvwxyz0123456789-.'
+                        for character in portal_hostname)
+                ):
+                    raise ValueError('public portal DNS hostname is invalid')
                 staged_paths = [
                     CERTIFICATE_PATHS['trust-ca'] + '.manual',
                     CERTIFICATE_PATHS['portal-cert'] + '.manual',
                     CERTIFICATE_PATHS['portal-key'] + '.manual',
+                    CERTIFICATE_PATHS['api-server-cert'] + '.manual',
+                    CERTIFICATE_PATHS['api-server-key'] + '.manual',
                 ]
                 try:
                     _write_certificate('trust-ca', parts.get('trust_ca', b''), '.manual')
                     _write_certificate('portal-cert', parts.get('portal_cert', b''), '.manual')
                     _write_certificate('portal-key', parts.get('portal_key', b''), '.manual')
+                    _write_certificate(
+                        'api-server-cert', parts.get('api_server_cert', b''), '.manual'
+                    )
+                    _write_certificate(
+                        'api-server-key', parts.get('api_server_key', b''), '.manual'
+                    )
                     _validate_certificates(
-                        True, staged_paths[1], staged_paths[2], staged_paths[0]
+                        True, staged_paths[1], staged_paths[2], staged_paths[0],
+                        staged_paths[3], staged_paths[4]
                     )
                 except Exception:
                     for staged_path in staged_paths:
@@ -344,11 +342,15 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                         CERTIFICATE_PATHS['trust-ca'],
                         CERTIFICATE_PATHS['portal-cert'],
                         CERTIFICATE_PATHS['portal-key'],
+                        CERTIFICATE_PATHS['api-server-cert'],
+                        CERTIFICATE_PATHS['api-server-key'],
                     )),
                     validator=lambda: _validate_certificate_files('manual')
                 )
                 hostname = config['certificate']['hostname']
-                credential_store.update_certificate_settings('manual', '', hostname)
+                credential_store.update_certificate_settings(
+                    'manual', '', hostname, portal_hostname=portal_hostname
+                )
                 await send(writer, '200 OK', _certificate_complete_page(
                     session, 'Certificates validated.', 'manual'
                 ))

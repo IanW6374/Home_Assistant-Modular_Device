@@ -125,6 +125,8 @@ web_portal_host = device_config.WEB_PORTAL_HOST
 web_portal_port = device_config.WEB_PORTAL_PORT
 web_portal_cert_path = device_config.WEB_PORTAL_CERT_PATH
 web_portal_key_path = device_config.WEB_PORTAL_KEY_PATH
+api_server_cert_path = device_config.API_SERVER_CERT_PATH
+api_server_key_path = device_config.API_SERVER_KEY_PATH
 web_portal_update_max_bytes = device_config.WEB_PORTAL_UPDATE_MAX_BYTES
 web_portal_firmware_update_max_bytes = (
     device_config.WEB_PORTAL_FIRMWARE_UPDATE_MAX_BYTES

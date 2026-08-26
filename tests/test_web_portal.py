@@ -135,6 +135,9 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('accept="application/json,.json" required', backup)
         self.assertIn('portalInvalid(confirmField', backup)
         self.assertIn('portalRequire(primary', certificates)
+        self.assertIn('value="api-server"', certificates)
+        self.assertIn('api-server-cert', certificates)
+        self.assertIn('api-server-key', certificates)
         self.assertIn('secondary.disabled=!d[1]', certificates)
         self.assertIn('if(!d[1])secondary.value=""', certificates)
         self.assertIn('.field[hidden]{display:none}', portal_ui.PORTAL_CSS)
@@ -1992,7 +1995,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('class="metric version-app"', staged_html)
         self.assertIn('class="metric version-base"', staged_html)
         self.assertIn('class="metric update-staged"', staged_html)
-        self.assertIn('class="metric update-status"', staged_html)
+        self.assertIn('class="metric update-status good"', staged_html)
         self.assertIn('.metric.version-app{grid-column:5;grid-row:2}', staged_html)
         self.assertIn('.metric.version-base{grid-column:6;grid-row:2}', staged_html)
         status_panel = staged_html.split('<h2>Status</h2>', 1)[1].split('</section>', 1)[0]
@@ -2129,6 +2132,17 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('class="task-progress complete"', ready)
         self.assertIn('class="update-actions next-stage"', ready)
         self.assertIn('Activate and reboot', ready)
+        self.assertIn('class="metric update-status good"', ready)
+
+        downloading = web_portal.render_update_summary_html({
+            'update_status': 'verification', 'firmware_update_status': 'idle',
+        })
+        self.assertIn('class="metric update-status info"', downloading)
+        failed = web_portal.render_update_summary_html({
+            'update_status': 'failed', 'firmware_update_status': 'idle',
+        })
+        self.assertIn('class="metric update-status bad"', failed)
+        self.assertIn('.status-history.failed{border-color:var(--bad)', portal_ui.PORTAL_CSS)
 
     def test_make_tls_context_reports_missing_certificate_file(self):
         with self.assertRaisesRegex(RuntimeError, 'certificate file not found'):

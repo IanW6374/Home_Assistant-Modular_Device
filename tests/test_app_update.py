@@ -457,7 +457,7 @@ class AppUpdateTests(unittest.TestCase):
         for name in (
             'settings_loader.py', 'hardware_platform.py', 'display.py',
             'web_portal_ui.py', 'web_portal.py',
-            'release_update.py', 'certificate_manager.py',
+            'release_update.py', 'certificate_manager.py', 'certificate_status.py',
             'portal_http.py', 'portal_live_views.py',
             'portal_presenters.py', 'portal_settings_views.py',
             'api_security.py', 'configuration_manager.py', 'device_api.py',

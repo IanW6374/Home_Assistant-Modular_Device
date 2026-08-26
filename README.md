@@ -51,11 +51,13 @@ password. Connect to the device setup Wi-Fi network, browse to
 The wizard configures:
 
 1. device identity, Wi-Fi and network mode;
-2. portal administrator credentials and HTTPS identity;
-3. secure MQTT connectivity and optional Home Assistant discovery;
+2. portal administrator credentials;
+3. independent public portal and private Device API identities from an IoT CA
+   provisioning package, or an explicitly selected local fallback; and
 4. signed application installation and restart.
 
-After setup, open `https://<device-name>.local:8443/`. The Device API uses port
+After setup, open the configured portal DNS name on port 8443. The device also
+retains its `.local` mDNS name for private services. The Device API uses port
 8444 by default and requires an enrolled client CA and certificate.
 
 ## Portal
@@ -144,6 +146,7 @@ Important entry points:
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Certificate identities and initial provisioning](docs/CERTIFICATES.md)
 - [MQTT messaging and Home Assistant](docs/MESSAGING.md)
 - [Device API v2](docs/API.md) and [OpenAPI contract](docs/openapi.yaml)
 - [Management ecosystem](docs/MANAGEMENT_SUITE.md)

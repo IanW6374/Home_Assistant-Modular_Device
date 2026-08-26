@@ -391,6 +391,9 @@ def build_configuration(values, portal_password, recovery_password):
             'mode': values.get('certificate_mode', 'manual'),
             'directory_url': values.get('acme_directory_url', ''),
             'hostname': values.get('certificate_hostname', ''),
+            'portal_hostname': values.get(
+                'portal_certificate_hostname', values.get('certificate_hostname', '')
+            ),
         },
         'preferences': {
             'loglevel': values.get('loglevel', 'INFO'),
@@ -513,6 +516,9 @@ def public_settings():
         'certificate_mode': config['certificate']['mode'],
         'acme_directory_url': config['certificate']['directory_url'],
         'certificate_hostname': config['certificate']['hostname'],
+        'portal_certificate_hostname': config['certificate'].get(
+            'portal_hostname', config['certificate']['hostname']
+        ),
         'loglevel': config['preferences']['loglevel'],
         'ntp_servers': list(config['preferences']['ntp_servers']),
         'timezone_offset_minutes': config['preferences'].get('timezone_offset_minutes', 0),
@@ -602,7 +608,8 @@ def _apply_operational_settings(config, values):
     if 'release_channel' in values:
         config['release']['channel'] = values['release_channel']
     if any(key in values for key in (
-        'certificate_mode', 'acme_directory_url', 'certificate_hostname'
+        'certificate_mode', 'acme_directory_url', 'certificate_hostname',
+        'portal_certificate_hostname'
     )):
         certificate = config.setdefault('certificate', {})
         if 'certificate_mode' in values:
@@ -611,6 +618,10 @@ def _apply_operational_settings(config, values):
             certificate['directory_url'] = str(values['acme_directory_url']).strip()
         if 'certificate_hostname' in values:
             certificate['hostname'] = str(values['certificate_hostname']).strip()
+        if 'portal_certificate_hostname' in values:
+            certificate['portal_hostname'] = str(
+                values['portal_certificate_hostname']
+            ).strip()
     if 'loglevel' in values:
         config['preferences']['loglevel'] = values['loglevel']
     if 'ntp_servers' in values:
@@ -687,15 +698,20 @@ def update_operational_settings(values, network_trial=False):
     return public_settings()
 
 
-def update_certificate_settings(mode, directory_url='', hostname=''):
+def update_certificate_settings(
+    mode, directory_url='', hostname='', portal_hostname=None
+):
     config = load()
     current = config.get('certificate', {})
     if not hostname:
         hostname = current.get('hostname', '')
+    if portal_hostname is None:
+        portal_hostname = current.get('portal_hostname', hostname)
     config['certificate'] = {
         'mode': str(mode),
         'directory_url': str(directory_url).strip(),
         'hostname': str(hostname).strip(),
+        'portal_hostname': str(portal_hostname).strip(),
     }
     save(config)
     return config['certificate']

@@ -73,6 +73,16 @@ def combined_update_status_text(status):
         return active[0][1]
     return active[0][0] + ' ' + active[0][1] + ' / ' + active[1][0] + ' ' + active[1][1]
 
+def update_status_tone(value):
+    value = str(value or '').lower()
+    if any(marker in value for marker in ('failed', 'error', 'rejected', 'rollback')):
+        return 'bad'
+    if value and all(part in ('ready', 'complete') for part in value.replace('/', ' ').split() if part not in ('app', 'firmware')):
+        return 'good'
+    if any(marker in value for marker in ('checking', 'download', 'upload', 'writing', 'verif', 'staging')):
+        return 'info'
+    return '' if value in ('', 'idle') else 'warn'
+
 def render_status_html(status):
     if not status:
         return ''
@@ -232,6 +242,7 @@ def render_update_summary_html(status):
     status = status or {}
     staged = staged_version_text(status)
     update_status = combined_update_status_text(status)
+    update_tone = update_status_tone(update_status)
     availability = str(
         status.get('firmware_update_availability', 'Unknown') or 'Unknown'
     )
@@ -244,7 +255,7 @@ def render_update_summary_html(status):
     paired_html = ''
     if int(paired.get('total_steps', 0) or 0) > 1:
         paired_html = (
-            '<p class="muted"><strong>' +
+            '<p class="portal-status" role="status" aria-live="polite"><strong>' +
             html_escape(portal_ui.capitalized(paired.get('active_type', ''))) +
             ' step ' + html_escape(paired.get('step', 0)) + ' of ' +
             html_escape(paired.get('total_steps', 0)) + '</strong> — ' +
@@ -270,7 +281,8 @@ def render_update_summary_html(status):
         '<div id="update-summary" class="update-summary">' +
         '<div class="metric update-staged"><span>' + render_label('update_version') +
         '</span><strong title="' + html_escape(staged) + '">' + html_escape(staged) + '</strong></div>' +
-        '<div class="metric update-status"><span>' + render_label('update_status') +
+        '<div class="metric update-status' + ((' ' + update_tone) if update_tone else '') + '"><span>' +
+        render_label('update_status') +
         '</span><strong title="' + html_escape(update_status) + '">' + html_escape(update_status) + '</strong></div>' +
         '<div class="metric ota-availability' + availability_tone + '"><span>' +
         render_label('firmware_update_availability') + '</span><strong title="' +
@@ -279,7 +291,8 @@ def render_update_summary_html(status):
         render_label('release_check_status') + '</span><strong title="' +
         html_escape(release_text) + '">' + html_escape(release_text) + '</strong></div>' +
         paired_html + history_html +
-        ('<p class="muted">Available ' + html_escape(status.get('release_available_type', '')) +
+        ('<p class="portal-status warning" role="status">Available ' +
+         html_escape(status.get('release_available_type', '')) +
          ' release: ' + html_escape(
              display_release_version(status.get('release_available_version', ''))
              if status.get('release_available_type') == 'firmware' else
@@ -771,7 +784,8 @@ def render_updates_page(token, status=None, settings=None, message='', error=Fal
             'Choose update file</label> <span id="update-file-name" class="file-name">No file selected</span></span>'
             '<button type="submit">Upload and verify</button></div></form>' +
             portal_ui.progress('update-progress', '0%', True) +
-        '<p id="update-result" class="status-history">Application bundles use .iotapp; core firmware uses .iotcore; universal bundles use .iotuni.</p>'
+        '<p id="update-result" class="status-history" role="status" aria-live="polite">'
+        'Application bundles use .iotapp; core firmware uses .iotcore; universal bundles use .iotuni.</p>'
         )
         script += update_upload_script()
     body = (

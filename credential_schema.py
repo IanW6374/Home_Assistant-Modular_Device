@@ -317,6 +317,10 @@ def validate(config, require_provisioned=False):
         certificate.get('hostname', ''), 'certificate hostname',
         1 if certificate_mode == 'acme' else 0, 253
     )
+    portal_hostname = _text(
+        certificate.get('portal_hostname', hostname), 'portal certificate hostname',
+        0, 253
+    )
     if directory_url and not directory_url.startswith('https://'):
         raise ValueError('ACME directory URL must use HTTPS')
     if hostname and (
@@ -324,6 +328,13 @@ def validate(config, require_provisioned=False):
         any(character not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.' for character in hostname)
     ):
         raise ValueError('certificate hostname is invalid')
+    if portal_hostname and (
+        portal_hostname.startswith('.') or portal_hostname.endswith('.') or
+        '..' in portal_hostname or
+        any(character not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-.'
+            for character in portal_hostname)
+    ):
+        raise ValueError('portal certificate hostname is invalid')
     if certificate_mode == 'acme' and not hostname.lower().endswith('.local'):
         raise ValueError('automated certificate hostname must use the .local mDNS domain')
     return config
