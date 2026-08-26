@@ -241,7 +241,8 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('id="api-server-cert"', certificates)
         self.assertIn('id="api-server-key"', certificates)
         self.assertIn('name="portal_hostname"', certificates)
-        self.assertIn('IoT CA provisioning package', certificates)
+        self.assertIn('IoT CA automatic provisioning', certificates)
+        self.assertIn('Manual certificate package', certificates)
         self.assertIn('id="acme-directory"', certificates)
         self.assertIn('id="certificate-hostname"', certificates)
         self.assertIn('value="whes01.local" readonly', certificates)
@@ -351,7 +352,19 @@ class SetupWizardTests(unittest.TestCase):
             setup_wizard_views._validate_certificate_selection = original
         self.assertIn('ACME certificate files are installed and validated.', html)
         self.assertIn('name="certificate_mode" value="acme"', html)
-        self.assertNotIn('Continue with self-signed certificate', html)
+
+    def test_certificate_page_keeps_all_four_admin_choices(self):
+        html = setup_wizard._certificate_page(
+            'csrf-token', 'device.local',
+            setup_wizard.SELF_SIGNED_READY_MESSAGE, True
+        )
+        self.assertIn('IoT CA automatic provisioning', html)
+        self.assertIn('Direct private-CA ACME enrollment', html)
+        self.assertIn('Manual certificate package', html)
+        self.assertIn('Continue with self-signed certificate', html)
+        self.assertIn('action="/iot-ca-enrollment"', html)
+        self.assertIn('action="/enroll-certificate"', html)
+        self.assertIn('action="/manual-certificates"', html)
 
     def test_recovery_ap_password_must_be_confirmed(self):
         params = self.fields()

@@ -24,6 +24,7 @@ import release_update
 import wifi_recovery
 import portal_ui
 import http_support
+import iot_ca_enrollment
 from setup_wizard_views import (
     SELF_SIGNED_READY_MESSAGE, SETUP_ASSET_VERSION,
     _certificate_complete_page, _certificate_page, _certificate_resume_page,
@@ -32,6 +33,7 @@ from setup_wizard_views import (
 )
 from setup_workflow import (
     CERTIFICATE_PATHS, _connect_station, _download_application, _form_values,
+    _enroll_acme_certificate,
     _file_exists, _preloaded_application_available,
     _prepare_available_application, _prepare_certificate_selection,
     _prepare_setup_application, _set_rtc_from_browser_time,
@@ -132,43 +134,6 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
             name + ': ' + value + '\r\n' for name, value in response_headers
         ) + '\r\n').encode() + payload)
         await writer.drain()
-
-    async def enroll_certificate(directory_url, hostname, config):
-        def progress(message):
-            enrollment['message'] = str(message)
-
-        staged_trust_ca = CERTIFICATE_PATHS['trust-ca'] + '.acme'
-        try:
-            progress('Connecting to the home Wi-Fi')
-            await _connect_station(
-                config['wifi']['ssid'], config['wifi']['password'], hostname=hostname,
-                wifi=config['wifi']
-            )
-            state = await certificate_manager.issue(
-                directory_url, hostname, staged_trust_ca,
-                shared_port_80=True, progress=progress
-            )
-            certificate_manager.commit_certificate_files((
-                (staged_trust_ca, CERTIFICATE_PATHS['trust-ca']),
-            ), validator=lambda: _validate_certificate_files('acme'))
-            saved = credential_store.update_certificate_settings(
-                'acme', directory_url, hostname
-            )
-            if saved.get('mode') != 'acme' or saved.get('directory_url') != directory_url:
-                raise RuntimeError('ACME certificate settings were not preserved')
-        except Exception as exc:
-            try:
-                os.remove(staged_trust_ca)
-            except OSError:
-                pass
-            enrollment['status'] = 'error'
-            enrollment['message'] = 'Setup failed: ' + str(exc)
-        else:
-            enrollment['status'] = 'complete'
-            enrollment['mode'] = 'acme'
-            enrollment['message'] = (
-                'Certificate enrolled until ' + str(state.get('not_after', ''))
-            )
 
     async def handle(reader, writer):
         nonlocal enrollment_task
@@ -290,7 +255,33 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 enrollment['mode'] = 'acme'
                 await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
                 enrollment_task = asyncio.create_task(
-                    enroll_certificate(directory_url, hostname, config)
+                    _enroll_acme_certificate(
+                        directory_url, hostname, config, enrollment
+                    )
+                )
+            elif method == 'POST' and path == '/iot-ca-enrollment':
+                if enrollment['status'] == 'running':
+                    await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
+                    return
+                length = int(headers.get('content-length', '0') or 0)
+                body = await _read_body(reader, length, MAX_CERTIFICATE_FORM_BYTES)
+                parts = _multipart_form(body, headers.get('content-type', ''))
+                if parts.get('csrf', b'').decode() != session:
+                    await send(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
+                    return
+                package = parts.get('enrollment_file', b'')
+                if not package or len(package) > iot_ca_enrollment.MAX_PACKAGE_BYTES:
+                    raise ValueError('IoT CA enrollment file size is invalid')
+                config = credential_store.load()
+                enrollment['status'] = 'running'
+                enrollment['message'] = 'Starting IoT CA enrollment'
+                enrollment['mode'] = 'iot_ca'
+                await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
+                enrollment_task = asyncio.create_task(
+                    iot_ca_enrollment.install(
+                        package, config, CERTIFICATE_PATHS, _connect_station,
+                        _validate_certificates, enrollment
+                    )
                 )
             elif method == 'POST' and path == '/manual-certificates':
                 length = int(headers.get('content-length', '0') or 0)

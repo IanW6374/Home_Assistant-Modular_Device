@@ -239,11 +239,11 @@ def _certificate_page(csrf, hostname='', message='', ready=False):
     disabled = '' if ready else ' disabled'
     introduction = (
         '<p>A device-generated self-signed certificate is installed for HTTPS. You can '
-        'continue with it, replace it automatically through ACME, or manually upload an existing '
+        'continue with it, provision it from IoT CA, use direct ACME, or manually upload an existing '
         'portal certificate. All certificate material is written only to the flash-encrypted '
         'device filesystem.</p>'
         if ready else
-        '<p>Complete automatic ACME enrollment or manually upload an existing portal certificate. '
+        '<p>Complete IoT CA provisioning, direct ACME enrollment, or manually upload an existing portal certificate. '
         'All certificate material is written only to the flash-encrypted device filesystem.</p>'
     )
     return (
@@ -253,11 +253,23 @@ def _certificate_page(csrf, hostname='', message='', ready=False):
         _setup_header() + '<main class="setup-main">' + _setup_progress(3) +
         portal_ui.page_heading(
             'Certificate security', 'Install device certificates',
-            'Keep the generated HTTPS certificate or replace it using ACME or manual DER files.',
+            'Keep the generated HTTPS certificate or replace it using IoT CA, ACME, or manual files.',
             heading_badge
         ) + notice + introduction +
+        '<form class="card" action="/iot-ca-enrollment" method="post" enctype="multipart/form-data">'
+        '<div class="section-title"><h2>IoT CA automatic provisioning</h2></div>'
+        '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
+        '<p>Upload the short-lived host authorization downloaded from IoT CA. The device generates '
+        'all private keys locally and sends only signed certificate requests. Cloudflare credentials '
+        'remain on IoT CA.</p>'
+        '<label class="field">IoT CA enrollment file (<code>.iotenroll</code>)'
+        '<input id="iot-ca-enrollment" name="enrollment_file" type="file" '
+        'accept=".iotenroll,application/vnd.iotmd.enrollment+json" required></label>'
+        '<label class="field">Private Device API hostname<input value="' +
+        _escape(hostname) + '" readonly></label>'
+        '<button id="iot-ca-enroll" type="submit">Provision certificates from IoT CA</button></form>'
         '<form class="card" action="/enroll-certificate" method="post" enctype="multipart/form-data">'
-        '<div class="section-title"><h2>Automatic enrollment</h2></div>'
+        '<div class="section-title"><h2>Direct private-CA ACME enrollment</h2></div>'
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
         '<p>The device is connected to the home Wi-Fi and is advertising its '
         '<code>.local</code> hostname with mDNS. It will answer the CA HTTP-01 request on port 80. '
@@ -270,7 +282,7 @@ def _certificate_page(csrf, hostname='', message='', ready=False):
         'value="' + _escape(hostname) + '" readonly></label>'
         '<button id="enroll" type="submit">Upload root and enroll with ACME</button></form>'
         '<form class="card" action="/manual-certificates" method="post" enctype="multipart/form-data">'
-        '<div class="section-title"><h2>IoT CA provisioning package</h2></div>'
+        '<div class="section-title"><h2>Manual certificate package</h2></div>'
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
         '<label class="field">Home IoT trusted CA certificate<input name="trust_ca" type="file" required></label>'
         '<label class="field">Public portal DNS hostname<input id="portal-public-hostname" name="portal_hostname" '
@@ -298,7 +310,7 @@ def _enrollment_page(message):
         '</head><body>' + _setup_header() + '<main class="setup-main">' + _setup_progress(3) +
         portal_ui.page_heading(
             'Certificate security', 'Enrolling certificate',
-            'The device is completing ACME enrollment.'
+            'The device is completing certificate enrollment.'
         ) + '<section class="card">' + portal_ui.progress(
             'enrollment-progress', message
         ) + '<p class="muted">Status updates automatically.</p>'
@@ -334,14 +346,17 @@ def _certificate_resume_page(csrf, config):
     certificate = config.get('certificate', {})
     hostname = certificate.get('hostname', '')
     mode = certificate.get('mode', 'self_signed')
-    if mode in ('acme', 'manual'):
+    if mode in ('acme', 'manual', 'iot_ca'):
         try:
             _validate_certificate_selection(config, mode)
         except Exception as exc:
             return _certificate_page(
                 csrf, hostname, 'Installed certificate validation failed: ' + str(exc), False
             )
-        label = 'ACME' if mode == 'acme' else 'Manually supplied'
+        label = (
+            'IoT CA provisioned' if mode == 'iot_ca' else
+            ('ACME' if mode == 'acme' else 'Manually supplied')
+        )
         return _certificate_complete_page(
             csrf, label + ' certificate files are installed and validated.', mode
         )

@@ -261,7 +261,8 @@ def _signature_der(raw_signature):
     raw = bytes(raw_signature)
     return _seq(_integer(raw[:32]), _integer(raw[32:]))
 
-def _csr(private_key, hostname):
+def _csr(private_key, hostname, server_auth=True, client_auth=False,
+         include_san=True):
     hostname = str(hostname).encode()
     if not hostname or len(hostname) > 253:
         raise ValueError('certificate hostname is invalid')
@@ -270,8 +271,23 @@ def _csr(private_key, hostname):
         _seq(_oid('1.2.840.10045.2.1'), _oid('1.2.840.10045.3.1.7')),
         _der(0x03, b'\x00' + _public_key(private_key))
     )
-    general_names = _seq(_der(0x82, hostname))
-    extensions = _seq(_seq(_oid('2.5.29.17'), _der(0x04, general_names)))
+    if not server_auth and not client_auth:
+        raise ValueError('certificate request requires a key usage')
+    extension_values = []
+    usages = []
+    if server_auth:
+        usages.append(_oid('1.3.6.1.5.5.7.3.1'))
+    if client_auth:
+        usages.append(_oid('1.3.6.1.5.5.7.3.2'))
+    extension_values.append(
+        _seq(_oid('2.5.29.37'), _der(0x04, _seq(*usages)))
+    )
+    if include_san:
+        general_names = _seq(_der(0x82, hostname))
+        extension_values.append(
+            _seq(_oid('2.5.29.17'), _der(0x04, general_names))
+        )
+    extensions = _seq(*extension_values)
     attribute = _seq(_oid('1.2.840.113549.1.9.14'), _set(extensions))
     request_info = _seq(_integer(0), subject, public_info, _der(0xa0, attribute))
     raw = binascii.unhexlify(update_security.sign_message(request_info, private_key))

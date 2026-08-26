@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.2.0 - 2026-08-26
+
+- Add a host-bound IoT CA enrollment workflow to first boot while retaining
+  explicit public-certificate, local ACME, manual-certificate and self-signed
+  choices for the administrator.
+- Generate separate P-256 portal, private Device API and renewal keys on the
+  device, submitting only signed CSRs to IoT CA over pinned HTTPS.
+- Validate enrollment expiry, authorized hostnames, CSR usages and returned
+  identities before activating all certificate and state files atomically.
+- Keep Cloudflare credentials and all device private keys on their respective
+  systems; neither is included in the enrollment response or persistent token
+  state.
+
 ## 2.1.3 - 2026-08-26
 
 - Compile importable application modules to compact MicroPython bytecode so a

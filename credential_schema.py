@@ -307,8 +307,8 @@ def validate(config, require_provisioned=False):
     if api.get('auth', 'mtls') != 'mtls':
         raise ValueError('device API authentication must be mtls')
     certificate_mode = certificate.get('mode', 'manual')
-    if certificate_mode not in ('self_signed', 'manual', 'acme'):
-        raise ValueError('certificate mode must be self_signed, manual or acme')
+    if certificate_mode not in ('self_signed', 'manual', 'acme', 'iot_ca'):
+        raise ValueError('certificate mode must be self_signed, manual, acme or iot_ca')
     directory_url = _text(
         certificate.get('directory_url', ''), 'ACME directory URL',
         1 if certificate_mode == 'acme' else 0, 512

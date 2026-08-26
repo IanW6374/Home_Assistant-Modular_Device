@@ -15,7 +15,48 @@ The public certificate is limited to the human-facing portal. MQTT, Device API,
 fleet, Syslog and release services do not become public merely because the
 portal has a browser-trusted certificate.
 
-## Initial setup
+## Initial setup choices
+
+The administrator explicitly selects one of four certificate routes in the
+first-boot wizard:
+
+1. **IoT CA public certificate provisioning** obtains a browser-trusted portal
+   certificate and a private-CA Device API identity using a one-time
+   `.iotenroll` authorization.
+2. **Local private-CA ACME** uses the device's `.local` name and HTTP-01 against
+   the private IoT CA.
+3. **Manual certificate package** uploads an existing public portal chain/key
+   and private Device API certificate/key.
+4. **Self-signed certificate** keeps the device-generated local fallback.
+
+No route is silently selected. The self-signed identity created during the
+network step remains active unless the administrator completes another route.
+
+## Automated IoT CA public provisioning
+
+In IoT Certificate Authority, choose **Authorize IoT MD**, enter only the
+portal host label, and download the resulting `.iotenroll` file. The CA appends
+its configured public DNS suffix and derives the corresponding `<host>.local`
+private API name. The authorization expires after 30 minutes and can be
+claimed only once with the same certificate requests.
+
+Upload that one file under **IoT CA automatic provisioning** in the device
+wizard. The device pins HTTPS to the private root embedded in the file,
+generates independent P-256 keys for the portal, Device API and renewal
+identity, and submits only their CSRs. IoT CA completes Cloudflare DNS-01 for
+the portal CSR and signs the API and renewal CSRs with its private authority.
+The returned response contains certificates and public trust only. It never
+contains a private key or Cloudflare token.
+
+The Device API server identity is installed as a leaf-plus-intermediate PEM
+chain (the filename remains the established API certificate path), allowing
+clients that trust the private root to validate the complete chain.
+
+The device checks that the authorization's `.local` API hostname matches the
+name selected earlier in setup, verifies each certificate/key pair, and
+commits the complete set with rollback protection.
+
+## Manual public profile provisioning
 
 Issue an **IoT MD public portal** profile in IoT Certificate Authority before
 starting device provisioning. The CA performs Cloudflare DNS-01 and returns a
@@ -33,9 +74,10 @@ The device validates both key pairs before committing the certificate set. Its
 `.local` mDNS hostname remains separate from the public portal DNS name, so API
 clients can continue to use private name resolution and private CA validation.
 
-The first-boot wizard installs an already-issued profile package. It does not
-contact Cloudflare or store a Cloudflare token. This is intentional: an
-unprovisioned field device must not receive DNS-edit authority.
+The manual route installs an already-issued profile package. The automated
+route contacts IoT CA, not Cloudflare, and neither route stores a Cloudflare
+token on the device. An unprovisioned field device never receives DNS-edit
+authority.
 
 ## Upgrades from 2.1.1
 

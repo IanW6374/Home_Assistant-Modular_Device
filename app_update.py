@@ -56,6 +56,7 @@ RECOVERY_FILES = (
     'factory_config.py',
     'device_config.py', 'portal_ui.py', 'http_support.py',
     'release_update.py', 'certificate_manager.py', 'certificate_codec.py',
+    'iot_ca_enrollment.py',
     'application_storage.py',
     '.update-verification-key',
     '.recovery-state.json'

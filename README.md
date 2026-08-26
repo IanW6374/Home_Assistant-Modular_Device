@@ -52,8 +52,8 @@ The wizard configures:
 
 1. device identity, Wi-Fi and network mode;
 2. portal administrator credentials;
-3. independent public portal and private Device API identities from an IoT CA
-   provisioning package, or an explicitly selected local fallback; and
+3. an administrator-selected certificate route: IoT CA public provisioning,
+   local private-CA ACME, manual certificates, or self-signed fallback; and
 4. signed application installation and restart.
 
 After setup, open the configured portal DNS name on port 8443. The device also

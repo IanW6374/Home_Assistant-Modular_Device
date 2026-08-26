@@ -113,7 +113,8 @@ async def wait_for_http01_mdns(hostname, timeout_s=30):
         await asyncio.sleep(1)
     raise ValueError('ACME enrollment requires a connection to the home Wi-Fi')
 
-async def _response_unbounded(url, method, ca_path, body=b'', content_type='', accept=''):
+async def _response_unbounded(url, method, ca_path, body=b'', content_type='', accept='',
+                              extra_headers=()):
     host, port, path = _parse_https_url(url)
     context = _tls_context(ca_path)
     try:
@@ -131,6 +132,12 @@ async def _response_unbounded(url, method, ca_path, body=b'', content_type='', a
         headers += 'Content-Type: ' + content_type + '\r\n'
     if accept:
         headers += 'Accept: ' + accept + '\r\n'
+    for name, value in extra_headers:
+        name = str(name)
+        value = str(value)
+        if '\r' in name or '\n' in name or ':' in name or '\r' in value or '\n' in value:
+            raise ValueError('HTTPS request header is invalid')
+        headers += name + ': ' + value + '\r\n'
     headers += 'Content-Length: ' + str(len(body)) + '\r\n\r\n'
     writer.write(headers.encode() + body)
     await writer.drain()
@@ -173,12 +180,15 @@ async def _response_unbounded(url, method, ca_path, body=b'', content_type='', a
     return status, response_headers, bytes(payload)
 
 
-async def _response(url, method, ca_path, body=b'', content_type='', accept=''):
+async def _response(url, method, ca_path, body=b'', content_type='', accept='',
+                    extra_headers=()):
     """Perform one ACME HTTPS exchange without allowing setup to hang forever."""
     host, _port, _path = _parse_https_url(url)
     try:
         return await asyncio.wait_for(
-            _response_unbounded(url, method, ca_path, body, content_type, accept),
+            _response_unbounded(
+                url, method, ca_path, body, content_type, accept, extra_headers
+            ),
             REQUEST_TIMEOUT_SECONDS
         )
     except asyncio.TimeoutError:

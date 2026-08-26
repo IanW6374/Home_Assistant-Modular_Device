@@ -123,7 +123,7 @@ def _validate_certificates(
 def _validate_certificate_files(certificate_mode):
     """Confirm the installed files match the certificate route being completed."""
     certificate_mode = str(certificate_mode or '').strip()
-    if certificate_mode not in ('self_signed', 'manual', 'acme'):
+    if certificate_mode not in ('self_signed', 'manual', 'acme', 'iot_ca'):
         raise ValueError('certificate setup choice is invalid')
     _validate_certificates(require_trust=certificate_mode != 'self_signed')
     portal = certificate_manager.certificate_details(CERTIFICATE_PATHS['portal-cert'])
@@ -137,8 +137,8 @@ def _validate_certificate_files(certificate_mode):
         raise ValueError('portal certificate identity is incomplete')
     if certificate_mode == 'self_signed' and subject != issuer:
         raise ValueError('installed portal certificate is not the self-signed fallback')
-    if certificate_mode == 'acme' and subject == issuer:
-        raise ValueError('ACME enrollment returned a self-issued portal certificate')
+    if certificate_mode in ('acme', 'iot_ca') and subject == issuer:
+        raise ValueError('automatic enrollment returned a self-issued portal certificate')
     if certificate_mode != 'self_signed':
         trusted_ca = certificate_manager.certificate_details(CERTIFICATE_PATHS['trust-ca'])
         if not trusted_ca.get('installed'):
@@ -147,7 +147,7 @@ def _validate_certificate_files(certificate_mode):
             raise ValueError(
                 'trusted CA certificate could not be decoded: ' + str(trusted_ca['error'])
             )
-    if certificate_mode == 'manual':
+    if certificate_mode in ('manual', 'iot_ca'):
         _validate_certificates(
             False,
             api_server_cert=CERTIFICATE_PATHS['api-server-cert'],
@@ -242,6 +242,43 @@ def _form_values(params):
         'certificate_mode': 'self_signed',
         'certificate_hostname': hostname,
     }
+
+async def _enroll_acme_certificate(directory_url, hostname, config, enrollment):
+    def progress(message):
+        enrollment['message'] = str(message)
+
+    staged_trust_ca = CERTIFICATE_PATHS['trust-ca'] + '.acme'
+    try:
+        progress('Connecting to the home Wi-Fi')
+        await _connect_station(
+            config['wifi']['ssid'], config['wifi']['password'], hostname=hostname,
+            wifi=config['wifi']
+        )
+        state = await certificate_manager.issue(
+            directory_url, hostname, staged_trust_ca,
+            shared_port_80=True, progress=progress
+        )
+        certificate_manager.commit_certificate_files((
+            (staged_trust_ca, CERTIFICATE_PATHS['trust-ca']),
+        ), validator=lambda: _validate_certificate_files('acme'))
+        saved = credential_store.update_certificate_settings(
+            'acme', directory_url, hostname
+        )
+        if saved.get('mode') != 'acme' or saved.get('directory_url') != directory_url:
+            raise RuntimeError('ACME certificate settings were not preserved')
+    except Exception as exc:
+        try:
+            os.remove(staged_trust_ca)
+        except OSError:
+            pass
+        enrollment['status'] = 'error'
+        enrollment['message'] = 'Setup failed: ' + str(exc)
+    else:
+        enrollment['status'] = 'complete'
+        enrollment['mode'] = 'acme'
+        enrollment['message'] = (
+            'Certificate enrolled until ' + str(state.get('not_after', ''))
+        )
 
 async def _connect_station(ssid, password, timeout_s=30, hostname='', wifi=None):
     if network is None:

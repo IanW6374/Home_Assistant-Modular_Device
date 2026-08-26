@@ -20,6 +20,8 @@ FILES = (
     "portal_ui.py",
     "setup_wizard.py",
     "certificate_manager.py",
+    "certificate_codec.py",
+    "iot_ca_enrollment.py",
     "update_support.py",
     "wifi_recovery.py",
     "http_support.py",
