@@ -1,0 +1,63 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://iotmd.example/build/v2",
+      "externalParameters": {
+        "version": "2.1.3"
+      },
+      "internalParameters": {},
+      "resolvedDependencies": [
+        {
+          "digest": {
+            "gitCommit": "7677ecf6105ad3f0a03d75520651df0d7529210a"
+          },
+          "uri": "git+https://github.com/IanW6374/IoT-Modular-Device"
+        },
+        {
+          "digest": {
+            "gitCommit": "e0e9fbb17ed6fd06bb76e266ae554784c9c80804"
+          },
+          "uri": "git+https://github.com/micropython/micropython"
+        },
+        {
+          "digest": {
+            "gitCommit": "fcae32885b0296b32044cb99ecbdc50d98dddb83"
+          },
+          "uri": "git+https://github.com/espressif/esp-idf"
+        }
+      ]
+    },
+    "runDetails": {
+      "builder": {
+        "id": "iotmd/tools"
+      },
+      "metadata": {
+        "invocationId": "7677ecf6105ad3f0a03d75520651df0d7529210a:2.1.3",
+        "platform": "macOS-13.7.8-x86_64-i386-64bit-Mach-O",
+        "python": "3.14.6"
+      }
+    }
+  },
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "4d596675c1f820954118bfdeda6faf370641ce7338dbbd189419ad2d9425d94f"
+      },
+      "name": "application-2.1.3.iotapp"
+    },
+    {
+      "digest": {
+        "sha256": "ac7baeac9141def5be1af87eab21be5ada31ff8138d3f24938d8777a3c85a7be"
+      },
+      "name": "iotmd-core-2.1.3.iotcore"
+    },
+    {
+      "digest": {
+        "sha256": "9271de9f6f72e430b7ba9bc3f813823dd0eea0a724e2f620996f4f8f501410f5"
+      },
+      "name": "universal-2.1.3.iotuni"
+    }
+  ]
+}
