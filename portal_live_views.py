@@ -797,10 +797,13 @@ def render_updates_page(token, status=None, settings=None, message='', error=Fal
         render_update_summary_html(status) + '<div class="update-actions">' +
         render_application_rollback_html(status, token) + '</div></section>'
         '<div class="upgrade-grid"><section class="card"><div class="section-title">'
-        '<h2>Automatic upgrade</h2></div><p class="muted">Use the signed release channel and '
-        'automatic download and activation preferences.</p>' +
-        render_update_preferences(token, settings) + '<div class="update-actions">' +
-        automatic_action + '</div></section>'
+        '<h2>Automatic upgrade</h2></div>'
+        '<div class="settings-subsection"><h3>Manual upgrade check</h3>'
+        '<p class="muted">Check the signed release channel now without changing the automatic schedule.</p>'
+        '<div class="update-actions">' + automatic_action + '</div></div>'
+        '<div class="settings-subsection"><h3>Settings</h3>'
+        '<p class="muted">Configure the release channel, schedule, download and activation preferences.</p>' +
+        render_update_preferences(token, settings) + '</div></section>'
         '<section class="card"><div class="section-title"><h2>Manual upgrade</h2></div>' +
         manual_content + '</section></div>'
     )

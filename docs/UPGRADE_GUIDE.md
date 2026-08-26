@@ -54,29 +54,35 @@ reason.
 ## Production build
 
 Build only from a clean, tested commit. This example uses production version
-`2.1.1` and release sequence `2301`:
+`2.1.3` and release sequence `2303`:
 
 ```sh
-python3 tools/build_update.py releases/v2.1.1/application-2.1.1.iotapp \
-  --version 2.1.1 --release-sequence 2301 \
-  --signing-key /secure/update.signing-key
+python3 tools/build_update.py releases/v2.1.3/application-2.1.3.iotapp \
+  --version 2.1.3 --release-sequence 2303 \
+  --signing-key /secure/update.signing-key \
+  --mpy-cross /path/to/micropython/mpy-cross/build/mpy-cross
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.1.1 --release-sequence 2301 \
-  --output releases/v2.1.1/iotmd-core-2.1.1.iotcore \
-  --factory-output /secure-output/iotmd-core-2.1.1.factory.bin \
+  --version 2.1.3 --release-sequence 2303 \
+  --output releases/v2.1.3/iotmd-core-2.1.3.iotcore \
+  --factory-output /secure-output/iotmd-core-2.1.3.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
   --factory-setup-password-output /secure-output/device-v2.1.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.1.1/universal-2.1.1.iotuni \
-  --application releases/v2.1.1/application-2.1.1.iotapp \
-  --firmware releases/v2.1.1/iotmd-core-2.1.1.iotcore \
-  --version 2.1.1 --release-sequence 2301 \
+  releases/v2.1.3/universal-2.1.3.iotuni \
+  --application releases/v2.1.3/application-2.1.3.iotapp \
+  --firmware releases/v2.1.3/iotmd-core-2.1.3.iotcore \
+  --version 2.1.3 --release-sequence 2303 \
   --signing-key /secure/update.signing-key
 ```
+
+Production application bundles compile importable modules to `.mpy` bytecode.
+The entry point and source-provenance module remain readable Python. This keeps
+the combined universal artifact inside the guarded 2 MiB device staging budget;
+the universal builder rejects larger artifacts before they can be published.
 
 Generate SBOM and provenance with `tools/generate_sbom.py` and
 `tools/generate_provenance.py`. Store private keys and setup-password outputs
@@ -90,8 +96,8 @@ logs. Use the exact serial device and acknowledge erasure explicitly:
 ```sh
 python3 tools/reseed_device_usb.py \
   --device /dev/cu.usbmodemXXXX \
-  --bundle releases/v2.1.1/iotmd-core-2.1.1.iotcore \
-  --application-bundle releases/v2.1.1/application-2.1.1.iotapp \
+  --bundle releases/v2.1.3/iotmd-core-2.1.3.iotcore \
+  --application-bundle releases/v2.1.3/application-2.1.3.iotapp \
   --micropython-root /path/to/micropython \
   --setup-password-file /secure-output/device-v2.1.setup-password.txt \
   --update-signing-key /secure/update.signing-key \

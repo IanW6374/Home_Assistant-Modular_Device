@@ -439,6 +439,32 @@ class UniversalUpdateTests(unittest.TestCase):
             'iotuni', stored, stored['signature'], point
         ))
 
+    def test_builder_rejects_bundle_above_device_safe_staging_budget(self):
+        source = Path('source.py')
+        source.write_text('VALUE = 1')
+        settings = Path('settings.json')
+        settings.write_text('{}')
+        build_bundle(
+            Path('application.iotapp'), '2.0.0',
+            [('iotmd.py', source), ('app_settings.json', settings)],
+            signing_key=self.private_key, release_sequence=40,
+            minimum_core_api=1, components={'runtime': 1, 'modules': {}},
+        )
+        image = Path('micropython.bin')
+        image.write_bytes(b'\xe9' + b'core image' * 20)
+        build_firmware_bundle(
+            image, Path('firmware.iotcore'), '2.0.0',
+            signing_key=self.private_key, release_sequence=40,
+            minimum_core_api=1,
+        )
+        with patch('tools.build_universal_update.MAX_DEVICE_SAFE_BYTES', 1):
+            with self.assertRaisesRegex(ValueError, 'device-safe staging budget'):
+                build_universal_bundle(
+                    Path('universal.iotuni'), Path('application.iotapp'),
+                    Path('firmware.iotcore'), '2.0.0', 40, self.private_key
+                )
+        self.assertFalse(Path('universal.iotuni').exists())
+
     def test_clean_seed_runtime_rejects_legacy_universal_format(self):
         source = Path('source.py')
         source.write_text('VALUE = 1')

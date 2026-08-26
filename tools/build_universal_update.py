@@ -22,6 +22,7 @@ except ImportError:
 
 
 MAGIC = b'IOTU1\n'
+MAX_DEVICE_SAFE_BYTES = 2 * 1024 * 1024
 
 
 def _component(path, expected_type, signing_key):
@@ -110,6 +111,16 @@ def build_universal_bundle(
         'iotuni', manifest_object, signing_key
     )
     manifest = json.dumps(manifest_object, separators=(',', ':')).encode()
+    bundle_size = (
+        len(MAGIC) + 4 + len(manifest) +
+        firmware['size'] + application['size']
+    )
+    if bundle_size > MAX_DEVICE_SAFE_BYTES:
+        raise ValueError(
+            'universal bundle requires ' + str(bundle_size) +
+            ' bytes and exceeds the ' + str(MAX_DEVICE_SAFE_BYTES) +
+            '-byte device-safe staging budget; rebuild the application with --mpy-cross'
+        )
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open('wb') as stream:

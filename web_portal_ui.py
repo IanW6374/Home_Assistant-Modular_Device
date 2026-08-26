@@ -33,7 +33,7 @@ PORTAL_CSS = (
     '.brand-title{display:block;font-weight:800;white-space:nowrap}.nav-toggle{display:none}'
     '.portal-identity{display:inline-grid;place-items:center;position:relative;width:32px;height:32px;'
     'padding:0;flex:0 0 32px;border:1px solid var(--accent);border-radius:50%;background:var(--bg);'
-    'color:var(--accent2);font-size:.7rem;font-weight:850;letter-spacing:.035em;cursor:help}'
+    'color:var(--accent2);font-size:.7rem;font-weight:850;letter-spacing:.035em;cursor:pointer}'
     '.portal-identity:hover{background:#e2f2f4}.portal-identity:focus-visible{outline:3px solid '
     'rgba(8,126,139,.22);outline-offset:2px}'
     '.nav-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;flex-wrap:wrap}'
@@ -47,6 +47,11 @@ PORTAL_CSS = (
     'right:0;left:auto}.nav-dropdown .nav-link{display:flex;width:100%;white-space:nowrap}'
     '.nav-menu-trigger{border:0;background:transparent;color:var(--muted);font-weight:650}'
     '.nav-menu-trigger:hover,.nav-menu-trigger[aria-current="page"]{background:var(--bg);color:var(--ink)}'
+    '.identity-menu{margin-left:6px}.identity-menu>.portal-identity{border:1px solid var(--accent);'
+    'background:var(--bg);color:var(--accent2)}.identity-menu>.portal-identity:after{content:none}'
+    '.identity-dropdown{min-width:15rem;padding:12px}.identity-details{display:grid;gap:2px;'
+    'padding:2px 5px 10px;border-bottom:1px solid var(--line)}.identity-details span{color:var(--muted);'
+    'font-size:.78rem}.identity-dropdown form{padding-top:7px}.identity-signout{width:100%;text-align:left}'
     '.restart-required{display:flex;align-items:center;gap:8px;margin-left:auto;padding:5px 6px 5px 10px;'
     'border:1px solid #efcf92;border-radius:10px;background:#fffaf1;color:#744500;white-space:nowrap}'
     '.restart-required[hidden]{display:none}.restart-required span{font-size:.78rem;font-weight:750}'
@@ -66,7 +71,9 @@ PORTAL_CSS = (
     'box-shadow:var(--shadow)}.section-title{display:flex;align-items:flex-end;'
     'justify-content:space-between;gap:16px;margin-bottom:12px}'
     'h1,h2,h3{letter-spacing:-.025em}h1{margin:0}h2{font-size:1.15rem;margin:0 0 10px}'
-    'h3{font-size:1rem;margin:0}.section-title h2{margin:0}.grid{display:grid;'
+    'h3{font-size:1rem;margin:0}.section-title h2{margin:0}'
+    '.settings-subsection{margin-top:14px;padding:17px;border:1px solid var(--line);border-radius:12px;'
+    'background:var(--soft)}.settings-subsection>p{margin:5px 0 12px}.grid{display:grid;'
     'grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:8px 17px}'
     '.actions,.controls{display:flex;align-items:center;justify-content:space-between;'
     'gap:9px;flex-wrap:wrap}.power-actions{justify-content:flex-end}label{font-weight:700;color:var(--ink)}'
@@ -231,7 +238,7 @@ PORTAL_CSS = (
     'min-width:0;margin:2px 0 7px 12px;box-shadow:none}.breadcrumb{justify-content:flex-end}'
     '.metric.wide{grid-column:1/-1;min-width:0}'
     '.upgrade-grid{grid-template-columns:1fr}'
-    '.card,.panel{padding:18px}.grid{grid-template-columns:1fr}}'
+    '.identity-menu{margin-left:0}.card,.panel{padding:18px}.grid{grid-template-columns:1fr}}'
 )
 
 
@@ -363,13 +370,22 @@ def identity_badge(username, role):
         initials = tokens[0][:2]
     else:
         initials = '??'
-    role_label = capitalized(role) or 'Unknown'
-    description = str(username) + ' · ' + role_label + ' privileges'
     return (
-        '<div class="portal-identity" tabindex="0" aria-label="Signed in as ' +
-        escape(username) + ', ' + escape(role) + '" title="' +
-        escape(description) + '"><span aria-hidden="true">' +
-        escape(initials.upper()) + '</span></div>'
+        '<button class="portal-identity nav-menu-trigger" type="button" '
+        'aria-haspopup="true" aria-expanded="false" aria-label="Account for ' +
+        escape(username) + '"><span aria-hidden="true">' +
+        escape(initials.upper()) + '</span></button>'
+    )
+
+
+def identity_details(username, role):
+    """Render account details shown inside the avatar menu."""
+    if not username:
+        return ''
+    role_label = capitalized(role) or 'Unknown'
+    return (
+        '<div class="identity-details"><strong>' + escape(username) +
+        '</strong><span>' + escape(role_label) + ' privileges</span></div>'
     )
 
 
@@ -477,6 +493,9 @@ def personalise_page(page, username, role):
     page = str(page).replace(
         '<!--portal-identity-->', identity_badge(username, role), 1
     )
+    page = page.replace(
+        '<!--portal-identity-details-->', identity_details(username, role), 1
+    )
     return restrict_actions(page, role)
 
 
@@ -507,7 +526,11 @@ def navigation(active, csrf):
         '<button id="nav-toggle" class="nav-toggle secondary compact" type="button" '
         'aria-controls="portal-nav" aria-expanded="false">Menu</button>'
         '<nav id="portal-nav" class="nav-actions" aria-label="Primary">' +
-        ''.join(links) + '<!--portal-identity-->' + logout + '</nav>'
+        ''.join(links) + '<div class="nav-group identity-menu"><!--portal-identity-->'
+        '<div class="nav-dropdown identity-dropdown" role="menu" aria-label="Account menu">'
+        '<!--portal-identity-details-->' + logout.replace(
+            'class="secondary compact"', 'class="secondary compact identity-signout"'
+        ) + '</div></div></nav>'
     )
 
 

@@ -1049,8 +1049,9 @@ class WebPortalTests(unittest.TestCase):
                 self.assertIn('200 OK', authorized)
                 self.assertIn('Sign out', authorized)
                 self.assertIn(
-                    'aria-label="Signed in as admin, administrator"', authorized
+                    'aria-label="Account for admin"', authorized
                 )
+                self.assertIn('<span>Administrator privileges</span>', authorized)
                 self.assertIn('Controller', authorized)
                 self.assertIn('<h1>Overview</h1>', authorized)
                 self.assertNotIn('initial portal log', authorized)
@@ -1393,7 +1394,7 @@ class WebPortalTests(unittest.TestCase):
                      viewer_session + '\r\n\r\n').encode()
                 )
                 self.assertIn(
-                    'aria-label="Signed in as viewer, viewer"', viewer_page
+                    'aria-label="Account for viewer"', viewer_page
                 )
                 viewer_logout_form = viewer_page.split(
                     'action="/logout"', 1
@@ -1697,9 +1698,11 @@ class WebPortalTests(unittest.TestCase):
         )
 
         self.assertIn('viewer&amp;lt;unsafe', personalised)
-        self.assertIn('title="viewer&amp;lt;unsafe · Viewer privileges"', personalised)
+        self.assertIn('aria-label="Account for viewer&amp;lt;unsafe"', personalised)
+        self.assertIn('<strong>viewer&amp;lt;unsafe</strong>', personalised)
+        self.assertIn('<span>Viewer privileges</span>', personalised)
         self.assertIn('<span aria-hidden="true">VU</span>', personalised)
-        self.assertIn('class="portal-identity" tabindex="0"', personalised)
+        self.assertIn('class="portal-identity nav-menu-trigger"', personalised)
         self.assertIn('<button disabled aria-disabled="true"', personalised)
         self.assertIn('>Download</a>', personalised)
         self.assertNotIn('href="/download-diagnostics"', personalised)
@@ -1709,19 +1712,23 @@ class WebPortalTests(unittest.TestCase):
         )[0]
         self.assertNotIn('disabled', logout)
         self.assertLess(
-            personalised.index('class="portal-identity"'),
+            personalised.index('class="portal-identity nav-menu-trigger"'),
             personalised.index('action="/logout"')
         )
         navigation = personalised.split(
             '<nav id="portal-nav"', 1
         )[1].split('</nav>', 1)[0]
-        self.assertIn('class="portal-identity"', navigation)
+        self.assertIn('class="nav-group identity-menu"', navigation)
+        self.assertIn('class="nav-dropdown identity-dropdown"', navigation)
+        self.assertIn('class="secondary compact identity-signout"', navigation)
 
     def test_identity_badge_uses_first_letters_of_username_words(self):
         badge = portal_ui.identity_badge('Ian Walton', 'administrator')
 
         self.assertIn('<span aria-hidden="true">IW</span>', badge)
-        self.assertIn('title="Ian Walton · Administrator privileges"', badge)
+        details = portal_ui.identity_details('Ian Walton', 'administrator')
+        self.assertIn('<strong>Ian Walton</strong>', details)
+        self.assertIn('<span>Administrator privileges</span>', details)
 
         punctuation = portal_ui.identity_badge(
             'portal-admin_2', 'administrator'
@@ -1730,8 +1737,8 @@ class WebPortalTests(unittest.TestCase):
 
     def test_portal_labels_do_not_require_cpython_capitalize(self):
         self.assertEqual(portal_ui.capitalized('aDmInIsTrAtOr'), 'Administrator')
-        badge = portal_ui.identity_badge('admin', 'administrator')
-        self.assertIn('Administrator privileges', badge)
+        details = portal_ui.identity_details('admin', 'administrator')
+        self.assertIn('Administrator privileges', details)
         restricted = portal_ui.restrict_actions(
             '<form action="/restart-device"><button>Restart</button></form>',
             'viewer'
@@ -1797,6 +1804,8 @@ class WebPortalTests(unittest.TestCase):
 
         self.assertIn('<h1>Upgrades</h1>', updates)
         self.assertIn('<h2>Automatic upgrade</h2>', updates)
+        self.assertIn('<h3>Manual upgrade check</h3>', updates)
+        self.assertIn('<h3>Settings</h3>', updates)
         self.assertIn('<h2>Manual upgrade</h2>', updates)
         self.assertLess(
             updates.index('<h2>Automatic upgrade</h2>'),
@@ -2093,6 +2102,12 @@ class WebPortalTests(unittest.TestCase):
             'firmware_update_status': 'idle',
         }, {})
         self.assertIn('<h2>Automatic upgrade</h2>', idle)
+        self.assertIn('<h3>Manual upgrade check</h3>', idle)
+        self.assertIn('<h3>Settings</h3>', idle)
+        self.assertLess(
+            idle.index('<h3>Manual upgrade check</h3>'),
+            idle.index('<h3>Settings</h3>'),
+        )
         self.assertIn('<h2>Manual upgrade</h2>', idle)
         self.assertIn('action="/check-release"', idle)
         self.assertIn('id="update-upload-form"', idle)

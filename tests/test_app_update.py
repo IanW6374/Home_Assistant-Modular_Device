@@ -6,6 +6,7 @@ import unittest
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import app_update
@@ -15,6 +16,7 @@ import update_support
 from tools.build_update import build_bundle
 from tools.build_update import certificate_entry
 from tools.build_update import collect_files
+from tools.build_update import compact_application_files
 from tools.build_update import generated_driver_index
 from tools.build_update import is_ignored
 from tools.build_update import load_ignore_patterns
@@ -511,6 +513,40 @@ class AppUpdateTests(unittest.TestCase):
         self.assertTrue(is_ignored('lib/__pycache__/module.pyc', patterns))
         self.assertTrue(is_ignored('device_modules/old.py.bak', patterns))
         self.assertFalse(is_ignored('device_modules/ems.py', patterns))
+
+    def test_compact_builder_keeps_entry_and_provenance_as_source(self):
+        entry = Path('iotmd.py')
+        provenance = Path('component_versions.py')
+        module = Path('module.py')
+        settings = Path('app_settings.json')
+        entry.write_text('import module\n')
+        provenance.write_text('RUNTIME_VERSION = 1\n')
+        module.write_text('VALUE = 1\n')
+        settings.write_text('{}')
+        compiler = Path('mpy-cross')
+        compiler.write_bytes(b'compiler')
+
+        def compile_module(command, **_kwargs):
+            output = Path(command[command.index('-o') + 1])
+            output.write_bytes(b'MPY' + Path(command[-1]).read_bytes())
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+        files = [
+            ('iotmd.py', entry), ('component_versions.py', provenance),
+            ('module.py', module), ('app_settings.json', settings),
+        ]
+        with patch('tools.build_update.subprocess.run', side_effect=compile_module):
+            compact, overrides = compact_application_files(
+                files, {'module.py': b'VALUE = 2\n'}, compiler
+            )
+
+        names = [name for name, _path in compact]
+        self.assertEqual(
+            names,
+            ['iotmd.py', 'component_versions.py', 'module.mpy', 'app_settings.json']
+        )
+        self.assertEqual(overrides['module.mpy'], b'MPYVALUE = 2\n')
+        self.assertNotIn('module.py', overrides)
 
     def test_certificate_target_can_use_trust_store_subdirectory(self):
         source = Path('home-iot-root.der')

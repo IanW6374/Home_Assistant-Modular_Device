@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.3 - 2026-08-26
+
+- Compile importable application modules to compact MicroPython bytecode so a
+  universal update remains within the device's safe LittleFS staging budget.
+- Reject oversized universal artifacts during the release build instead of
+  allowing a device upgrade to fail later with raw error 28 (`ENOSPC`).
+- Divide automatic upgrade controls into a manual release check and saved
+  automatic-update settings.
+- Move signed-in user details and the sign-out action into the avatar menu.
+
 ## 2.1.2 - 2026-08-26
 
 - Separate the public portal and private Device API/fleet server identities so

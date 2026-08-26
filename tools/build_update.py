@@ -6,7 +6,9 @@ import ast
 import fnmatch
 import hashlib
 import json
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -77,6 +79,50 @@ LOADER_EXCLUDED_MODULES = {
     'spi_bus.py', 'template.py', 'validation.py', 'modbus_codec.py'
 }
 IGNORE_FILE = '.build_update_ignore'
+MPY_SOURCE_FILES = frozenset(('iotmd.py', 'component_versions.py'))
+
+
+def compact_application_files(files, content_overrides, compiler):
+    """Compile importable Python modules while retaining boot/provenance sources."""
+    compiler = Path(compiler).resolve()
+    if not compiler.is_file():
+        raise ValueError('mpy-cross compiler not found: ' + str(compiler))
+    compact_files = []
+    compact_overrides = dict(content_overrides or {})
+    targets = set()
+    with tempfile.TemporaryDirectory(prefix='iotmd-mpy-') as temporary:
+        temporary = Path(temporary)
+        for index, (relative, path) in enumerate(files):
+            if not relative.endswith('.py') or relative in MPY_SOURCE_FILES:
+                compact_files.append((relative, path))
+                targets.add(relative)
+                continue
+            target = relative[:-3] + '.mpy'
+            if target in targets:
+                raise ValueError('compact application has duplicate path: ' + target)
+            source = compact_overrides.pop(relative, None)
+            if source is None:
+                source = path.read_bytes()
+            source_path = temporary / ('source-' + str(index) + '.py')
+            output_path = temporary / ('module-' + str(index) + '.mpy')
+            source_path.write_bytes(source)
+            try:
+                result = subprocess.run(
+                    (
+                        str(compiler), '-O3', '-s', relative,
+                        '-o', str(output_path), str(source_path),
+                    ),
+                    capture_output=True, text=True, check=False,
+                )
+            except OSError as exc:
+                raise ValueError('mpy-cross could not run: ' + str(exc))
+            if result.returncode or not output_path.is_file():
+                detail = (result.stderr or result.stdout or 'unknown compiler error').strip()
+                raise ValueError('mpy-cross failed for ' + relative + ': ' + detail)
+            compact_files.append((target, path))
+            compact_overrides[target] = output_path.read_bytes()
+            targets.add(target)
+    return compact_files, compact_overrides
 
 
 def load_ignore_patterns(root):
@@ -448,6 +494,10 @@ def main():
         '--allow-dirty', action='store_true',
         help='permit a non-production bundle stamped with the current dirty revision'
     )
+    parser.add_argument(
+        '--mpy-cross',
+        help='Compile importable application modules to compact .mpy bytecode'
+    )
     args = parser.parse_args()
 
     if args.protected_only and (
@@ -500,6 +550,13 @@ def main():
             b'\nSOURCE_REVISION_MARKER = ' + repr(source_marker(source_revision)).encode() +
             b'\n'
         )
+        if args.mpy_cross:
+            try:
+                files, content_overrides = compact_application_files(
+                    files, content_overrides, args.mpy_cross
+                )
+            except ValueError as exc:
+                raise SystemExit('build failed: ' + str(exc))
     entries = build_bundle(
         Path(args.output),
         args.version,
