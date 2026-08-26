@@ -21,6 +21,7 @@ except ImportError:
     import os
 
 import app_update
+import application_upload
 import firmware_update
 import update_security
 import update_support
@@ -54,6 +55,83 @@ def _write_state(state):
     with open(temporary, 'w') as stream:
         json.dump(state, stream)
     _replace(temporary, STATE_PATH)
+
+
+def _state_from_manifest(manifest, firmware_required, application_required):
+    firmware = _component(manifest, 'firmware')
+    application = _component(manifest, 'application')
+    return {
+        'status': 'ready',
+        'version': str(manifest.get('version', '')),
+        'release_sequence': int(manifest.get('release_sequence', 0)),
+        'firmware_version': str(firmware.get('version', '')),
+        'firmware_sequence': int(firmware.get('release_sequence', 0)),
+        'application_version': str(application.get('version', '')),
+        'application_sequence': int(application.get('release_sequence', 0)),
+        'firmware_required': bool(firmware_required),
+        'application_required': bool(application_required),
+        'activation_order': list(manifest.get(
+            'activation_order', ('application', 'firmware')
+        )),
+        'maintenance_required': bool(manifest.get('maintenance_required')),
+        'rollback_policy': str(manifest.get('rollback_policy', 'paired')),
+        'trial_timeout_s': int(manifest.get('trial_timeout_s', 180)),
+    }
+
+
+def stage_preverified(manifest, firmware_required, application_required):
+    """Pair inner bundles already verified by their normal installers."""
+    update_security.validate_universal_manifest(manifest)
+    firmware_required = bool(firmware_required)
+    application_required = bool(application_required)
+    if not firmware_required and not application_required:
+        raise ValueError('universal update is not newer than the installed release')
+    firmware = _component(manifest, 'firmware')
+    application = _component(manifest, 'application')
+    if firmware_required:
+        state = firmware_update.update_status()
+        if (
+            state.get('status') != 'ready' or
+            str(state.get('version', '')) != str(firmware.get('version', '')) or
+            int(state.get('release_sequence', 0)) !=
+            int(firmware.get('release_sequence', 0))
+        ):
+            raise ValueError('universal core firmware is not ready')
+    elif (
+        firmware_update.running_release_sequence() !=
+        int(firmware.get('release_sequence', 0))
+    ):
+        raise ValueError('installed core firmware does not match universal release')
+    if application_required:
+        state = app_update.update_status()
+        if (
+            state.get('status') != 'ready' or
+            str(state.get('version', '')) != str(application.get('version', '')) or
+            int(state.get('release_sequence', 0)) !=
+            int(application.get('release_sequence', 0))
+        ):
+            raise ValueError('universal application is not ready')
+    elif (
+        app_update.running_release_sequence() !=
+        int(application.get('release_sequence', 0))
+    ):
+        raise ValueError('installed application does not match universal release')
+    state = _state_from_manifest(
+        manifest, firmware_required, application_required
+    )
+    try:
+        _write_state(state)
+    except Exception as exc:
+        update_support.record_update_event(
+            'universal', 'rejected', str(manifest.get('version', '')),
+            detail='state write failed: ' + str(exc)
+        )
+        raise
+    update_support.record_update_event(
+        'universal', 'staged', state['version'],
+        detail='sequential component transport'
+    )
+    return state
 
 
 def update_status():
@@ -126,34 +204,9 @@ async def _adopt_application_bundle(
     path, allow_protected=False, selections=None, progress_callback=None
 ):
     """Turn the compacted universal tail into the pending application."""
-    update_support.acquire_update_lock()
-    adopted = False
-    try:
-        manifest = await app_update.validate_bundle_async(
-            path, allow_protected, progress_callback
-        )
-        if str(path) != app_update.BUNDLE_PATH:
-            _replace(str(path), app_update.BUNDLE_PATH)
-            adopted = True
-        state = app_update.stage_bundle(
-            app_update.BUNDLE_PATH, allow_protected, selections,
-            manifest=manifest
-        )
-        update_support.record_update_event(
-            'application', 'staged', state.get('version', ''),
-            digest=str(manifest.get('signature', ''))
-        )
-        return state
-    except Exception as exc:
-        if adopted:
-            _remove(app_update.BUNDLE_PATH)
-            _remove(app_update.STATE_PATH)
-        update_support.record_update_event(
-            'application', 'rejected', detail=str(exc)
-        )
-        raise
-    finally:
-        update_support.release_update_lock()
+    return await application_upload.adopt_bundle(
+        path, allow_protected, selections, progress_callback
+    )
 
 
 async def receive_bundle(
@@ -175,6 +228,13 @@ async def receive_bundle(
     except Exception as exc:
         raise ValueError('invalid universal update manifest: ' + str(exc))
     update_security.validate_universal_manifest(manifest, bundle_type=bundle_type)
+    if (
+        int(manifest.get('format_version', 0)) >= 3 and
+        hasattr(reader, 'compact_remaining')
+    ):
+        raise ValueError(
+            'universal format 3 requires sequential component transport'
+        )
     firmware = _component(manifest, 'firmware')
     application = _component(manifest, 'application')
     firmware_size = int(firmware.get('size', 0))
@@ -303,7 +363,7 @@ async def receive_bundle(
             raise ValueError('universal application metadata does not match the inner bundle')
         if not firmware_required and not application_required:
             raise ValueError('universal update is not newer than the installed release')
-    except Exception:
+    except Exception as exc:
         if application_staged:
             try:
                 app_update.discard_pending_update()
@@ -316,28 +376,32 @@ async def receive_bundle(
                 pass
         _remove(STATE_PATH)
         update_support.record_update_event(
-            'universal', 'rejected', str(manifest.get('version', ''))
+            'universal', 'rejected', str(manifest.get('version', '')),
+            detail=str(exc)
         )
         raise
 
-    state = {
-        'status': 'ready',
-        'version': str(manifest.get('version', '')),
-        'release_sequence': int(manifest.get('release_sequence', 0)),
-        'firmware_version': str(firmware.get('version', '')),
-        'firmware_sequence': int(firmware.get('release_sequence', 0)),
-        'application_version': str(application.get('version', '')),
-        'application_sequence': int(application.get('release_sequence', 0)),
-        'firmware_required': firmware_required,
-        'application_required': application_required,
-        'activation_order': list(manifest.get(
-            'activation_order', ('application', 'firmware')
-        )),
-        'maintenance_required': bool(manifest.get('maintenance_required')),
-        'rollback_policy': str(manifest.get('rollback_policy', 'paired')),
-        'trial_timeout_s': int(manifest.get('trial_timeout_s', 180)),
-    }
-    _write_state(state)
+    state = _state_from_manifest(
+        manifest, firmware_required, application_required
+    )
+    try:
+        _write_state(state)
+    except Exception as exc:
+        if application_staged:
+            try:
+                app_update.discard_pending_update()
+            except Exception:
+                pass
+        if firmware_staged:
+            try:
+                firmware_update.discard_pending_update()
+            except Exception:
+                pass
+        update_support.record_update_event(
+            'universal', 'rejected', state.get('version', ''),
+            detail='state write failed: ' + str(exc)
+        )
+        raise
     update_support.record_update_event(
         'universal', 'staged', state['version']
     )

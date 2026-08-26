@@ -470,7 +470,10 @@ def validate_universal_manifest(
     """Validate a signed manifest binding one core and one application bundle."""
     if bundle_type != 'iotuni':
         raise ValueError('universal update bundle type is invalid')
-    if not isinstance(manifest, dict) or int(manifest.get('format_version', 0)) != 2:
+    if (
+        not isinstance(manifest, dict) or
+        int(manifest.get('format_version', 0)) not in (2, 3)
+    ):
         raise ValueError('unsupported universal update format')
     if str(manifest.get('target_board', '')) != TARGET_BOARD:
         raise ValueError('universal update target board is not supported')

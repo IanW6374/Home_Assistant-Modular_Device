@@ -21,8 +21,8 @@ The administrator explicitly selects one of four certificate routes in the
 first-boot wizard:
 
 1. **IoT CA public certificate provisioning** obtains a browser-trusted portal
-   certificate and a private-CA Device API identity using a one-time
-   `.iotenroll` authorization.
+   certificate and a private-CA Device API identity using an automatic,
+   short-lived enrollment window or a one-time `.iotenroll` authorization.
 2. **Local private-CA ACME** uses the device's `.local` name and HTTP-01 against
    the private IoT CA.
 3. **Manual certificate package** uploads an existing public portal chain/key
@@ -34,14 +34,23 @@ network step remains active unless the administrator completes another route.
 
 ## Automated IoT CA public provisioning
 
-In IoT Certificate Authority, choose **Authorize IoT MD**, enter only the
-portal host label, and download the resulting `.iotenroll` file. The CA appends
-its configured public DNS suffix and derives the corresponding `<host>.local`
-private API name. The authorization expires after 30 minutes and can be
-claimed only once with the same certificate requests.
+For one-step provisioning, configure IoT CA with a server name the device can
+resolve (normally `homeassistant.local`), restart the add-on if that name has
+changed, then enable automatic IoT MD enrollment. The window closes after 15
+minutes. In the device wizard, confirm the same server name and choose
+**Request and install certificates**. The CA accepts only private-LAN requests,
+rate-limits them, audits each authorization and derives both identities from
+the device's `<host>.local` name.
 
-Upload that one file under **IoT CA automatic provisioning** in the device
-wizard. The device pins HTTPS to the private root embedded in the file,
+The first automatic exchange is a trusted-LAN bootstrap because the device
+does not yet possess the private root. The returned authorization pins all
+subsequent enrollment traffic to that root. On an untrusted setup LAN, choose
+**Authorize IoT MD** in IoT CA, enter the portal host label and download the
+resulting `.iotenroll` file instead. That authorization expires after 30
+minutes and can be claimed only once with the same certificate requests.
+
+Upload that one file under the authorization-file fallback in **IoT CA
+automatic provisioning**. The device pins HTTPS to the private root embedded in the file,
 generates independent P-256 keys for the portal, Device API and renewal
 identity, and submits only their CSRs. IoT CA completes Cloudflare DNS-01 for
 the portal CSR and signs the API and renewal CSRs with its private authority.

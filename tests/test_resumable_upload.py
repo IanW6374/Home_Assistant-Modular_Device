@@ -132,6 +132,51 @@ class ResumableUploadTests(unittest.TestCase):
         self.assertEqual(status['received_bytes'], 0)
         self.assertEqual(reclaimed, [('universal', 4096)])
 
+    def test_capacity_check_includes_allocation_rounding_and_metadata_blocks(self):
+        values = (4096, 4096, 10, 4, 4, 0, 0, 0, 255)
+        store = ResumableUploadStore(
+            self.temp.name, maximum_bytes=8192, storage_reserve_bytes=4096
+        )
+        with mock.patch.object(resumable_upload.os, 'statvfs', return_value=values):
+            with self.assertRaisesRegex(ValueError, 'bytes on disk'):
+                store.begin('session-rounded', 'application', 4097, self.digest)
+
+    def test_v220_combined_file_fails_known_device_budget_but_core_fits(self):
+        known_device = (4096, 4096, 992, 479, 479, 0, 0, 0, 255)
+        store = ResumableUploadStore(
+            self.temp.name, maximum_bytes=2 * 1024 * 1024
+        )
+        with mock.patch.object(
+            resumable_upload.os, 'statvfs', return_value=known_device
+        ):
+            with self.assertRaisesRegex(ValueError, 'insufficient storage'):
+                store.begin(
+                    'v220-universal', 'application', 1865009, '1' * 64
+                )
+            status = store.begin(
+                'v220-firmware', 'firmware', 1446302, '2' * 64
+            )
+        self.assertEqual(status['received_bytes'], 0)
+
+    def test_raw_enospc_is_reported_as_a_named_storage_failure(self):
+        self.store.begin(
+            'session-enospc', 'application', len(self.payload), self.digest
+        )
+        real_open = open
+
+        def failing_open(path, mode='r', *args, **kwargs):
+            if mode == 'ab':
+                raise OSError(28)
+            return real_open(path, mode, *args, **kwargs)
+
+        with mock.patch.object(
+            resumable_upload, 'open', side_effect=failing_open, create=True
+        ):
+            with self.assertRaisesRegex(
+                ValueError, 'device storage became full during update upload'
+            ):
+                self.store.append('session-enospc', 0, self.payload)
+
     def test_resuming_same_artifact_preserves_committed_bytes(self):
         self.store.begin('session-resume', 'application', len(self.payload), self.digest)
         self.store.append('session-resume', 0, self.payload[:8])

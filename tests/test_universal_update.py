@@ -324,6 +324,38 @@ class UniversalUpdateTests(unittest.TestCase):
                 application_receiver=application_receiver,
             ))
 
+    def test_final_state_enospc_discards_both_staged_components_and_logs_detail(self):
+        payload = self.package()
+
+        async def firmware_receiver(reader, length, maximum, progress_callback=None):
+            await reader.read(length)
+            return {'version': '2.0.0', 'release_sequence': 40}
+
+        async def application_receiver(
+            reader, length, allow_protected, maximum, progress_callback=None
+        ):
+            await reader.read(length)
+            return {'version': '2.0.0', 'release_sequence': 40}
+
+        with (
+            patch.object(universal_update, '_write_state', side_effect=OSError(28)),
+            patch.object(app_update, 'discard_pending_update') as discard_app,
+            patch.object(firmware_update, 'discard_pending_update') as discard_core,
+            patch.object(update_support, 'record_update_event') as record,
+            self.assertRaises(OSError),
+        ):
+            asyncio.run(universal_update.receive_bundle(
+                AsyncReader(payload), len(payload),
+                firmware_receiver=firmware_receiver,
+                application_receiver=application_receiver,
+            ))
+        discard_app.assert_called_once_with()
+        discard_core.assert_called_once_with()
+        self.assertTrue(any(
+            call.kwargs.get('detail') == 'state write failed: 28'
+            for call in record.call_args_list
+        ))
+
     def test_activation_selects_both_trials(self):
         Path(universal_update.STATE_PATH).write_text(json.dumps({
             'status': 'ready', 'version': '2.0.0',
@@ -424,7 +456,7 @@ class UniversalUpdateTests(unittest.TestCase):
         )
         self.assertEqual(manifest['application']['release_sequence'], 40)
         self.assertEqual(manifest['firmware']['release_sequence'], 40)
-        self.assertEqual(manifest['format_version'], 2)
+        self.assertEqual(manifest['format_version'], 3)
         self.assertEqual(manifest['rollback_policy'], 'paired')
         with Path('universal.iotuni').open('rb') as stream:
             self.assertEqual(stream.read(6), universal_update.MAGIC)
@@ -457,8 +489,8 @@ class UniversalUpdateTests(unittest.TestCase):
             signing_key=self.private_key, release_sequence=40,
             minimum_core_api=1,
         )
-        with patch('tools.build_universal_update.MAX_DEVICE_SAFE_BYTES', 1):
-            with self.assertRaisesRegex(ValueError, 'device-safe staging budget'):
+        with patch('tools.build_universal_update.MAX_DEVICE_COMPONENT_BYTES', 1):
+            with self.assertRaisesRegex(ValueError, 'sequential staging budget'):
                 build_universal_bundle(
                     Path('universal.iotuni'), Path('application.iotapp'),
                     Path('firmware.iotcore'), '2.0.0', 40, self.private_key

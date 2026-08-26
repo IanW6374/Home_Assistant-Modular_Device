@@ -16,12 +16,17 @@ try:
     import uos as os
 except ImportError:
     import os
+try:
+    import ussl as ssl
+except ImportError:
+    import ssl
 import time
 
 import certificate_manager
 from certificate_codec import (
     _b64decode, _csr, _ec_private_key_der, _iso_epoch, _new_private_key,
 )
+from device_modules.logging import log_output
 
 
 PROTOCOL = 'iotmd-enrollment-v1'
@@ -46,6 +51,72 @@ def _write(path, payload):
 
 def _b64(value):
     return binascii.b2a_base64(bytes(value)).decode().strip()
+
+
+def _failure_message(exc, endpoint=''):
+    """Turn port-specific socket errors into an actionable setup message."""
+    detail = str(exc).strip()
+    values = getattr(exc, 'args', ())
+    code = values[0] if values else None
+    if code in (-202, 202) or detail in ('-202', '[Errno -202]'):
+        host = str(endpoint or '').split('://')[-1].split('/', 1)[0]
+        return (
+            'Could not resolve the IoT CA server' +
+            ((' (' + host + ')') if host else '') +
+            '. Check the CA DNS name and the DNS server supplied to this device.'
+        )
+    return detail or exc.__class__.__name__
+
+
+def _auto_server(value):
+    server = str(value or '').strip().lower().rstrip('.')
+    if (
+        not server or len(server) > 253 or '..' in server or
+        any(character not in 'abcdefghijklmnopqrstuvwxyz0123456789-.'
+            for character in server) or
+        any(not label or label.startswith('-') or label.endswith('-') or len(label) > 63
+            for label in server.split('.'))
+    ):
+        raise ValueError('IoT CA server name is invalid')
+    return server
+
+
+def _bootstrap_tls_context():
+    """Create the deliberately unpinned context used only during opt-in LAN pairing.
+
+    The returned authorization embeds the private CA root. Every certificate
+    request after this bootstrap exchange is verified against that root.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    if hasattr(context, 'check_hostname'):
+        context.check_hostname = False
+    if hasattr(context, 'verify_mode') and hasattr(ssl, 'CERT_NONE'):
+        context.verify_mode = ssl.CERT_NONE
+    return context
+
+
+async def automatic_package(server, expected_api_hostname):
+    """Request a short-lived host authorization during an enabled CA window."""
+    server = _auto_server(server)
+    endpoint = 'https://' + server + ':9010'
+    body = json.dumps({
+        'api_hostname': str(expected_api_hostname).strip().lower().rstrip('.')
+    }, separators=(',', ':')).encode()
+    status, _headers, payload = await certificate_manager._response(
+        endpoint + '/v1/auto-enrollments', 'POST', '', body,
+        'application/json', 'application/json', (), _bootstrap_tls_context()
+    )
+    try:
+        value = json.loads(payload.decode()) if payload else {}
+    except Exception:
+        raise ValueError('IoT CA automatic enrollment returned an invalid response')
+    if status < 200 or status >= 300:
+        raise ValueError(str(value.get(
+            'error', 'IoT CA automatic enrollment failed: HTTP ' + str(status)
+        )))
+    encoded = json.dumps(value, separators=(',', ':')).encode()
+    _package(encoded, expected_api_hostname)
+    return encoded
 
 
 def _package(payload, expected_api_hostname):
@@ -227,11 +298,77 @@ async def install(payload, config, paths, connect_station, validate, status):
         ):
             raise RuntimeError('IoT CA certificate settings were not preserved')
     except Exception as exc:
+        log_output(
+            'Local', 'IoT CA enrollment', {'log': 'Failed - ' + str(exc)}, 'ERROR'
+        )
         status['status'] = 'error'
-        status['message'] = 'Setup failed: ' + str(exc)
+        endpoint = ''
+        try:
+            endpoint = _package(payload, config['certificate']['hostname']).get('endpoint', '')
+        except Exception:
+            pass
+        status['message'] = 'Setup failed: ' + _failure_message(exc, endpoint)
     else:
         status['status'] = 'complete'
         status['mode'] = 'iot_ca'
         status['message'] = (
             'IoT CA certificates installed until ' + str(result.get('not_after', ''))
         )
+
+
+async def automatic_install(server, config, paths, connect_station, validate, status):
+    """Obtain the one-time authorization and complete enrollment in one operation."""
+    payload = b''
+    endpoint = 'https://' + str(server).strip() + ':9010'
+    try:
+        status['message'] = 'Connecting to the home Wi-Fi'
+        hostname = config['certificate']['hostname']
+        await connect_station(
+            config['wifi']['ssid'], config['wifi']['password'], hostname=hostname,
+            wifi=config['wifi']
+        )
+        status['message'] = 'Requesting a host-bound authorization from IoT CA'
+        payload = await automatic_package(server, hostname)
+        result = await enroll(
+            payload, hostname, paths,
+            lambda message: status.__setitem__('message', str(message))
+        )
+        certificate_manager.commit_certificate_files(
+            result['pairs'], validator=lambda: validate(
+                True, paths['portal-cert'], paths['portal-key'], paths['trust-ca'],
+                paths['api-server-cert'], paths['api-server-key'],
+            )
+        )
+        saved = __import__('credential_store').update_certificate_settings(
+            'iot_ca', result.get('endpoint', ''), hostname,
+            portal_hostname=result['portal_hostname']
+        )
+        if (
+            saved.get('mode') != 'iot_ca' or
+            saved.get('portal_hostname') != result['portal_hostname']
+        ):
+            raise RuntimeError('IoT CA certificate settings were not preserved')
+    except Exception as exc:
+        log_output(
+            'Local', 'IoT CA auto enrollment', {'log': 'Failed - ' + str(exc)},
+            'ERROR'
+        )
+        status['status'] = 'error'
+        status['message'] = 'Setup failed: ' + _failure_message(exc, endpoint)
+    else:
+        status['status'] = 'complete'
+        status['mode'] = 'iot_ca'
+        status['message'] = (
+            'IoT CA certificates installed until ' + str(result.get('not_after', ''))
+        )
+
+
+def start_automatic(server, config, paths, connect_station, validate, status):
+    """Record the operation before scheduling it so concurrent starts are rejected."""
+    status.update({
+        'status': 'running', 'mode': 'iot_ca',
+        'message': 'Requesting automatic IoT CA enrollment',
+    })
+    return asyncio.create_task(automatic_install(
+        server, config, paths, connect_station, validate, status
+    ))

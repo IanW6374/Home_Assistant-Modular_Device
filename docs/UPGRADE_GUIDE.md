@@ -41,11 +41,22 @@ All three upload types are resumable. Retrying the same `.iotapp`, `.iotcore` or
 `.iotuni` continues from its last committed 64 KiB chunk; selecting a different
 artifact discards the interrupted upload and reclaims its storage. The portal
 rejects an artifact before accepting bytes when the complete upload cannot fit
-with the required storage reserve. When a completed universal upload leaves too
-little space for application staging, the updater may reclaim the inactive
-application generation. v2.1.1 also releases each consumed LittleFS source
-block while compacting the application tail. The active generation is never
-removed.
+with the required storage reserve.
+
+Universal format 3 does not store the combined container on the device. The
+browser submits its small signed outer manifest first; the device then accepts
+the exact signed core and application bundles sequentially. The core is written
+and read-back verified in the inactive OTA partition before the application is
+adopted in place. Only after both required components match the signed outer
+version, release sequence, size and SHA-256 values does the device expose paired
+activation. The persistent plan and normal resumable offsets survive a browser
+refresh or interrupted connection.
+
+The one-time transition from a core/application that predates sequential
+transport requires the new `.iotapp` first. Restart and confirm that application,
+then upload the matching `.iotuni`; the portal skips the already-installed
+application and stages the core from the universal container. Once that core is
+confirmed, later format-3 `.iotuni` releases can upgrade both components directly.
 
 Do not interrupt power during core activation. A rejected or failed artifact
 must remain visibly failed in the portal; consult the structured log for its
@@ -54,35 +65,35 @@ reason.
 ## Production build
 
 Build only from a clean, tested commit. This example uses production version
-`2.2.0` and release sequence `2400`:
+`2.2.1` and release sequence `2401`:
 
 ```sh
-python3 tools/build_update.py releases/v2.2.0/application-2.2.0.iotapp \
-  --version 2.2.0 --release-sequence 2400 \
+python3 tools/build_update.py releases/v2.2.1/application-2.2.1.iotapp \
+  --version 2.2.1 --release-sequence 2401 \
   --signing-key /secure/update.signing-key \
   --mpy-cross /path/to/micropython/mpy-cross/build/mpy-cross
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.2.0 --release-sequence 2400 \
-  --output releases/v2.2.0/iotmd-core-2.2.0.iotcore \
-  --factory-output /secure-output/iotmd-core-2.2.0.factory.bin \
+  --version 2.2.1 --release-sequence 2401 \
+  --output releases/v2.2.1/iotmd-core-2.2.1.iotcore \
+  --factory-output /secure-output/iotmd-core-2.2.1.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
   --factory-setup-password-output /secure-output/device-v2.1.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.2.0/universal-2.2.0.iotuni \
-  --application releases/v2.2.0/application-2.2.0.iotapp \
-  --firmware releases/v2.2.0/iotmd-core-2.2.0.iotcore \
-  --version 2.2.0 --release-sequence 2400 \
+  releases/v2.2.1/universal-2.2.1.iotuni \
+  --application releases/v2.2.1/application-2.2.1.iotapp \
+  --firmware releases/v2.2.1/iotmd-core-2.2.1.iotcore \
+  --version 2.2.1 --release-sequence 2401 \
   --signing-key /secure/update.signing-key
 ```
 
 Production application bundles compile importable modules to `.mpy` bytecode.
-The entry point and source-provenance module remain readable Python. This keeps
-the combined universal artifact inside the guarded 2 MiB device staging budget;
-the universal builder rejects larger artifacts before they can be published.
+The entry point and source-provenance module remain readable Python. The
+universal builder enforces a 1.5 MiB limit on each sequential component rather
+than claiming that an arbitrary combined size is safe on a populated filesystem.
 
 Generate SBOM and provenance with `tools/generate_sbom.py` and
 `tools/generate_provenance.py`. Store private keys and setup-password outputs
@@ -96,8 +107,8 @@ logs. Use the exact serial device and acknowledge erasure explicitly:
 ```sh
 python3 tools/reseed_device_usb.py \
   --device /dev/cu.usbmodemXXXX \
-  --bundle releases/v2.2.0/iotmd-core-2.2.0.iotcore \
-  --application-bundle releases/v2.2.0/application-2.2.0.iotapp \
+  --bundle releases/v2.2.1/iotmd-core-2.2.1.iotcore \
+  --application-bundle releases/v2.2.1/application-2.2.1.iotapp \
   --micropython-root /path/to/micropython \
   --setup-password-file /secure-output/device-v2.1.setup-password.txt \
   --update-signing-key /secure/update.signing-key \

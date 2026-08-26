@@ -281,6 +281,13 @@ def run():
     cleanup = getattr(universal_update, 'cleanup_interrupted', None)
     if cleanup:
         cleanup()
+    try:
+        import universal_upload
+        cleanup = getattr(universal_upload, 'cleanup_interrupted', None)
+        if cleanup:
+            cleanup()
+    except ImportError:
+        pass
     certificate_manager.recover_certificate_transaction()
     firmware_state = firmware_update.boot_status() or {}
     if firmware_state.get('status') == 'rolled_back':

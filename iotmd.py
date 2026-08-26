@@ -13,8 +13,10 @@ import json
 import credential_security
 import credential_store
 import app_update
+import application_upload
 import firmware_update
 import universal_update
+import universal_upload
 import hardware_platform
 import recovery_boot
 import update_security
@@ -2181,16 +2183,11 @@ async def fleet_policy_monitor():
 async def portal_update_upload(reader, content_length, params):
     if not web_portal_updates_enabled:
         raise ValueError('application updates are disabled')
-    state = await app_update.receive_bundle(
-        reader,
-        content_length,
+    return await application_upload.receive_for_portal(
+        reader, content_length,
         web_portal_allow_protected_updates,
         web_portal_update_max_bytes,
         progress_callback=params.get('_progress')
-    )
-    return (
-        'Update ' + str(state.get('version', '')) +
-        ' uploaded and verified; choose overwrite options before activation'
     )
 
 
@@ -2262,7 +2259,8 @@ async def complete_portal_update(identifier, progress_callback=None):
         status = update_service.status(identifier)
         if isinstance(status, dict):
             kind = status.get('kind', kind)
-        return await update_service.complete(identifier, progress_callback)
+        return universal_upload.completed_result(identifier, kind,
+            await update_service.complete(identifier, progress_callback))
     except Exception as exc:
         record_upgrade_failure(kind, 'verification or staging', exc)
         raise
@@ -2481,10 +2479,12 @@ async def start_admin_portal():
             'modules.list': module_summaries,
             'actions.apply': portal_action,
             'updates.preferences.apply': update_release_preferences,
-            'updates.upload.begin': update_service.begin,
+            'updates.upload.begin': lambda request: universal_upload.begin(update_service.begin, request),
             'updates.upload.status': update_service.status,
             'updates.upload.append': update_service.append,
             'updates.upload.complete': complete_portal_update,
+            'updates.universal.prepare': universal_upload.prepare,
+            'updates.universal.finalize': universal_upload.finalize,
             'configuration.backup': configuration_backup,
             'configuration.preview': preview_configuration_import,
             'configuration.apply': apply_configuration_import,

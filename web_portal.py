@@ -43,7 +43,6 @@ async def start_web_portal(portal):
     """Start the portal transport from one explicit application contract."""
     if asyncio is None:
         return None
-
     settings = portal.settings
     log_getter = portal.require('logs.get')
     audit_log_getter = portal.get('audit.get') or (lambda: [])
@@ -83,7 +82,6 @@ async def start_web_portal(portal):
     restart_status_getter = portal.get('restart.status')
     restart_request_handler = portal.get('restart.request')
     shutdown_request_handler = portal.get('shutdown.request')
-
     username = settings.get('username', 'admin') or 'admin'
     password_verifier = settings.get('password_verifier', '')
     authenticator = settings.get('authenticator')
@@ -114,7 +112,6 @@ async def start_web_portal(portal):
     module_snapshot = TimedSnapshot(module_getter, 1000, [])
     secure_cookie = settings.get('https', False)
     login_url = settings.get('login_url', '/login')
-
     async def send_raw_response(
         writer, status, body, content_type='text/html; charset=utf-8',
         extra_headers=None, keep_alive=False
@@ -122,13 +119,11 @@ async def start_web_portal(portal):
         await write_buffered_response(
             writer, status, body, content_type, extra_headers, keep_alive
         )
-
     async def send_log_download(writer, lines, filename):
         await send_raw_response(
             writer, '200 OK', render_log_text(lines), 'text/plain; charset=utf-8',
             (('Content-Disposition', 'attachment; filename="' + filename + '"'),)
         )
-
     async def send_redirect(writer, location, extra_headers=None):
         headers = [('Location', location)]
         if extra_headers:
@@ -943,6 +938,12 @@ async def start_web_portal(portal):
                         )
                     else:
                         await send_response(writer, '200 OK', json.dumps(result), 'application/json')
+            elif method == 'POST' and route in (
+                '/universal-upload-prepare', '/universal-upload-finalize'
+            ):
+                await apply_universal_upload_action(
+                    writer, send_response, body, route, portal, log_output
+                )
             elif method == 'GET' and route == '/resumable-upload-status':
                 if resumable_status is None:
                     await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')

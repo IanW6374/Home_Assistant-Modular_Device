@@ -458,6 +458,7 @@ class AppUpdateTests(unittest.TestCase):
         Path('component_versions.py').write_text('RUNTIME_VERSION=1\n')
         for name in (
             'settings_loader.py', 'hardware_platform.py', 'display.py',
+            'application_upload.py',
             'web_portal_ui.py', 'web_portal.py',
             'release_update.py', 'certificate_manager.py', 'certificate_status.py',
             'portal_http.py', 'portal_live_views.py',
@@ -468,6 +469,7 @@ class AppUpdateTests(unittest.TestCase):
             'resumable_upload.py', 'support_bundle.py',
             'message_broker.py', 'runtime_health.py', 'remote_logging.py',
             'timezone_rules.py', 'update_orchestrator.py',
+            'universal_upload.py',
             'device_modules/__init__.py', 'device_modules/loader.py',
             'device_modules/driver_index.py',
             'device_modules/contracts.py', 'device_modules/resources.py',

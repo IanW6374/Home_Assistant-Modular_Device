@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.2.1 - 2026-08-26
+
+- Replace file-backed combined universal staging with a signed sequential
+  transport: validate the outer `.iotuni` manifest, then upload and verify its
+  signed core and application components one at a time before paired activation.
+- Reduce the measured v2.2.0 filesystem peak from 1,974,272 bytes to 1,556,480
+  bytes on the device's 4096-byte FAT allocation units.
+- Adopt completed resumable application bundles in place instead of creating a
+  second full temporary copy.
+- Include filesystem allocation rounding and metadata work blocks in update
+  preflight checks, and translate raw error 28 into a named storage failure.
+- Persist the universal component plan so a browser refresh or interrupted
+  component upload resumes without weakening signed size, digest, version or
+  release-sequence binding.
+- Record the original universal rejection detail, including final state-write
+  failures, in update history.
+- Add one-step IoT CA certificate provisioning from an explicitly enabled CA
+  enrollment window while retaining the one-time authorization-file fallback.
+- Correct certificate filename wrapping throughout first boot, and display
+  enrollment failures in a red status box with actionable DNS error text.
+
 ## 2.2.0 - 2026-08-26
 
 - Add a host-bound IoT CA enrollment workflow to first boot while retaining

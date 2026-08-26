@@ -257,6 +257,43 @@ def log_upgrade_upload_failure(log_output, phase, exc):
         'ERROR'
     )
 
+
+async def apply_json_upload_action(
+    writer, send_response, body, callback, field, unavailable, phase, log_output
+):
+    """Apply one small JSON update action with a consistent HTTP contract."""
+    if callback is None:
+        await send_response(
+            writer, '503 Service Unavailable', unavailable, 'text/plain'
+        )
+        return
+    try:
+        request = json.loads(body.decode())
+        result = callback(request.get(field, {} if field == 'manifest' else ''))
+    except Exception as exc:
+        log_upgrade_upload_failure(log_output, phase, exc)
+        await send_response(writer, '400 Bad Request', str(exc), 'text/plain')
+    else:
+        await send_response(
+            writer, '200 OK', json.dumps(result), 'application/json'
+        )
+
+
+async def apply_universal_upload_action(
+    writer, send_response, body, route, portal, log_output
+):
+    preparing = str(route).endswith('prepare')
+    await apply_json_upload_action(
+        writer, send_response, body,
+        portal.get(
+            'updates.universal.prepare' if preparing
+            else 'updates.universal.finalize'
+        ),
+        'manifest' if preparing else 'id',
+        'Sequential universal uploads are unavailable',
+        'universal prepare' if preparing else 'universal finalize', log_output
+    )
+
 def query_value(path, key, default=''):
     return parse_query(path).get(key, default)
 

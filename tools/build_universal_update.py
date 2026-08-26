@@ -22,7 +22,7 @@ except ImportError:
 
 
 MAGIC = b'IOTU1\n'
-MAX_DEVICE_SAFE_BYTES = 2 * 1024 * 1024
+MAX_DEVICE_COMPONENT_BYTES = 1536 * 1024
 
 
 def _component(path, expected_type, signing_key):
@@ -87,7 +87,7 @@ def build_universal_bundle(
     if trial_timeout_s < 30 or trial_timeout_s > 3600:
         raise ValueError('universal trial timeout is invalid')
     manifest_object = {
-        'format_version': 2,
+        'format_version': 3,
         'target_board': 'esp32-s3',
         'version': str(version),
         'release_sequence': release_sequence,
@@ -111,16 +111,16 @@ def build_universal_bundle(
         'iotuni', manifest_object, signing_key
     )
     manifest = json.dumps(manifest_object, separators=(',', ':')).encode()
-    bundle_size = (
-        len(MAGIC) + 4 + len(manifest) +
-        firmware['size'] + application['size']
-    )
-    if bundle_size > MAX_DEVICE_SAFE_BYTES:
-        raise ValueError(
-            'universal bundle requires ' + str(bundle_size) +
-            ' bytes and exceeds the ' + str(MAX_DEVICE_SAFE_BYTES) +
-            '-byte device-safe staging budget; rebuild the application with --mpy-cross'
-        )
+    for name, component in (
+        ('firmware', firmware), ('application', application)
+    ):
+        if component['size'] > MAX_DEVICE_COMPONENT_BYTES:
+            raise ValueError(
+                'universal ' + name + ' component requires ' +
+                str(component['size']) + ' bytes and exceeds the ' +
+                str(MAX_DEVICE_COMPONENT_BYTES) +
+                '-byte sequential staging budget'
+            )
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open('wb') as stream:

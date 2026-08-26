@@ -40,7 +40,6 @@ from setup_workflow import (
     _validate_certificate_files, _validate_certificate_selection,
     _validate_certificates, _write_certificate,
 )
-
 try:
     import uos as os
 except ImportError:
@@ -58,8 +57,6 @@ def _parse_request_line(line):
     if len(parts) != 3 or not parts[2].startswith('HTTP/'):
         return '', ''
     return parts[0], parts[1].split('?', 1)[0]
-
-
 async def _read_body(reader, length, maximum):
     return await http_support.read_exact_body(reader, length, maximum)
 
@@ -118,7 +115,6 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
     enrollment = {'status': 'idle', 'message': '', 'mode': ''}
     upload_progress = {'phase': 'idle', 'percent': 0}
     enrollment_task = None
-
     async def send(writer, status, body, content_type='text/html; charset=utf-8', headers=()):
         payload = body.encode() if isinstance(body, str) else body
         cache_control = (
@@ -134,7 +130,6 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
             name + ': ' + value + '\r\n' for name, value in response_headers
         ) + '\r\n').encode() + payload)
         await writer.drain()
-
     async def handle(reader, writer):
         nonlocal enrollment_task
         reboot = False
@@ -220,7 +215,7 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 elif enrollment['status'] == 'error':
                     await send(writer, '400 Bad Request', _certificate_page(
                         session, config['certificate']['hostname'], enrollment['message'],
-                        config['certificate']['mode'] == 'self_signed'
+                        config['certificate']['mode'] == 'self_signed', True
                     ))
                 else:
                     await send(writer, '200 OK', _certificate_resume_page(session, config))
@@ -283,6 +278,23 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                         _validate_certificates, enrollment
                     )
                 )
+            elif method == 'POST' and path == '/iot-ca-auto-enrollment':
+                if enrollment['status'] == 'running':
+                    await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
+                    return
+                length = int(headers.get('content-length', '0') or 0)
+                body = await _read_body(reader, length, MAX_FORM_BYTES)
+                params = wifi_recovery._form(body.decode())
+                if params.get('csrf') != session:
+                    await send(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
+                    return
+                server = iot_ca_enrollment._auto_server(params.get('ca_server', ''))
+                config = credential_store.load()
+                enrollment_task = iot_ca_enrollment.start_automatic(
+                    server, config, CERTIFICATE_PATHS, _connect_station,
+                    _validate_certificates, enrollment
+                )
+                await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
             elif method == 'POST' and path == '/manual-certificates':
                 length = int(headers.get('content-length', '0') or 0)
                 body = await _read_body(reader, length, MAX_CERTIFICATE_FORM_BYTES)
@@ -380,7 +392,6 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 config = credential_store.load()
                 _validate_certificate_files(config['certificate']['mode'])
                 length = int(headers.get('content-length', '0') or 0)
-
                 async def report_upload_progress(phase, completed=0, total=0):
                     total = int(total or 0)
                     upload_progress['phase'] = str(phase)
@@ -388,7 +399,6 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                         max(0, min(100, int(int(completed or 0) * 100 / total)))
                         if total else 0
                     )
-
                 state = await app_update.receive_bundle(
                     reader, length, False, app_update.DEFAULT_MAX_BUNDLE_BYTES,
                     progress_callback=report_upload_progress
@@ -433,7 +443,6 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 # Restore the setup network so bad Wi-Fi credentials can be
                 # corrected without USB recovery.
                 access_point.active(True)
-
     server = await asyncio.start_server(handle, '0.0.0.0', int(port), backlog=2)
     while True:
         await asyncio.sleep(60)

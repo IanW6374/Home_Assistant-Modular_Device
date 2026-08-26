@@ -39,6 +39,8 @@ ROUTES = {
     '/resumable-upload-status': ('operator', 'updates'),
     '/resumable-upload-chunk': ('operator', 'updates'),
     '/resumable-upload-complete': ('operator', 'updates'),
+    '/universal-upload-prepare': ('operator', 'updates'),
+    '/universal-upload-finalize': ('operator', 'updates'),
     '/acme-settings': ('administrator', 'system'),
     '/certificate-upload': ('administrator', 'maintenance'),
     '/certificates': ('administrator', 'maintenance'),

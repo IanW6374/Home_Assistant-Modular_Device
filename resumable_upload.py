@@ -25,6 +25,7 @@ FORMAT_VERSION = 1
 ALLOWED_KINDS = ('application', 'firmware', 'universal')
 MAX_CHUNK_BYTES = 64 * 1024
 DEFAULT_STORAGE_RESERVE_BYTES = 96 * 1024
+METADATA_WORK_BLOCKS = 2
 
 
 def _hex_digest(hasher):
@@ -47,6 +48,19 @@ def _mkdir(path):
         os.mkdir(path)
     except OSError:
         pass
+
+
+def _storage_error(exc, operation):
+    code = None
+    try:
+        code = exc.args[0]
+    except Exception:
+        pass
+    if code == 28 or str(exc).strip() in ('28', '[Errno 28]'):
+        return ValueError(
+            'device storage became full during update ' + str(operation)
+        )
+    return exc
 
 
 class ResumableUploadStore:
@@ -153,16 +167,26 @@ class ResumableUploadStore:
                     break
 
     def _require_upload_space(self, required):
-        required = max(0, int(required)) + self.storage_reserve_bytes
+        required = max(0, int(required))
         try:
             values = os.statvfs(self.directory)
-            free = int(values[0]) * int(values[4])
+            block_size = max(1, int(values[0]))
+            free = block_size * int(values[4])
         except Exception:
             return
-        if free < required:
+        allocated = (
+            (required + block_size - 1) // block_size
+        ) * block_size
+        reserve = (
+            (self.storage_reserve_bytes + block_size - 1) // block_size
+        ) * block_size
+        required_on_disk = (
+            allocated + reserve + METADATA_WORK_BLOCKS * block_size
+        )
+        if free < required_on_disk:
             raise ValueError(
                 'insufficient storage for resumable upload: need ' +
-                str(required) + ' bytes, have ' + str(free)
+                str(required_on_disk) + ' bytes on disk, have ' + str(free)
             )
 
     def _ensure_upload_space(self, required, kind):
@@ -233,9 +257,13 @@ class ResumableUploadStore:
             '_metadata_path': metadata_path,
             '_payload_path': payload_path,
         }
-        with open(payload_path, 'wb'):
-            pass
-        self._write_metadata(value)
+        try:
+            with open(payload_path, 'wb'):
+                pass
+            self._write_metadata(value)
+        except OSError as exc:
+            self.remove(identifier)
+            raise _storage_error(exc, 'initialization')
         return self.status(identifier)
 
     def append(self, identifier, offset, payload):
@@ -251,10 +279,13 @@ class ResumableUploadStore:
             raise ValueError('upload chunk offset does not match received bytes')
         if received + len(payload) > int(value['total_bytes']):
             raise ValueError('upload chunk exceeds declared size')
-        with open(value['_payload_path'], 'ab') as stream:
-            stream.write(payload)
-        value['received_bytes'] = received + len(payload)
-        self._write_metadata(value)
+        try:
+            with open(value['_payload_path'], 'ab') as stream:
+                stream.write(payload)
+            value['received_bytes'] = received + len(payload)
+            self._write_metadata(value)
+        except OSError as exc:
+            raise _storage_error(exc, 'upload')
         return self.status(identifier)
 
     def complete(self, identifier):
@@ -272,7 +303,10 @@ class ResumableUploadStore:
         if actual != value['sha256']:
             raise ValueError('upload SHA-256 verification failed')
         value['complete'] = True
-        self._write_metadata(value)
+        try:
+            self._write_metadata(value)
+        except OSError as exc:
+            raise _storage_error(exc, 'verification')
         result = self.status(identifier)
         result['path'] = value['_payload_path']
         return result

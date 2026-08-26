@@ -32,6 +32,54 @@ class IoTCAEnrollmentTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'another device hostname'):
             iot_ca_enrollment._package(self.package(), 'other.local')
 
+    def test_dns_failure_is_reported_with_endpoint_context(self):
+        error = OSError(-202)
+        self.assertEqual(
+            iot_ca_enrollment._failure_message(
+                error, 'https://iot-ca.home.arpa:9010/v1/enrollments/one'
+            ),
+            'Could not resolve the IoT CA server (iot-ca.home.arpa:9010). '
+            'Check the CA DNS name and the DNS server supplied to this device.',
+        )
+
+    def test_automatic_package_is_host_bound_and_uses_bootstrap_only_once(self):
+        async def scenario():
+            calls = []
+
+            async def response(url, method, ca_path, body=b'', content_type='',
+                               accept='', extra_headers=(), tls_context=None):
+                calls.append((
+                    url, method, ca_path, json.loads(body), content_type,
+                    tls_context.verify_mode,
+                ))
+                return 201, {}, self.package()
+
+            with mock.patch.object(
+                iot_ca_enrollment.certificate_manager, '_response', response
+            ):
+                payload = await iot_ca_enrollment.automatic_package(
+                    'homeassistant.local', 'device.local'
+                )
+            self.assertEqual(json.loads(payload)['api_hostname'], 'device.local')
+            self.assertEqual(calls[0][0], (
+                'https://homeassistant.local:9010/v1/auto-enrollments'
+            ))
+            self.assertEqual(calls[0][1:5], (
+                'POST', '', {'api_hostname': 'device.local'}, 'application/json'
+            ))
+            self.assertEqual(calls[0][5], iot_ca_enrollment.ssl.CERT_NONE)
+
+        asyncio.run(scenario())
+
+    def test_automatic_server_rejects_urls_and_invalid_labels(self):
+        self.assertEqual(
+            iot_ca_enrollment._auto_server('HomeAssistant.Local.'),
+            'homeassistant.local',
+        )
+        for value in ('https://homeassistant.local', '-ca.local', 'ca..local'):
+            with self.assertRaisesRegex(ValueError, 'server name is invalid'):
+                iot_ca_enrollment._auto_server(value)
+
     def test_device_generates_three_distinct_usage_bound_csrs_and_keeps_keys(self):
         async def scenario():
             requests = []

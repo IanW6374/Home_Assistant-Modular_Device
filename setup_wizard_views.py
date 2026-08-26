@@ -14,7 +14,7 @@ from setup_workflow import (
 
 HTTPS_PORT = 8443
 HTTP_PORT = 8080
-SETUP_ASSET_VERSION = '8'
+SETUP_ASSET_VERSION = '9'
 SELF_SIGNED_READY_MESSAGE = (
     'Self-signed HTTPS is ready. Choose ACME, manual certificates, or the explicit fallback.'
 )
@@ -224,10 +224,11 @@ def _upload_page(csrf, message=''):
     )
     return body
 
-def _certificate_page(csrf, hostname='', message='', ready=False):
+def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
     self_signed_ready = ready and message == SELF_SIGNED_READY_MESSAGE
     notice = (
-        '<p class="notice" role="status">' + _escape(message) + '</p>'
+        '<p class="' + ('error' if error else 'notice') + '" role="' +
+        ('alert' if error else 'status') + '">' + _escape(message) + '</p>'
         if message and not self_signed_ready else ''
     )
     heading_badge = (
@@ -256,18 +257,29 @@ def _certificate_page(csrf, hostname='', message='', ready=False):
             'Keep the generated HTTPS certificate or replace it using IoT CA, ACME, or manual files.',
             heading_badge
         ) + notice + introduction +
-        '<form class="card" action="/iot-ca-enrollment" method="post" enctype="multipart/form-data">'
+        '<section class="card">'
         '<div class="section-title"><h2>IoT CA automatic provisioning</h2></div>'
+        '<p>When automatic IoT MD enrollment is enabled in IoT CA, this device can request its '
+        'host-bound authorization and complete the whole certificate process. The device generates '
+        'all private keys locally; Cloudflare credentials remain on IoT CA. Use automatic '
+        'enrollment only on a trusted setup LAN.</p>'
+        '<form action="/iot-ca-auto-enrollment" method="post">'
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
-        '<p>Upload the short-lived host authorization downloaded from IoT CA. The device generates '
-        'all private keys locally and sends only signed certificate requests. Cloudflare credentials '
-        'remain on IoT CA.</p>'
-        '<label class="field">IoT CA enrollment file (<code>.iotenroll</code>)'
-        '<input id="iot-ca-enrollment" name="enrollment_file" type="file" '
-        'accept=".iotenroll,application/vnd.iotmd.enrollment+json" required></label>'
+        '<label class="field">IoT CA server name<span class="field-hint">The Home Assistant '
+        'host running IoT CA. Port 9010 is used.</span><input name="ca_server" required '
+        'maxlength="253" value="homeassistant.local" placeholder="homeassistant.local"></label>'
         '<label class="field">Private Device API hostname<input value="' +
         _escape(hostname) + '" readonly></label>'
-        '<button id="iot-ca-enroll" type="submit">Provision certificates from IoT CA</button></form>'
+        '<button id="iot-ca-auto-enroll" type="submit">Request and install certificates</button>'
+        '</form><details><summary>Use a one-time authorization file instead</summary>'
+        '<form action="/iot-ca-enrollment" method="post" enctype="multipart/form-data">'
+        '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
+        '<label class="field">IoT CA enrollment file'
+        '<span class="field-hint">Expected filename: <code>device.iotenroll</code></span>'
+        '<input id="iot-ca-enrollment" name="enrollment_file" type="file" '
+        'accept=".iotenroll,application/vnd.iotmd.enrollment+json" required></label>'
+        '<button id="iot-ca-enroll" type="submit">Provision from authorization file</button>'
+        '</form></details></section>'
         '<form class="card" action="/enroll-certificate" method="post" enctype="multipart/form-data">'
         '<div class="section-title"><h2>Direct private-CA ACME enrollment</h2></div>'
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
@@ -287,10 +299,10 @@ def _certificate_page(csrf, hostname='', message='', ready=False):
         '<label class="field">Home IoT trusted CA certificate<input name="trust_ca" type="file" required></label>'
         '<label class="field">Public portal DNS hostname<input id="portal-public-hostname" name="portal_hostname" '
         'required maxlength="253" placeholder="device.example.com"></label>'
-        '<label class="field">Public portal certificate chain (<code>web.crt.pem</code>)<input id="portal-cert" name="portal_cert" type="file" accept=".pem,application/x-pem-file" required></label>'
-        '<label class="field">Public portal private key (<code>web.key.der</code>)<input id="portal-key" name="portal_key" type="file" required></label>'
-        '<label class="field">Private Device API certificate (<code>api-server.crt.der</code>)<input id="api-server-cert" name="api_server_cert" type="file" required></label>'
-        '<label class="field">Private Device API key (<code>api-server.key.der</code>)<input id="api-server-key" name="api_server_key" type="file" required></label>'
+        '<label class="field">Public portal certificate chain<span class="field-hint">Expected filename: <code>web.crt.pem</code></span><input id="portal-cert" name="portal_cert" type="file" accept=".pem,application/x-pem-file" required></label>'
+        '<label class="field">Public portal private key<span class="field-hint">Expected filename: <code>web.key.der</code></span><input id="portal-key" name="portal_key" type="file" required></label>'
+        '<label class="field">Private Device API certificate<span class="field-hint">Expected filename: <code>api-server.crt.der</code></span><input id="api-server-cert" name="api_server_cert" type="file" required></label>'
+        '<label class="field">Private Device API key<span class="field-hint">Expected filename: <code>api-server.key.der</code></span><input id="api-server-key" name="api_server_key" type="file" required></label>'
         '<p class="muted">These files are produced together by the IoT CA public-portal profile. The public portal and private API identities remain independent.</p>'
         '<button id="upload" type="submit">Upload and validate provisioning files</button></form>'
         '<form class="page-load-action" action="/install" method="post">'
@@ -351,7 +363,8 @@ def _certificate_resume_page(csrf, config):
             _validate_certificate_selection(config, mode)
         except Exception as exc:
             return _certificate_page(
-                csrf, hostname, 'Installed certificate validation failed: ' + str(exc), False
+                csrf, hostname, 'Installed certificate validation failed: ' + str(exc),
+                False, True
             )
         label = (
             'IoT CA provisioned' if mode == 'iot_ca' else

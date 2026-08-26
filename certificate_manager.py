@@ -114,9 +114,9 @@ async def wait_for_http01_mdns(hostname, timeout_s=30):
     raise ValueError('ACME enrollment requires a connection to the home Wi-Fi')
 
 async def _response_unbounded(url, method, ca_path, body=b'', content_type='', accept='',
-                              extra_headers=()):
+                              extra_headers=(), tls_context=None):
     host, port, path = _parse_https_url(url)
-    context = _tls_context(ca_path)
+    context = _tls_context(ca_path) if tls_context is None else tls_context
     try:
         reader, writer = await asyncio.open_connection(
             host, port, ssl=context, server_hostname=host
@@ -181,13 +181,14 @@ async def _response_unbounded(url, method, ca_path, body=b'', content_type='', a
 
 
 async def _response(url, method, ca_path, body=b'', content_type='', accept='',
-                    extra_headers=()):
+                    extra_headers=(), tls_context=None):
     """Perform one ACME HTTPS exchange without allowing setup to hang forever."""
     host, _port, _path = _parse_https_url(url)
     try:
         return await asyncio.wait_for(
             _response_unbounded(
-                url, method, ca_path, body, content_type, accept, extra_headers
+                url, method, ca_path, body, content_type, accept, extra_headers,
+                tls_context
             ),
             REQUEST_TIMEOUT_SECONDS
         )

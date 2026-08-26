@@ -242,7 +242,14 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('id="api-server-key"', certificates)
         self.assertIn('name="portal_hostname"', certificates)
         self.assertIn('IoT CA automatic provisioning', certificates)
+        self.assertIn('action="/iot-ca-auto-enrollment"', certificates)
+        self.assertIn('name="ca_server"', certificates)
+        self.assertIn('value="homeassistant.local"', certificates)
+        self.assertIn('Request and install certificates', certificates)
+        self.assertIn('Expected filename: <code>device.iotenroll</code>', certificates)
         self.assertIn('Manual certificate package', certificates)
+        self.assertIn('Expected filename: <code>web.crt.pem</code>', certificates)
+        self.assertNotIn('chain (<code>web.crt.pem</code>)', certificates)
         self.assertIn('id="acme-directory"', certificates)
         self.assertIn('id="certificate-hostname"', certificates)
         self.assertIn('value="whes01.local" readonly', certificates)
@@ -365,6 +372,15 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('action="/iot-ca-enrollment"', html)
         self.assertIn('action="/enroll-certificate"', html)
         self.assertIn('action="/manual-certificates"', html)
+
+    def test_certificate_errors_use_error_status_styling(self):
+        html = setup_wizard._certificate_page(
+            'csrf-token', 'device.local', 'Setup failed: DNS unavailable', True, True
+        )
+        self.assertIn(
+            '<p class="error" role="alert">Setup failed: DNS unavailable</p>', html
+        )
+        self.assertNotIn('<p class="notice" role="status">Setup failed:', html)
 
     def test_recovery_ap_password_must_be_confirmed(self):
         params = self.fields()
