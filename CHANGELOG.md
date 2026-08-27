@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.2 - 2026-08-27
+
+- Restore the factory-reset first-boot access point by removing an application-
+  layer logging dependency from the certificate enrollment module frozen into
+  the core.
+- Retain certificate enrollment failure diagnostics through the normal Device
+  log when the application is mounted and the USB console during first boot.
+- Add a regression test that imports the frozen enrollment path with the
+  application package deliberately unavailable.
+
 ## 2.2.1 - 2026-08-26
 
 - Replace file-backed combined universal staging with a signed sequential

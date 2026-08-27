@@ -1,5 +1,7 @@
 import asyncio
 import base64
+import builtins
+import importlib.util
 import json
 import os
 import tempfile
@@ -40,6 +42,44 @@ class IoTCAEnrollmentTests(unittest.TestCase):
             ),
             'Could not resolve the IoT CA server (iot-ca.home.arpa:9010). '
             'Check the CA DNS name and the DNS server supplied to this device.',
+        )
+
+    def test_frozen_first_boot_import_does_not_require_application_logging(self):
+        source = Path(iot_ca_enrollment.__file__)
+        specification = importlib.util.spec_from_file_location(
+            'frozen_iot_ca_enrollment_test', source
+        )
+        module = importlib.util.module_from_spec(specification)
+        real_import = builtins.__import__
+
+        def without_application(name, *args, **kwargs):
+            if name == 'device_modules' or name.startswith('device_modules.'):
+                raise ImportError('application slot is not mounted')
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch('builtins.__import__', side_effect=without_application):
+            specification.loader.exec_module(module)
+
+        self.assertEqual(module.PROTOCOL, 'iotmd-enrollment-v1')
+
+    def test_frozen_failure_logging_falls_back_to_usb_console(self):
+        real_import = builtins.__import__
+
+        def without_application(name, *args, **kwargs):
+            if name == 'device_modules.logging':
+                raise ImportError('application slot is not mounted')
+            return real_import(name, *args, **kwargs)
+
+        with (
+            mock.patch('builtins.__import__', side_effect=without_application),
+            mock.patch('builtins.print') as output,
+        ):
+            iot_ca_enrollment._log_failure(
+                'IoT CA auto enrollment', OSError(-202)
+            )
+
+        output.assert_called_once_with(
+            'ERROR IoT CA auto enrollment: Failed - -202'
         )
 
     def test_automatic_package_is_host_bound_and_uses_bootstrap_only_once(self):

@@ -26,7 +26,6 @@ import certificate_manager
 from certificate_codec import (
     _b64decode, _csr, _ec_private_key_der, _iso_epoch, _new_private_key,
 )
-from device_modules.logging import log_output
 
 
 PROTOCOL = 'iotmd-enrollment-v1'
@@ -36,6 +35,28 @@ POLL_SECONDS = 2
 RENEWAL_CERTIFICATE_PATH = 'certs/iot-ca-renewal.crt.der'
 RENEWAL_KEY_PATH = 'certs/iot-ca-renewal.key.der'
 STATE_PATH = 'certs/iot-ca-enrollment.json'
+
+
+def _log_failure(source, exc):
+    """Log through the application when mounted, otherwise use USB console.
+
+    First-boot enrollment is frozen into the core and runs before the
+    application slot is added to ``sys.path``.  It must therefore never import
+    an application-only logging module while the setup access point starts.
+    """
+    message = 'Failed - ' + str(exc)
+    try:
+        from device_modules.logging import log_output
+        log_output(
+            'Local', str(source), {'log': message}, 'ERROR'
+        )
+        return
+    except Exception:
+        pass
+    try:
+        print('ERROR ' + str(source) + ': ' + message)
+    except Exception:
+        pass
 
 
 def _write(path, payload):
@@ -298,9 +319,7 @@ async def install(payload, config, paths, connect_station, validate, status):
         ):
             raise RuntimeError('IoT CA certificate settings were not preserved')
     except Exception as exc:
-        log_output(
-            'Local', 'IoT CA enrollment', {'log': 'Failed - ' + str(exc)}, 'ERROR'
-        )
+        _log_failure('IoT CA enrollment', exc)
         status['status'] = 'error'
         endpoint = ''
         try:
@@ -349,10 +368,7 @@ async def automatic_install(server, config, paths, connect_station, validate, st
         ):
             raise RuntimeError('IoT CA certificate settings were not preserved')
     except Exception as exc:
-        log_output(
-            'Local', 'IoT CA auto enrollment', {'log': 'Failed - ' + str(exc)},
-            'ERROR'
-        )
+        _log_failure('IoT CA auto enrollment', exc)
         status['status'] = 'error'
         status['message'] = 'Setup failed: ' + _failure_message(exc, endpoint)
     else:
