@@ -118,6 +118,9 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
     enrollment = {'status': 'idle', 'message': '', 'mode': ''}
     upload_progress = {'phase': 'idle', 'percent': 0}
     enrollment_task = None
+    async def after_ui_ready(operation):
+        await asyncio.sleep(2)
+        return await operation
     async def send(writer, status, body, content_type='text/html; charset=utf-8', headers=()):
         payload = body.encode() if isinstance(body, str) else body
         cache_control = (
@@ -193,6 +196,10 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 try:
                     config = _configure_device(params)
                     hostname = config['certificate']['hostname']
+                    await _connect_station(
+                        config['wifi']['ssid'], config['wifi']['password'],
+                        hostname=hostname, wifi=config['wifi']
+                    )
                 except Exception as exc:
                     await send(
                         writer, '400 Bad Request',
@@ -225,6 +232,14 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                     ))
                 else:
                     await send(writer, '200 OK', _certificate_resume_page(session, config))
+            elif method == 'GET' and path == '/enrollment-state':
+                await send(
+                    writer, '200 OK', json.dumps({
+                        'status': enrollment['status'],
+                        'message': enrollment['message'],
+                        'mode': enrollment['mode'],
+                    }), 'application/json'
+                )
             elif method == 'POST' and path == '/certificate':
                 if headers.get('x-csrf-token', '') != session:
                     await send(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
@@ -258,11 +273,11 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 enrollment['message'] = 'Starting ACME enrollment'
                 enrollment['mode'] = 'acme'
                 await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
-                enrollment_task = asyncio.create_task(
+                enrollment_task = asyncio.create_task(after_ui_ready(
                     _enroll_acme_certificate(
                         directory_url, hostname, config, enrollment
                     )
-                )
+                ))
             elif method == 'POST' and path == '/iot-ca-enrollment':
                 if enrollment['status'] == 'running':
                     await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
@@ -281,12 +296,12 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 enrollment['message'] = 'Starting IoT CA enrollment'
                 enrollment['mode'] = 'iot_ca'
                 await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
-                enrollment_task = asyncio.create_task(
+                enrollment_task = asyncio.create_task(after_ui_ready(
                     iot_ca_enrollment.install(
                         package, config, CERTIFICATE_PATHS, _connect_station,
                         _validate_certificates, enrollment
                     )
-                )
+                ))
             elif method == 'POST' and path == '/iot-ca-auto-enrollment':
                 if enrollment['status'] == 'running':
                     await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
@@ -300,11 +315,17 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 server = iot_ca_enrollment._auto_server(params.get('ca_server', ''))
                 port = iot_ca_enrollment._auto_port(params.get('ca_port', ''))
                 config = credential_store.load()
-                enrollment_task = iot_ca_enrollment.start_automatic(
-                    server, config, CERTIFICATE_PATHS, _connect_station,
-                    _validate_certificates, enrollment, port
-                )
+                enrollment.update({
+                    'status': 'running', 'mode': 'iot_ca',
+                    'message': 'Requesting automatic IoT CA enrollment',
+                })
                 await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
+                enrollment_task = asyncio.create_task(after_ui_ready(
+                    iot_ca_enrollment.automatic_install(
+                        server, config, CERTIFICATE_PATHS, _connect_station,
+                        _validate_certificates, enrollment, port
+                    )
+                ))
             elif method == 'POST' and path == '/manual-certificates':
                 length = int(headers.get('content-length', '0') or 0)
                 body = await _read_body(reader, length, MAX_CERTIFICATE_FORM_BYTES)
@@ -390,19 +411,8 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
             await asyncio.sleep(1)
             reset_device()
         elif handover_config is not None:
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
             access_point.active(False)
-            try:
-                await _connect_station(
-                    handover_config['wifi']['ssid'],
-                    handover_config['wifi']['password'],
-                    hostname=handover_config['certificate']['hostname'],
-                    wifi=handover_config['wifi']
-                )
-            except Exception:
-                # Restore the setup network so bad Wi-Fi credentials can be
-                # corrected without USB recovery.
-                access_point.active(True)
     server = await asyncio.start_server(handle, '0.0.0.0', int(port), backlog=2)
     while True:
         await asyncio.sleep(60)

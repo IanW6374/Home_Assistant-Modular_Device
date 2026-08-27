@@ -254,7 +254,7 @@ PORTAL_JS = (
     'if(!field.validity||field.validity.valid){field.removeAttribute("aria-invalid");var label=field.closest?'
     'field.closest("label"):null;if(!label&&field.id)label=document.querySelector("label[for=\\\""+'
     'field.id+"\\\"]");if(label)label.classList.remove("field-invalid");}}window.portalInvalid='
-    'invalidField;window.portalRequire='
+    'invalidField;window.portalClearInvalid=clearInvalid;window.portalRequire='
     'function(field,message){var missing=!field||(field.type==="file"?!field.files||!field.files.length:'
     'field.type==="checkbox"?!field.checked:!String(field.value||"").trim());if(missing)return invalidField('
     'field,message);clearInvalid(field);if(field.validity&&!field.validity.valid)return invalidField(field);'

@@ -68,6 +68,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('document.addEventListener("invalid"', web_portal_ui.PORTAL_JS)
         self.assertIn('window.portalStatus=function', setup_wizard.portal_ui.PORTAL_JS)
         self.assertIn('window.portalStatus=function', web_portal_ui.PORTAL_JS)
+        self.assertIn('window.portalClearInvalid=clearInvalid', setup_wizard.portal_ui.PORTAL_JS)
 
     def test_wifi_scan_deduplicates_and_orders_visible_networks(self):
         class Station:
@@ -182,6 +183,9 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('Recovery console password', html)
         self.assertIn('Confirm recovery console password', html)
         self.assertNotIn('Confirm recovery password', html)
+        self.assertIn('function clearPasswordErrors()', html)
+        self.assertIn('invalidGroups[i]=duplicateMessage', html)
+        self.assertIn('invalidGroups[j]=duplicateMessage', html)
         for name in (
             'device_name', 'wifi_ssid', 'wifi_password',
             'wifi_dhcp', 'wifi_ip_address', 'wifi_subnet_mask',
@@ -269,7 +273,9 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('Continue with self-signed certificate', certificates)
         enrolling = setup_wizard._enrollment_page('Creating the certificate order')
         self.assertIn('Creating the certificate order', enrolling)
-        self.assertIn('url=/enrollment-status', enrolling)
+        self.assertNotIn('http-equiv="refresh"', enrolling)
+        self.assertIn('fetch("/enrollment-state"', enrolling)
+        self.assertIn('setTimeout(pollEnrollment,2000)', enrolling)
         self.assertIn('Check status now', enrolling)
         complete = setup_wizard._certificate_complete_page(
             'csrf-token', 'Certificate enrolled until tomorrow', 'acme'
@@ -308,6 +314,13 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('http://whes01.local/resume/csrf-token', handover)
         self.assertIn('setup access point will now close', handover)
         source = Path(setup_wizard.__file__).read_text()
+        configure_start = source.index("path == '/configure'")
+        configure_end = source.index("path == '/certificates'", configure_start)
+        configure_route = source[configure_start:configure_end]
+        self.assertLess(
+            configure_route.index('await _connect_station('),
+            configure_route.index("_handover_page(hostname, session)"),
+        )
         resume_start = source.index("path == '/resume/' + session")
         resume_end = source.index('elif not authenticated:', resume_start)
         resume_route = source[resume_start:resume_end]
@@ -396,7 +409,8 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('autocomplete="new-password" aria-invalid="true"', duplicate)
         self.assertIn('Portal, recovery console and recovery AP passwords must all differ', duplicate)
         self.assertIn('event.preventDefault()', duplicate)
-        self.assertIn('portalInvalid(passwordFields[i]', duplicate)
+        self.assertIn('portalInvalid(primary,invalidGroups[group],false)', duplicate)
+        self.assertIn('portalInvalid(document.getElementById(pairs[group][1])', duplicate)
 
         mismatch = setup_wizard._page(
             'csrf-token', 'Setup failed: portal passwords do not match',
@@ -407,7 +421,20 @@ class SetupWizardTests(unittest.TestCase):
         confirmation = mismatch.split('name="portal_password_confirm"', 1)[1].split(
             '</label>', 1
         )[0]
+        password = mismatch.split('name="portal_password"', 1)[1].split(
+            '</label>', 1
+        )[0]
+        self.assertIn('aria-invalid="true"', password)
         self.assertIn('aria-invalid="true"', confirmation)
+
+        duplicate_fields = setup_wizard._setup_error_fields(
+            ValueError('portal, recovery console and recovery AP passwords must all differ')
+        )
+        self.assertEqual(set(duplicate_fields), {
+            'portal_password', 'portal_password_confirm',
+            'recovery_password', 'recovery_password_confirm',
+            'recovery_ap_password', 'recovery_ap_password_confirm',
+        })
 
     def test_certificate_errors_use_error_status_styling(self):
         html = setup_wizard._certificate_page(

@@ -46,13 +46,17 @@ MAX_CERTIFICATE_BYTES = 16384
 def _setup_error_fields(exc):
     message = str(exc).lower()
     if 'portal passwords do not match' in message:
-        return ('portal_password_confirm',)
+        return ('portal_password', 'portal_password_confirm')
     if 'recovery console passwords do not match' in message:
-        return ('recovery_password_confirm',)
+        return ('recovery_password', 'recovery_password_confirm')
     if 'recovery ap passwords do not match' in message:
-        return ('recovery_ap_password_confirm',)
+        return ('recovery_ap_password', 'recovery_ap_password_confirm')
     if 'passwords must all differ' in message:
-        return ('portal_password', 'recovery_password', 'recovery_ap_password')
+        return (
+            'portal_password', 'portal_password_confirm',
+            'recovery_password', 'recovery_password_confirm',
+            'recovery_ap_password', 'recovery_ap_password_confirm',
+        )
     return ()
 
 def _configure_device(params):

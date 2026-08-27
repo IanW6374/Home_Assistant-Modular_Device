@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.4 - 2026-08-27
+
+- Validate all portal and recovery password pairs together, marking both
+  fields in every mismatched or duplicated pair without retaining stale
+  browser validation errors.
+- Confirm the home Wi-Fi station connection before presenting the network
+  handover page and retain the setup access point long enough to load its UI.
+- Keep automatic IoT CA enrollment on a styled progress page that polls the
+  device, tolerates temporary connection loss and redirects only after the
+  enrollment reaches a terminal state.
+
 ## 2.2.3 - 2026-08-27
 
 - Keep setup password validation on the wizard page, identify each invalid

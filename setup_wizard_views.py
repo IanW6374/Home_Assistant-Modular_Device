@@ -14,7 +14,7 @@ from setup_workflow import (
 
 HTTPS_PORT = 8443
 HTTP_PORT = 8080
-SETUP_ASSET_VERSION = '10'
+SETUP_ASSET_VERSION = '11'
 SELF_SIGNED_READY_MESSAGE = (
     'Self-signed HTTPS is ready. Choose ACME, manual certificates, or the explicit fallback.'
 )
@@ -185,21 +185,25 @@ def _page(csrf, message='', invalid_fields=()):
         'staticBox.hidden=!manual;var fields=staticBox.querySelectorAll("input");for(var i=0;'
         'i<fields.length;i++)fields[i].required=manual;}dhcp.onchange=syncNetworkMode;syncNetworkMode();'
         'var setupForm=document.getElementById("setup-form"),setupValidation=document.getElementById('
-        '"setup-validation");setupForm.addEventListener("submit",function(event){'
-        'document.getElementById("browser-time").value=new Date().toISOString();'
-        'var pairs=[["portal-password","portal-password-confirm","Portal passwords do not match"],'
+        '"setup-validation"),pairs=[["portal-password","portal-password-confirm","Portal passwords do not match"],'
         '["recovery-ap-password","recovery-ap-password-confirm","Recovery AP passwords do not match"],'
-        '["recovery-password","recovery-password-confirm","Recovery console passwords do not match"]];'
-        'for(var p=0;p<pairs.length;p++){var first=document.getElementById(pairs[p][0]),confirmation='
-        'document.getElementById(pairs[p][1]);if(first.value!==confirmation.value){event.preventDefault();'
-        'portalStatus(setupValidation,"error",pairs[p][2]);portalInvalid(confirmation,pairs[p][2]);return;}}'
-        'var passwordFields=[document.getElementById("portal-password"),document.getElementById('
-        '"recovery-ap-password"),document.getElementById("recovery-password")];for(var i=0;i<'
-        'passwordFields.length;i++){for(var j=i+1;j<passwordFields.length;j++){if(passwordFields[i].value'
-        '===passwordFields[j].value){event.preventDefault();var duplicateMessage="Portal, recovery console '
-        'and recovery AP passwords must all differ";portalStatus(setupValidation,"error",duplicateMessage);'
-        'portalInvalid(passwordFields[i],duplicateMessage,false);portalInvalid(passwordFields[j],'
-        'duplicateMessage);return;}}}});</script>'
+        '["recovery-password","recovery-password-confirm","Recovery console passwords do not match"]],'
+        'passwordInputs=[];for(var p=0;p<pairs.length;p++){passwordInputs.push(document.getElementById('
+        'pairs[p][0]),document.getElementById(pairs[p][1]));}function clearPasswordErrors(){for(var i=0;'
+        'i<passwordInputs.length;i++)portalClearInvalid(passwordInputs[i]);}for(var i=0;i<passwordInputs.length;'
+        'i++)passwordInputs[i].addEventListener("input",clearPasswordErrors);setupForm.addEventListener('
+        '"submit",function(event){document.getElementById("browser-time").value=new Date().toISOString();'
+        'clearPasswordErrors();var messages=[],invalidGroups={};for(var p=0;p<pairs.length;p++){var first='
+        'document.getElementById(pairs[p][0]),confirmation=document.getElementById(pairs[p][1]);if(first.value'
+        '!==confirmation.value){invalidGroups[p]=pairs[p][2];messages.push(pairs[p][2]);}}for(var i=0;i<pairs.length;'
+        'i++){for(var j=i+1;j<pairs.length;j++){if(document.getElementById(pairs[i][0]).value==='
+        'document.getElementById(pairs[j][0]).value){var duplicateMessage="Portal, recovery console and recovery '
+        'AP passwords must all differ";invalidGroups[i]=duplicateMessage;invalidGroups[j]=duplicateMessage;if('
+        'messages.indexOf(duplicateMessage)<0)messages.push(duplicateMessage);}}}if(messages.length){event.preventDefault();'
+        'var firstInvalid=null;for(var group in invalidGroups){var primary=document.getElementById(pairs[group][0]);'
+        'if(!firstInvalid)firstInvalid=primary;portalInvalid(primary,invalidGroups[group],false);portalInvalid('
+        'document.getElementById(pairs[group][1]),invalidGroups[group],false);}portalStatus(setupValidation,"error",'
+        'messages.join(". "));if(firstInvalid)firstInvalid.focus();}});</script>'
         '<script src="' + _asset('/assets/portal.js') + '"></script></main></body></html>'
     )
 
@@ -369,7 +373,6 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
 def _enrollment_page(message):
     return (
         '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<meta http-equiv="refresh" content="2;url=/enrollment-status">'
         '<title>Enrolling certificate</title><link rel="stylesheet" href="' +
         _asset('/assets/portal.css') + '">'
         '</head><body>' + _setup_header() + '<main class="setup-main">' + _setup_progress(3) +
@@ -379,9 +382,17 @@ def _enrollment_page(message):
         ) + '<section class="card">' + portal_ui.progress(
             'enrollment-progress', message
         ) + '<p class="muted">Status updates automatically.</p>'
-        '<div class="page-load-action"><a class="button secondary" href="/enrollment-status">'
-        'Check status now</a></div></section></main>'
-        '<script src="' + _asset('/assets/portal.js') + '"></script></body></html>'
+        '<div class="page-load-action"><button id="enrollment-check" class="secondary" type="button">'
+        'Check status now</button></div></section></main>'
+        '<script src="' + _asset('/assets/portal.js') + '"></script><script>'
+        'var enrollmentLabel=document.querySelector("#enrollment-progress .status-text"),'
+        'enrollmentButton=document.getElementById("enrollment-check");function pollEnrollment(){'
+        'enrollmentButton.disabled=true;fetch("/enrollment-state",{cache:"no-store",credentials:"same-origin"})'
+        '.then(function(response){if(!response.ok)throw new Error("HTTP "+response.status);return response.json();})'
+        '.then(function(state){if(state.message&&enrollmentLabel)enrollmentLabel.textContent=state.message;if('
+        'state.status!=="running")window.location.replace("/enrollment-status");else setTimeout(pollEnrollment,2000);})'
+        '.catch(function(){setTimeout(pollEnrollment,2000);}).finally(function(){enrollmentButton.disabled=false;});}'
+        'enrollmentButton.onclick=pollEnrollment;setTimeout(pollEnrollment,1500);</script></body></html>'
     )
 
 def _certificate_complete_page(csrf, message, certificate_mode):
