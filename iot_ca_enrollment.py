@@ -35,6 +35,8 @@ POLL_SECONDS = 2
 RENEWAL_CERTIFICATE_PATH = 'certs/iot-ca-renewal.crt.der'
 RENEWAL_KEY_PATH = 'certs/iot-ca-renewal.key.der'
 STATE_PATH = 'certs/iot-ca-enrollment.json'
+DEFAULT_SERVER = 'iot-ca.home.arpa'
+DEFAULT_PROVISIONING_PORT = 9010
 
 
 def _log_failure(source, exc):
@@ -90,7 +92,7 @@ def _failure_message(exc, endpoint=''):
 
 
 def _auto_server(value):
-    server = str(value or '').strip().lower().rstrip('.')
+    server = str(value or DEFAULT_SERVER).strip().lower().rstrip('.')
     if (
         not server or len(server) > 253 or '..' in server or
         any(character not in 'abcdefghijklmnopqrstuvwxyz0123456789-.'
@@ -100,6 +102,18 @@ def _auto_server(value):
     ):
         raise ValueError('IoT CA server name is invalid')
     return server
+
+
+def _auto_port(value):
+    if value in (None, ''):
+        return DEFAULT_PROVISIONING_PORT
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        raise ValueError('IoT CA provisioning port is invalid')
+    if port < 1 or port > 65535:
+        raise ValueError('IoT CA provisioning port must be between 1 and 65535')
+    return port
 
 
 def _bootstrap_tls_context():
@@ -116,10 +130,13 @@ def _bootstrap_tls_context():
     return context
 
 
-async def automatic_package(server, expected_api_hostname):
+async def automatic_package(
+    server, expected_api_hostname, port=DEFAULT_PROVISIONING_PORT
+):
     """Request a short-lived host authorization during an enabled CA window."""
     server = _auto_server(server)
-    endpoint = 'https://' + server + ':9010'
+    port = _auto_port(port)
+    endpoint = 'https://' + server + ':' + str(port)
     body = json.dumps({
         'api_hostname': str(expected_api_hostname).strip().lower().rstrip('.')
     }, separators=(',', ':')).encode()
@@ -335,10 +352,15 @@ async def install(payload, config, paths, connect_station, validate, status):
         )
 
 
-async def automatic_install(server, config, paths, connect_station, validate, status):
+async def automatic_install(
+    server, config, paths, connect_station, validate, status,
+    port=DEFAULT_PROVISIONING_PORT
+):
     """Obtain the one-time authorization and complete enrollment in one operation."""
     payload = b''
-    endpoint = 'https://' + str(server).strip() + ':9010'
+    server = _auto_server(server)
+    port = _auto_port(port)
+    endpoint = 'https://' + server + ':' + str(port)
     try:
         status['message'] = 'Connecting to the home Wi-Fi'
         hostname = config['certificate']['hostname']
@@ -347,7 +369,7 @@ async def automatic_install(server, config, paths, connect_station, validate, st
             wifi=config['wifi']
         )
         status['message'] = 'Requesting a host-bound authorization from IoT CA'
-        payload = await automatic_package(server, hostname)
+        payload = await automatic_package(server, hostname, port)
         result = await enroll(
             payload, hostname, paths,
             lambda message: status.__setitem__('message', str(message))
@@ -379,12 +401,15 @@ async def automatic_install(server, config, paths, connect_station, validate, st
         )
 
 
-def start_automatic(server, config, paths, connect_station, validate, status):
+def start_automatic(
+    server, config, paths, connect_station, validate, status,
+    port=DEFAULT_PROVISIONING_PORT
+):
     """Record the operation before scheduling it so concurrent starts are rejected."""
     status.update({
         'status': 'running', 'mode': 'iot_ca',
         'message': 'Requesting automatic IoT CA enrollment',
     })
     return asyncio.create_task(automatic_install(
-        server, config, paths, connect_station, validate, status
+        server, config, paths, connect_station, validate, status, port
     ))

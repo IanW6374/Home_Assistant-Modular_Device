@@ -32,11 +32,13 @@ from setup_wizard_views import (
     _upload_page,
 )
 from setup_workflow import (
-    CERTIFICATE_PATHS, _connect_station, _download_application, _form_values,
+    CERTIFICATE_PATHS, DEFAULT_ACME_DIRECTORY_URL,
+    _configure_device, _connect_station, _download_application, _form_values,
     _enroll_acme_certificate,
     _file_exists, _preloaded_application_available,
+    _install_manual_certificates,
     _prepare_available_application, _prepare_certificate_selection,
-    _prepare_setup_application, _set_rtc_from_browser_time,
+    _prepare_setup_application, _set_rtc_from_browser_time, _setup_error_fields,
     _validate_certificate_files, _validate_certificate_selection,
     _validate_certificates, _write_certificate,
 )
@@ -52,6 +54,7 @@ SETUP_PORT = 80
 MAX_FORM_BYTES = 8192
 MAX_CERTIFICATE_BYTES = 16384
 MAX_CERTIFICATE_FORM_BYTES = MAX_FORM_BYTES + (MAX_CERTIFICATE_BYTES * 5)
+
 def _parse_request_line(line):
     parts = str(line).split()
     if len(parts) != 3 or not parts[2].startswith('HTTP/'):
@@ -187,15 +190,18 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 if params.get('csrf') != session:
                     await send(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
                     return
-                _set_rtc_from_browser_time(params.get('browser_time', ''))
-                values = _form_values(params)
-                config = credential_store.build_configuration(
-                    values, params.get('portal_password', ''),
-                    params.get('recovery_password', '')
-                )
-                credential_store.save(config)
-                hostname = config['certificate']['hostname']
-                certificate_manager.install_self_signed(hostname)
+                try:
+                    config = _configure_device(params)
+                    hostname = config['certificate']['hostname']
+                except Exception as exc:
+                    await send(
+                        writer, '400 Bad Request',
+                        _page(
+                            session, 'Setup failed: ' + str(exc),
+                            _setup_error_fields(exc)
+                        )
+                    )
+                    return
                 await send(writer, '200 OK', _handover_page(hostname, session))
                 handover_config = config
             elif method == 'GET' and path == '/certificates':
@@ -239,7 +245,10 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 if parts.get('csrf', b'').decode() != session:
                     await send(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
                     return
-                directory_url = parts.get('directory_url', b'').decode().strip()
+                directory_url = (
+                    parts.get('directory_url', b'').decode().strip() or
+                    DEFAULT_ACME_DIRECTORY_URL
+                )
                 hostname = parts.get('hostname', b'').decode().strip()
                 config = credential_store.load()
                 if hostname != config['certificate']['hostname']:
@@ -289,10 +298,11 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                     await send(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
                     return
                 server = iot_ca_enrollment._auto_server(params.get('ca_server', ''))
+                port = iot_ca_enrollment._auto_port(params.get('ca_port', ''))
                 config = credential_store.load()
                 enrollment_task = iot_ca_enrollment.start_automatic(
                     server, config, CERTIFICATE_PATHS, _connect_station,
-                    _validate_certificates, enrollment
+                    _validate_certificates, enrollment, port
                 )
                 await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
             elif method == 'POST' and path == '/manual-certificates':
@@ -302,58 +312,8 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 if parts.get('csrf', b'').decode() != session:
                     await send(writer, '403 Forbidden', 'Invalid CSRF token', 'text/plain')
                     return
-                config = credential_store.load()
-                portal_hostname = parts.get('portal_hostname', b'').decode().strip().lower().rstrip('.')
-                if (
-                    not portal_hostname or len(portal_hostname) > 253 or
-                    '.' not in portal_hostname or portal_hostname.endswith('.local') or
-                    '..' in portal_hostname or
-                    any(character not in 'abcdefghijklmnopqrstuvwxyz0123456789-.'
-                        for character in portal_hostname)
-                ):
-                    raise ValueError('public portal DNS hostname is invalid')
-                staged_paths = [
-                    CERTIFICATE_PATHS['trust-ca'] + '.manual',
-                    CERTIFICATE_PATHS['portal-cert'] + '.manual',
-                    CERTIFICATE_PATHS['portal-key'] + '.manual',
-                    CERTIFICATE_PATHS['api-server-cert'] + '.manual',
-                    CERTIFICATE_PATHS['api-server-key'] + '.manual',
-                ]
-                try:
-                    _write_certificate('trust-ca', parts.get('trust_ca', b''), '.manual')
-                    _write_certificate('portal-cert', parts.get('portal_cert', b''), '.manual')
-                    _write_certificate('portal-key', parts.get('portal_key', b''), '.manual')
-                    _write_certificate(
-                        'api-server-cert', parts.get('api_server_cert', b''), '.manual'
-                    )
-                    _write_certificate(
-                        'api-server-key', parts.get('api_server_key', b''), '.manual'
-                    )
-                    _validate_certificates(
-                        True, staged_paths[1], staged_paths[2], staged_paths[0],
-                        staged_paths[3], staged_paths[4]
-                    )
-                except Exception:
-                    for staged_path in staged_paths:
-                        try:
-                            os.remove(staged_path)
-                        except OSError:
-                            pass
-                    raise
-                certificate_manager.commit_certificate_files(
-                    zip(staged_paths, (
-                        CERTIFICATE_PATHS['trust-ca'],
-                        CERTIFICATE_PATHS['portal-cert'],
-                        CERTIFICATE_PATHS['portal-key'],
-                        CERTIFICATE_PATHS['api-server-cert'],
-                        CERTIFICATE_PATHS['api-server-key'],
-                    )),
-                    validator=lambda: _validate_certificate_files('manual')
-                )
+                config = _install_manual_certificates(parts)
                 hostname = config['certificate']['hostname']
-                credential_store.update_certificate_settings(
-                    'manual', '', hostname, portal_hostname=portal_hostname
-                )
                 await send(writer, '200 OK', _certificate_complete_page(
                     session, 'Certificates validated.', 'manual'
                 ))

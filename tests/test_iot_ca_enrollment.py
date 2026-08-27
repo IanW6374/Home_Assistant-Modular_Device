@@ -109,9 +109,29 @@ class IoTCAEnrollmentTests(unittest.TestCase):
             ))
             self.assertEqual(calls[0][5], iot_ca_enrollment.ssl.CERT_NONE)
 
+            calls.clear()
+            with mock.patch.object(
+                iot_ca_enrollment.certificate_manager, '_response', response
+            ):
+                await iot_ca_enrollment.automatic_package(
+                    '', 'device.local', 9444
+                )
+            self.assertEqual(
+                calls[0][0],
+                'https://iot-ca.home.arpa:9444/v1/auto-enrollments',
+            )
+
         asyncio.run(scenario())
 
     def test_automatic_server_rejects_urls_and_invalid_labels(self):
+        self.assertEqual(
+            iot_ca_enrollment._auto_server(''), 'iot-ca.home.arpa'
+        )
+        self.assertEqual(iot_ca_enrollment._auto_port(''), 9010)
+        self.assertEqual(iot_ca_enrollment._auto_port('9444'), 9444)
+        for value in ('0', '65536', 'invalid'):
+            with self.assertRaisesRegex(ValueError, 'port'):
+                iot_ca_enrollment._auto_port(value)
         self.assertEqual(
             iot_ca_enrollment._auto_server('HomeAssistant.Local.'),
             'homeassistant.local',

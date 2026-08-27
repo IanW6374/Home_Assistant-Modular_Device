@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.3 - 2026-08-27
+
+- Keep setup password validation on the wizard page, identify each invalid
+  field in red and explain duplicate or mismatched credentials inline.
+- Replace the combined certificate page with a choice-first workflow that
+  reveals only the selected self-signed, IoT CA, private ACME or manual route.
+- Make the IoT CA provisioning port configurable and treat blank IoT CA and
+  ACME endpoint fields as the documented `iot-ca.home.arpa` defaults.
+
 ## 2.2.2 - 2026-08-27
 
 - Restore the factory-reset first-boot access point by removing an application-

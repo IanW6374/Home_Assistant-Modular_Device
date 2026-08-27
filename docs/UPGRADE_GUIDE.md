@@ -65,28 +65,28 @@ reason.
 ## Production build
 
 Build only from a clean, tested commit. This example uses production version
-`2.2.2` and release sequence `2402`:
+`2.2.3` and release sequence `2403`:
 
 ```sh
-python3 tools/build_update.py releases/v2.2.2/application-2.2.2.iotapp \
-  --version 2.2.2 --release-sequence 2402 \
+python3 tools/build_update.py releases/v2.2.3/application-2.2.3.iotapp \
+  --version 2.2.3 --release-sequence 2403 \
   --signing-key /secure/update.signing-key \
   --mpy-cross /path/to/micropython/mpy-cross/build/mpy-cross
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.2.2 --release-sequence 2402 \
-  --output releases/v2.2.2/iotmd-core-2.2.2.iotcore \
-  --factory-output /secure-output/iotmd-core-2.2.2.factory.bin \
+  --version 2.2.3 --release-sequence 2403 \
+  --output releases/v2.2.3/iotmd-core-2.2.3.iotcore \
+  --factory-output /secure-output/iotmd-core-2.2.3.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
   --factory-setup-password-output /secure-output/device-v2.1.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.2.2/universal-2.2.2.iotuni \
-  --application releases/v2.2.2/application-2.2.2.iotapp \
-  --firmware releases/v2.2.2/iotmd-core-2.2.2.iotcore \
-  --version 2.2.2 --release-sequence 2402 \
+  releases/v2.2.3/universal-2.2.3.iotuni \
+  --application releases/v2.2.3/application-2.2.3.iotapp \
+  --firmware releases/v2.2.3/iotmd-core-2.2.3.iotcore \
+  --version 2.2.3 --release-sequence 2403 \
   --signing-key /secure/update.signing-key
 ```
 
@@ -107,8 +107,8 @@ logs. Use the exact serial device and acknowledge erasure explicitly:
 ```sh
 python3 tools/reseed_device_usb.py \
   --device /dev/cu.usbmodemXXXX \
-  --bundle releases/v2.2.2/iotmd-core-2.2.2.iotcore \
-  --application-bundle releases/v2.2.2/application-2.2.2.iotapp \
+  --bundle releases/v2.2.3/iotmd-core-2.2.3.iotcore \
+  --application-bundle releases/v2.2.3/application-2.2.3.iotapp \
   --micropython-root /path/to/micropython \
   --setup-password-file /secure-output/device-v2.1.setup-password.txt \
   --update-signing-key /secure/update.signing-key \

@@ -38,6 +38,83 @@ CERTIFICATE_PATHS = {
     'api-server-cert': 'certs/api-server.crt.der',
     'api-server-key': 'certs/api-server.key.der',
 }
+DEFAULT_ACME_DIRECTORY_URL = (
+    'https://iot-ca.home.arpa:9000/acme/acme/directory'
+)
+MAX_CERTIFICATE_BYTES = 16384
+
+def _setup_error_fields(exc):
+    message = str(exc).lower()
+    if 'portal passwords do not match' in message:
+        return ('portal_password_confirm',)
+    if 'recovery console passwords do not match' in message:
+        return ('recovery_password_confirm',)
+    if 'recovery ap passwords do not match' in message:
+        return ('recovery_ap_password_confirm',)
+    if 'passwords must all differ' in message:
+        return ('portal_password', 'recovery_password', 'recovery_ap_password')
+    return ()
+
+def _configure_device(params):
+    _set_rtc_from_browser_time(params.get('browser_time', ''))
+    values = _form_values(params)
+    config = credential_store.build_configuration(
+        values, params.get('portal_password', ''),
+        params.get('recovery_password', '')
+    )
+    credential_store.save(config)
+    certificate_manager.install_self_signed(config['certificate']['hostname'])
+    return config
+
+def _install_manual_certificates(parts):
+    config = credential_store.load()
+    portal_hostname = parts.get('portal_hostname', b'').decode().strip().lower().rstrip('.')
+    if (
+        not portal_hostname or len(portal_hostname) > 253 or
+        '.' not in portal_hostname or portal_hostname.endswith('.local') or
+        '..' in portal_hostname or
+        any(character not in 'abcdefghijklmnopqrstuvwxyz0123456789-.'
+            for character in portal_hostname)
+    ):
+        raise ValueError('public portal DNS hostname is invalid')
+    staged_paths = [
+        CERTIFICATE_PATHS['trust-ca'] + '.manual',
+        CERTIFICATE_PATHS['portal-cert'] + '.manual',
+        CERTIFICATE_PATHS['portal-key'] + '.manual',
+        CERTIFICATE_PATHS['api-server-cert'] + '.manual',
+        CERTIFICATE_PATHS['api-server-key'] + '.manual',
+    ]
+    try:
+        for kind, field in (
+            ('trust-ca', 'trust_ca'), ('portal-cert', 'portal_cert'),
+            ('portal-key', 'portal_key'), ('api-server-cert', 'api_server_cert'),
+            ('api-server-key', 'api_server_key'),
+        ):
+            _write_certificate(kind, parts.get(field, b''), '.manual')
+        _validate_certificates(
+            True, staged_paths[1], staged_paths[2], staged_paths[0],
+            staged_paths[3], staged_paths[4]
+        )
+    except Exception:
+        for staged_path in staged_paths:
+            try:
+                os.remove(staged_path)
+            except OSError:
+                pass
+        raise
+    certificate_manager.commit_certificate_files(
+        zip(staged_paths, (
+            CERTIFICATE_PATHS['trust-ca'], CERTIFICATE_PATHS['portal-cert'],
+            CERTIFICATE_PATHS['portal-key'], CERTIFICATE_PATHS['api-server-cert'],
+            CERTIFICATE_PATHS['api-server-key'],
+        )),
+        validator=lambda: _validate_certificate_files('manual')
+    )
+    hostname = config['certificate']['hostname']
+    credential_store.update_certificate_settings(
+        'manual', '', hostname, portal_hostname=portal_hostname
+    )
+    return config
 
 def _file_exists(path):
     try:

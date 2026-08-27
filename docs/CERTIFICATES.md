@@ -17,8 +17,8 @@ portal has a browser-trusted certificate.
 
 ## Initial setup choices
 
-The administrator explicitly selects one of four certificate routes in the
-first-boot wizard:
+The first-boot wizard starts with a certificate-route selector and displays
+only the fields for the selected route:
 
 1. **IoT CA public certificate provisioning** obtains a browser-trusted portal
    certificate and a private-CA Device API identity using an automatic,
@@ -29,18 +29,25 @@ first-boot wizard:
    and private Device API certificate/key.
 4. **Self-signed certificate** keeps the device-generated local fallback.
 
-No route is silently selected. The self-signed identity created during the
-network step remains active unless the administrator completes another route.
+No route is silently applied. Selecting **Self-signed certificate** requires no
+certificate fields and continues with the identity created during the network
+step.
 
 ## Automated IoT CA public provisioning
 
 For one-step provisioning, configure IoT CA with a server name the device can
-resolve (normally `homeassistant.local`), restart the add-on if that name has
-changed, then enable automatic IoT MD enrollment. The window closes after 15
-minutes. In the device wizard, confirm the same server name and choose
-**Request and install certificates**. The CA accepts only private-LAN requests,
-rate-limits them, audits each authorization and derives both identities from
-the device's `<host>.local` name.
+resolve (by default `iot-ca.home.arpa`) and ensure its Home Assistant network
+mapping matches the configured provisioning port (9010 by default). Open the
+automatic IoT MD enrollment window from the CA Overview; it closes after the
+configured interval, five minutes by default. In the device wizard, leave the
+server and port blank to use those defaults or enter the matching values, then
+choose **Request and install certificates**. The CA accepts only private-LAN
+requests, rate-limits them, audits each authorization and derives both
+identities from the device's `<host>.local` name.
+
+The private-CA ACME route similarly treats a blank directory URL as
+`https://iot-ca.home.arpa:9000/acme/acme/directory`. If the CA/ACME port is
+remapped from 9000 in Home Assistant, enter the corresponding URL instead.
 
 The first automatic exchange is a trusted-LAN bootstrap because the device
 does not yet possess the private root. The returned authorization pins all

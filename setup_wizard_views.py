@@ -14,7 +14,7 @@ from setup_workflow import (
 
 HTTPS_PORT = 8443
 HTTP_PORT = 8080
-SETUP_ASSET_VERSION = '9'
+SETUP_ASSET_VERSION = '10'
 SELF_SIGNED_READY_MESSAGE = (
     'Self-signed HTTPS is ready. Choose ACME, manual certificates, or the explicit fallback.'
 )
@@ -41,8 +41,17 @@ def _setup_progress(step):
     )
     return '<div class="setup-steps" aria-label="Setup progress">' + markers + '</div>'
 
-def _page(csrf, message=''):
-    notice = '<p class="notice" role="status">' + _escape(message) + '</p>' if message else ''
+def _page(csrf, message='', invalid_fields=()):
+    invalid_fields = set(str(name) for name in (invalid_fields or ()))
+    def invalid(name):
+        return ' aria-invalid="true"' if name in invalid_fields else ''
+    notice = (
+        '<p id="setup-validation" class="portal-status error" role="alert" '
+        'aria-live="assertive">' + _escape(message) + '</p>'
+        if message else
+        '<p id="setup-validation" class="portal-status" role="status" '
+        'aria-live="polite"></p>'
+    )
     if _preloaded_application_available():
         ready_text = (
             'The factory-installed signed application is ready. Upload will only be offered '
@@ -117,10 +126,10 @@ def _page(csrf, message=''):
         '<option value="http">HTTP (unencrypted)</option></select></label></div>'
         '<div class="credential-group"><h3>Portal sign-in password</h3>'
         '<p class="muted">Used with the portal username above.</p><div class="credential-pair">'
-        '<label class="field">Portal password<input name="portal_password" type="password" minlength="16" '
-        'maxlength="256" required autocomplete="new-password"></label>'
-        '<label class="field">Confirm portal password<input name="portal_password_confirm" type="password" '
-        'minlength="16" maxlength="256" required autocomplete="new-password"></label></div></div>'
+        '<label class="field">Portal password<input id="portal-password" name="portal_password" type="password" minlength="16" '
+        'maxlength="256" required autocomplete="new-password"' + invalid('portal_password') + '></label>'
+        '<label class="field">Confirm portal password<input id="portal-password-confirm" name="portal_password_confirm" type="password" '
+        'minlength="16" maxlength="256" required autocomplete="new-password"' + invalid('portal_password_confirm') + '></label></div></div>'
         '<p class="muted">Use at least 16 characters with three character types, or a varied '
         'passphrase of at least 20 characters. Automatic transport uses HTTPS whenever a portal '
         'certificate is installed.</p></section>'
@@ -128,17 +137,17 @@ def _page(csrf, message=''):
         '<div class="credential-group"><h3>Recovery Wi-Fi access</h3>'
         '<p class="muted">Used only to join the protected IoTMD-Recovery access point.</p>'
         '<div class="credential-pair">'
-        '<label class="field">Recovery AP password<input name="recovery_ap_password" type="password" '
-        'minlength="16" maxlength="63" required autocomplete="new-password"></label>'
-        '<label class="field">Confirm recovery AP password<input name="recovery_ap_password_confirm" type="password" '
-        'minlength="16" maxlength="63" required autocomplete="new-password"></label></div></div>'
+        '<label class="field">Recovery AP password<input id="recovery-ap-password" name="recovery_ap_password" type="password" '
+        'minlength="16" maxlength="63" required autocomplete="new-password"' + invalid('recovery_ap_password') + '></label>'
+        '<label class="field">Confirm recovery AP password<input id="recovery-ap-password-confirm" name="recovery_ap_password_confirm" type="password" '
+        'minlength="16" maxlength="63" required autocomplete="new-password"' + invalid('recovery_ap_password_confirm') + '></label></div></div>'
         '<div class="credential-group"><h3>Recovery console sign-in</h3>'
         '<p class="muted">Used after joining the recovery access point.</p>'
         '<div class="credential-pair">'
-        '<label class="field">Recovery console password<input name="recovery_password" type="password" '
-        'minlength="16" maxlength="256" required autocomplete="new-password"></label>'
-        '<label class="field">Confirm recovery console password<input name="recovery_password_confirm" type="password" '
-        'minlength="16" maxlength="256" required autocomplete="new-password"></label></div></div>'
+        '<label class="field">Recovery console password<input id="recovery-password" name="recovery_password" type="password" '
+        'minlength="16" maxlength="256" required autocomplete="new-password"' + invalid('recovery_password') + '></label>'
+        '<label class="field">Confirm recovery console password<input id="recovery-password-confirm" name="recovery_password_confirm" type="password" '
+        'minlength="16" maxlength="256" required autocomplete="new-password"' + invalid('recovery_password_confirm') + '></label></div></div>'
         '<p class="muted">These must be strong and different from each other and from the portal password.</p>'
         '</section><button type="submit">Save and continue</button></form>'
         '<script>document.getElementById("browser-time").value=new Date().toISOString();'
@@ -175,8 +184,22 @@ def _page(csrf, message=''):
         '"wifi-static-settings");function syncNetworkMode(){var manual=!dhcp.checked;'
         'staticBox.hidden=!manual;var fields=staticBox.querySelectorAll("input");for(var i=0;'
         'i<fields.length;i++)fields[i].required=manual;}dhcp.onchange=syncNetworkMode;syncNetworkMode();'
-        'document.getElementById("setup-form").addEventListener("submit",function(){'
-        'document.getElementById("browser-time").value=new Date().toISOString();});</script>'
+        'var setupForm=document.getElementById("setup-form"),setupValidation=document.getElementById('
+        '"setup-validation");setupForm.addEventListener("submit",function(event){'
+        'document.getElementById("browser-time").value=new Date().toISOString();'
+        'var pairs=[["portal-password","portal-password-confirm","Portal passwords do not match"],'
+        '["recovery-ap-password","recovery-ap-password-confirm","Recovery AP passwords do not match"],'
+        '["recovery-password","recovery-password-confirm","Recovery console passwords do not match"]];'
+        'for(var p=0;p<pairs.length;p++){var first=document.getElementById(pairs[p][0]),confirmation='
+        'document.getElementById(pairs[p][1]);if(first.value!==confirmation.value){event.preventDefault();'
+        'portalStatus(setupValidation,"error",pairs[p][2]);portalInvalid(confirmation,pairs[p][2]);return;}}'
+        'var passwordFields=[document.getElementById("portal-password"),document.getElementById('
+        '"recovery-ap-password"),document.getElementById("recovery-password")];for(var i=0;i<'
+        'passwordFields.length;i++){for(var j=i+1;j<passwordFields.length;j++){if(passwordFields[i].value'
+        '===passwordFields[j].value){event.preventDefault();var duplicateMessage="Portal, recovery console '
+        'and recovery AP passwords must all differ";portalStatus(setupValidation,"error",duplicateMessage);'
+        'portalInvalid(passwordFields[i],duplicateMessage,false);portalInvalid(passwordFields[j],'
+        'duplicateMessage);return;}}}});</script>'
         '<script src="' + _asset('/assets/portal.js') + '"></script></main></body></html>'
     )
 
@@ -239,13 +262,9 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
     )
     disabled = '' if ready else ' disabled'
     introduction = (
-        '<p>A device-generated self-signed certificate is installed for HTTPS. You can '
-        'continue with it, provision it from IoT CA, use direct ACME, or manually upload an existing '
-        'portal certificate. All certificate material is written only to the flash-encrypted '
-        'device filesystem.</p>'
-        if ready else
-        '<p>Complete IoT CA provisioning, direct ACME enrollment, or manually upload an existing portal certificate. '
-        'All certificate material is written only to the flash-encrypted device filesystem.</p>'
+        '<p>A device-generated self-signed certificate is installed for HTTPS. Select how '
+        'this device should secure its portal and private services. Only the settings for '
+        'the selected method will be shown.</p>'
     )
     return (
         '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -257,7 +276,25 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
             'Keep the generated HTTPS certificate or replace it using IoT CA, ACME, or manual files.',
             heading_badge
         ) + notice + introduction +
-        '<section class="card">'
+        '<section class="card"><div class="section-title"><h2>Certificate method</h2></div>'
+        '<label class="field">Certificate option<select id="certificate-option">'
+        '<option value="" selected>Select a certificate option…</option>'
+        '<option value="self_signed">Self-signed certificate</option>'
+        '<option value="iot_ca">IoT CA automatic provisioning</option>'
+        '<option value="acme">Direct private-CA ACME enrollment</option>'
+        '<option value="manual">Manual certificate package</option>'
+        '</select></label><p id="certificate-option-description" class="info" role="status" '
+        'aria-live="polite">Choose an option to see its requirements.</p></section>'
+        '<section class="card certificate-option-panel" data-certificate-option="self_signed" hidden>'
+        '<div class="section-title"><h2>Self-signed certificate</h2></div>'
+        '<p>Use the certificate generated by this device. No additional files or services '
+        'are required, but browsers will show a trust warning until the certificate is trusted manually.</p>'
+        '<form class="page-load-action" action="/install" method="post">'
+        '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
+        '<input type="hidden" name="certificate_mode" value="self_signed">'
+        '<button id="continue" class="secondary"' + disabled +
+        '>Continue with self-signed certificate</button></form></section>'
+        '<section class="card certificate-option-panel" data-certificate-option="iot_ca" hidden>'
         '<div class="section-title"><h2>IoT CA automatic provisioning</h2></div>'
         '<p>When automatic IoT MD enrollment is enabled in IoT CA, this device can request its '
         'host-bound authorization and complete the whole certificate process. The device generates '
@@ -265,9 +302,12 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
         'enrollment only on a trusted setup LAN.</p>'
         '<form action="/iot-ca-auto-enrollment" method="post">'
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
-        '<label class="field">IoT CA server name<span class="field-hint">The Home Assistant '
-        'host running IoT CA. Port 9010 is used.</span><input name="ca_server" required '
-        'maxlength="253" value="homeassistant.local" placeholder="homeassistant.local"></label>'
+        '<div class="grid"><label class="field">IoT CA server name<span class="field-hint">'
+        'Leave blank to use <code>iot-ca.home.arpa</code>.</span><input name="ca_server" '
+        'maxlength="253" placeholder="iot-ca.home.arpa"></label>'
+        '<label class="field">IoT CA provisioning port<span class="field-hint">Leave blank '
+        'to use <code>9010</code>.</span><input name="ca_port" type="number" inputmode="numeric" '
+        'min="1" max="65535" placeholder="9010"></label></div>'
         '<label class="field">Private Device API hostname<input value="' +
         _escape(hostname) + '" readonly></label>'
         '<button id="iot-ca-auto-enroll" type="submit">Request and install certificates</button>'
@@ -280,7 +320,8 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
         'accept=".iotenroll,application/vnd.iotmd.enrollment+json" required></label>'
         '<button id="iot-ca-enroll" type="submit">Provision from authorization file</button>'
         '</form></details></section>'
-        '<form class="card" action="/enroll-certificate" method="post" enctype="multipart/form-data">'
+        '<section class="card certificate-option-panel" data-certificate-option="acme" hidden>'
+        '<form action="/enroll-certificate" method="post" enctype="multipart/form-data">'
         '<div class="section-title"><h2>Direct private-CA ACME enrollment</h2></div>'
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
         '<p>The device is connected to the home Wi-Fi and is advertising its '
@@ -288,12 +329,15 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
         'The CA must be on the same multicast network and able to resolve mDNS.</p>'
         '<label class="field">Home IoT trusted CA certificate<input id="trust-ca" name="trust_ca" '
         'type="file" accept=".der,application/pkix-cert" required></label>'
-        '<label class="field">ACME directory URL<input id="acme-directory" name="directory_url" type="url" required '
+        '<label class="field">ACME directory URL<span class="field-hint">Leave blank to use '
+        '<code>https://iot-ca.home.arpa:9000/acme/acme/directory</code>.</span><input '
+        'id="acme-directory" name="directory_url" type="url" '
         'placeholder="https://iot-ca.home.arpa:9000/acme/acme/directory"></label>'
         '<label class="field">Portal DNS hostname<input id="certificate-hostname" name="hostname" '
         'value="' + _escape(hostname) + '" readonly></label>'
-        '<button id="enroll" type="submit">Upload root and enroll with ACME</button></form>'
-        '<form class="card" action="/manual-certificates" method="post" enctype="multipart/form-data">'
+        '<button id="enroll" type="submit">Upload root and enroll with ACME</button></form></section>'
+        '<section class="card certificate-option-panel" data-certificate-option="manual" hidden>'
+        '<form action="/manual-certificates" method="post" enctype="multipart/form-data">'
         '<div class="section-title"><h2>Manual certificate package</h2></div>'
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
         '<label class="field">Home IoT trusted CA certificate<input name="trust_ca" type="file" required></label>'
@@ -304,13 +348,22 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
         '<label class="field">Private Device API certificate<span class="field-hint">Expected filename: <code>api-server.crt.der</code></span><input id="api-server-cert" name="api_server_cert" type="file" required></label>'
         '<label class="field">Private Device API key<span class="field-hint">Expected filename: <code>api-server.key.der</code></span><input id="api-server-key" name="api_server_key" type="file" required></label>'
         '<p class="muted">These files are produced together by the IoT CA public-portal profile. The public portal and private API identities remain independent.</p>'
-        '<button id="upload" type="submit">Upload and validate provisioning files</button></form>'
-        '<form class="page-load-action" action="/install" method="post">'
-        '<input type="hidden" name="csrf" value="' +
-        _escape(csrf) + '"><input type="hidden" name="certificate_mode" value="self_signed">'
-        '<button id="continue" class="secondary"' + disabled +
-        '>Continue with self-signed certificate</button></form></main>'
-        '<script src="' + _asset('/assets/portal.js') + '"></script></body></html>'
+        '<button id="upload" type="submit">Upload and validate provisioning files</button>'
+        '</form></section></main>'
+        '<script src="' + _asset('/assets/portal.js') + '"></script><script>'
+        'var certificateOption=document.getElementById("certificate-option"),certificateDescription='
+        'document.getElementById("certificate-option-description"),certificateDescriptions={'
+        'self_signed:"Use the device-generated certificate and continue immediately. Browsers may show a trust warning.",'
+        'iot_ca:"Request a public portal certificate and private service identities from IoT CA.",'
+        'acme:"Use the private CA ACME directory for a local portal certificate.",'
+        'manual:"Upload an existing portal certificate, private key, and private service identity package."};'
+        'function syncCertificateOption(){var selected=certificateOption.value,panels=document.querySelectorAll('
+        '"[data-certificate-option]");for(var i=0;i<panels.length;i++){var visible=panels[i].getAttribute('
+        '"data-certificate-option")===selected;panels[i].hidden=!visible;var controls=panels[i].querySelectorAll('
+        '"input,select,button");for(var j=0;j<controls.length;j++)controls[j].disabled=!visible;}'
+        'certificateDescription.textContent=certificateDescriptions[selected]||"Choose an option to see its requirements.";}'
+        'certificateOption.addEventListener("change",syncCertificateOption);syncCertificateOption();</script>'
+        '</body></html>'
     )
 
 def _enrollment_page(message):

@@ -244,13 +244,19 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('IoT CA automatic provisioning', certificates)
         self.assertIn('action="/iot-ca-auto-enrollment"', certificates)
         self.assertIn('name="ca_server"', certificates)
-        self.assertIn('value="homeassistant.local"', certificates)
+        self.assertIn('placeholder="iot-ca.home.arpa"', certificates)
+        self.assertIn('name="ca_port"', certificates)
+        self.assertIn('placeholder="9010"', certificates)
         self.assertIn('Request and install certificates', certificates)
         self.assertIn('Expected filename: <code>device.iotenroll</code>', certificates)
         self.assertIn('Manual certificate package', certificates)
         self.assertIn('Expected filename: <code>web.crt.pem</code>', certificates)
         self.assertNotIn('chain (<code>web.crt.pem</code>)', certificates)
         self.assertIn('id="acme-directory"', certificates)
+        self.assertIn(
+            'placeholder="https://iot-ca.home.arpa:9000/acme/acme/directory"',
+            certificates,
+        )
         self.assertIn('id="certificate-hostname"', certificates)
         self.assertIn('value="whes01.local" readonly', certificates)
         self.assertIn('<code>.local</code> hostname with mDNS', certificates)
@@ -372,6 +378,36 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('action="/iot-ca-enrollment"', html)
         self.assertIn('action="/enroll-certificate"', html)
         self.assertIn('action="/manual-certificates"', html)
+        self.assertIn('id="certificate-option"', html)
+        for choice in ('self_signed', 'iot_ca', 'acme', 'manual'):
+            self.assertIn('data-certificate-option="' + choice + '" hidden', html)
+        self.assertIn('syncCertificateOption()', html)
+
+    def test_setup_password_errors_are_inline_and_field_specific(self):
+        duplicate = setup_wizard._page(
+            'csrf-token', 'Setup failed: portal, recovery console and recovery AP '
+            'passwords must all differ',
+            setup_wizard._setup_error_fields(
+                ValueError('portal, recovery console and recovery AP passwords must all differ')
+            ),
+        )
+        self.assertIn('id="setup-validation" class="portal-status error"', duplicate)
+        self.assertIn('name="portal_password" type="password"', duplicate)
+        self.assertIn('autocomplete="new-password" aria-invalid="true"', duplicate)
+        self.assertIn('Portal, recovery console and recovery AP passwords must all differ', duplicate)
+        self.assertIn('event.preventDefault()', duplicate)
+        self.assertIn('portalInvalid(passwordFields[i]', duplicate)
+
+        mismatch = setup_wizard._page(
+            'csrf-token', 'Setup failed: portal passwords do not match',
+            setup_wizard._setup_error_fields(
+                ValueError('portal passwords do not match')
+            ),
+        )
+        confirmation = mismatch.split('name="portal_password_confirm"', 1)[1].split(
+            '</label>', 1
+        )[0]
+        self.assertIn('aria-invalid="true"', confirmation)
 
     def test_certificate_errors_use_error_status_styling(self):
         html = setup_wizard._certificate_page(
