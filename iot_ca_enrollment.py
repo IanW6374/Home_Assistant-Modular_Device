@@ -23,6 +23,7 @@ except ImportError:
 import time
 
 import certificate_manager
+import update_security
 from certificate_codec import (
     _b64decode, _csr, _ec_private_key_der, _iso_epoch, _new_private_key,
 )
@@ -37,6 +38,14 @@ RENEWAL_KEY_PATH = 'certs/iot-ca-renewal.key.der'
 STATE_PATH = 'certs/iot-ca-enrollment.json'
 DEFAULT_SERVER = 'iot-ca.home.arpa'
 DEFAULT_PROVISIONING_PORT = 9010
+
+
+def _renewal_message(enrollment_id, request_value):
+    fields = ('request_id', 'poll_token', 'portal_csr', 'api_csr', 'renewal_csr')
+    return (
+        'iotmd-renewal-v1\n' + str(enrollment_id) + '\n' +
+        '\n'.join(str(request_value.get(field, '')) for field in fields)
+    ).encode()
 
 
 def _log_failure(source, exc):
@@ -147,10 +156,10 @@ async def automatic_package(
     try:
         value = json.loads(payload.decode()) if payload else {}
     except Exception:
-        raise ValueError('IoT CA automatic enrollment returned an invalid response')
+        raise ValueError('Automatic IoT CA enrollment returned an invalid response')
     if status < 200 or status >= 300:
         raise ValueError(str(value.get(
-            'error', 'IoT CA automatic enrollment failed: HTTP ' + str(status)
+            'error', 'Automatic IoT CA enrollment failed: HTTP ' + str(status)
         )))
     encoded = json.dumps(value, separators=(',', ':')).encode()
     _package(encoded, expected_api_hostname)
@@ -279,7 +288,11 @@ async def enroll(payload, expected_api_hostname, paths, progress=None):
             'portal_hostname': package['portal_hostname'],
             'api_hostname': package['api_hostname'],
             'renewal_name': package['renewal_name'],
+            'portal_not_before': issued.get('portal_not_before', ''),
             'portal_not_after': issued.get('portal_not_after', ''),
+            'api_not_before': issued.get('api_not_before', ''),
+            'api_not_after': issued.get('api_not_after', ''),
+            'renewal_not_after': issued.get('renewal_not_after', ''),
         }
         _write(staged_state, json.dumps(state, separators=(',', ':')).encode())
         return {
@@ -307,6 +320,169 @@ async def enroll(payload, expected_api_hostname, paths, progress=None):
         raise
 
 
+def renewal_due(paths, now=None):
+    """Renew the managed public/private set after two-thirds of either lifetime."""
+    try:
+        with open(STATE_PATH, 'r') as stream:
+            state = json.load(stream)
+    except Exception:
+        return True
+    current = int(time.time() if now is None else now)
+    identities = (
+        ('portal_not_before', 'portal_not_after', paths['portal-cert']),
+        ('api_not_before', 'api_not_after', paths['api-server-cert']),
+    )
+    for start_name, end_name, path in identities:
+        start = _iso_epoch(state.get(start_name, ''))
+        end = _iso_epoch(state.get(end_name, ''))
+        if not start or end <= start:
+            details = certificate_manager.certificate_details(path)
+            start = _iso_epoch(details.get('not_before', ''))
+            end = _iso_epoch(details.get('not_after', ''))
+        if not start or end <= start or current >= start + ((end - start) * 2 // 3):
+            return True
+    return False
+
+
+async def renew(config, paths, validate, progress=None):
+    """Authenticate with the renewal identity and rotate the complete identity set."""
+    def report(message):
+        if progress:
+            progress(message)
+
+    with open(STATE_PATH, 'r') as stream:
+        state = json.load(stream)
+    required = ('endpoint', 'enrollment_id', 'portal_hostname', 'api_hostname', 'renewal_name')
+    if any(not state.get(name) for name in required):
+        raise ValueError('IoT CA renewal state is incomplete; re-provision the device')
+    with open(RENEWAL_CERTIFICATE_PATH, 'rb') as stream:
+        current_renewal_certificate = stream.read()
+    with open(RENEWAL_KEY_PATH, 'rb') as stream:
+        current_renewal_key = stream.read()
+    if len(current_renewal_key) != 32:
+        raise ValueError('IoT CA renewal private key is invalid')
+
+    portal_key = _new_private_key()
+    api_key = _new_private_key()
+    renewal_key = _new_private_key()
+    request_value = {
+        'request_id': binascii.hexlify(os.urandom(16)).decode(),
+        'poll_token': binascii.hexlify(os.urandom(32)).decode(),
+        'portal_csr': _b64(_csr(
+            portal_key, state['portal_hostname'], True, False, True
+        )),
+        'api_csr': _b64(_csr(
+            api_key, state['api_hostname'], True, False, True
+        )),
+        'renewal_csr': _b64(_csr(
+            renewal_key, state['renewal_name'], False, True, False
+        )),
+        'renewal_certificate': _b64(current_renewal_certificate),
+    }
+    request_value['proof_signature'] = update_security.sign_message(
+        _renewal_message(state['enrollment_id'], request_value),
+        current_renewal_key,
+    )
+    endpoint = str(state['endpoint']).rstrip('/')
+    report('Submitting authenticated IoT CA renewal')
+    status = await _request(
+        endpoint + '/v1/renewals/' + str(state['enrollment_id']),
+        'POST', paths['trust-ca'], request_value['poll_token'],
+        json.dumps(request_value, separators=(',', ':')).encode(),
+    )
+    poll = str(status.get('poll', ''))
+    if not poll.startswith('/v1/renewals/'):
+        raise ValueError('IoT CA renewal returned an invalid polling location')
+    for _index in range(MAX_POLLS):
+        if status.get('status') == 'complete':
+            break
+        if status.get('status') == 'error':
+            raise ValueError(str(status.get('error') or 'IoT CA renewal failed'))
+        report('Waiting for public and private certificate renewal')
+        await asyncio.sleep(POLL_SECONDS)
+        status = await _request(
+            endpoint + poll, 'GET', paths['trust-ca'], request_value['poll_token']
+        )
+    issued = status.get('result') if status.get('status') == 'complete' else None
+    if not isinstance(issued, dict) or issued.get('protocol') != 'iotmd-renewal-v1':
+        raise ValueError('IoT CA did not complete renewal in time')
+    if (
+        issued.get('portal_hostname') != state['portal_hostname'] or
+        issued.get('api_hostname') != state['api_hostname']
+    ):
+        raise ValueError('IoT CA renewal returned another device identity')
+
+    suffix = '.renewal'
+    staged_portal_cert = paths['portal-cert'] + suffix
+    staged_portal_key = paths['portal-key'] + suffix
+    staged_api_cert = paths['api-server-cert'] + suffix
+    staged_api_key = paths['api-server-key'] + suffix
+    staged_renewal_cert = RENEWAL_CERTIFICATE_PATH + suffix
+    staged_renewal_key = RENEWAL_KEY_PATH + suffix
+    staged_state = STATE_PATH + suffix
+    staged = (
+        staged_portal_cert, staged_portal_key, staged_api_cert, staged_api_key,
+        staged_renewal_cert, staged_renewal_key, staged_state,
+    )
+    try:
+        report('Validating renewed certificate identities')
+        _write(staged_portal_cert, _b64decode(issued['portal_certificate_pem']))
+        _write(staged_portal_key, _ec_private_key_der(portal_key))
+        _write(staged_api_cert, _b64decode(issued['api_certificate_pem']))
+        _write(staged_api_key, _ec_private_key_der(api_key))
+        _write(staged_renewal_cert, _b64decode(issued['renewal_certificate_der']))
+        _write(staged_renewal_key, _ec_private_key_der(renewal_key))
+        next_state = dict(state)
+        for name in (
+            'portal_not_before', 'portal_not_after', 'api_not_before',
+            'api_not_after', 'renewal_not_after',
+        ):
+            next_state[name] = issued.get(name, '')
+        _write(staged_state, json.dumps(next_state, separators=(',', ':')).encode())
+        certificate_manager.commit_certificate_files((
+            (staged_portal_cert, paths['portal-cert']),
+            (staged_portal_key, paths['portal-key']),
+            (staged_api_cert, paths['api-server-cert']),
+            (staged_api_key, paths['api-server-key']),
+            (staged_renewal_cert, RENEWAL_CERTIFICATE_PATH),
+            (staged_renewal_key, RENEWAL_KEY_PATH),
+            (staged_state, STATE_PATH),
+        ), validator=lambda: validate(
+            True, paths['portal-cert'], paths['portal-key'], paths['trust-ca'],
+            paths['api-server-cert'], paths['api-server-key'],
+        ))
+        return next_state
+    except Exception:
+        for path in staged:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        raise
+
+
+async def renewal_monitor(config, paths, validate, log_output, reset_device, interval_s=900):
+    while True:
+        if renewal_due(paths):
+            try:
+                state = await renew(config, paths, validate)
+            except Exception as exc:
+                log_output(
+                    'Local', 'IoT CA certificate renewal',
+                    {'log': 'Failed - ' + str(exc)}, 'ERROR'
+                )
+            else:
+                log_output(
+                    'Local', 'IoT CA certificate renewal',
+                    {'log': 'Renewed public portal and private Device API identities until ' +
+                            str(state.get('portal_not_after', ''))}, 'INFO'
+                )
+                await asyncio.sleep(2)
+                reset_device()
+                return
+        await asyncio.sleep(interval_s)
+
+
 async def install(payload, config, paths, connect_station, validate, status):
     """Run first-boot enrollment and activate the complete identity set."""
     def progress(message):
@@ -328,7 +504,7 @@ async def install(payload, config, paths, connect_station, validate, status):
         )
         saved = __import__('credential_store').update_certificate_settings(
             'iot_ca', result.get('endpoint', ''), hostname,
-            portal_hostname=result['portal_hostname']
+            portal_hostname=result['portal_hostname'], method='iot_ca_file'
         )
         if (
             saved.get('mode') != 'iot_ca' or
@@ -382,7 +558,7 @@ async def automatic_install(
         )
         saved = __import__('credential_store').update_certificate_settings(
             'iot_ca', result.get('endpoint', ''), hostname,
-            portal_hostname=result['portal_hostname']
+            portal_hostname=result['portal_hostname'], method='iot_ca_auto'
         )
         if (
             saved.get('mode') != 'iot_ca' or
@@ -390,7 +566,7 @@ async def automatic_install(
         ):
             raise RuntimeError('IoT CA certificate settings were not preserved')
     except Exception as exc:
-        _log_failure('IoT CA auto enrollment', exc)
+        _log_failure('Automatic IoT CA enrollment', exc)
         status['status'] = 'error'
         status['message'] = 'Setup failed: ' + _failure_message(exc, endpoint)
     else:
@@ -408,7 +584,7 @@ def start_automatic(
     """Record the operation before scheduling it so concurrent starts are rejected."""
     status.update({
         'status': 'running', 'mode': 'iot_ca',
-        'message': 'Requesting automatic IoT CA enrollment',
+        'message': 'Requesting Automatic IoT CA enrollment',
     })
     return asyncio.create_task(automatic_install(
         server, config, paths, connect_station, validate, status, port

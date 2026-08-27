@@ -28,6 +28,7 @@ import timezone_rules
 import component_versions
 import certificate_manager
 import certificate_status
+import certificate_lifecycle
 import configuration_manager
 import api_security
 import portal_auth
@@ -109,8 +110,6 @@ def cancel_recovery_trial_deadline_if_healthy():
     if cancel:
         return cancel()
     return False
-
-
 
 # Local configuration
 
@@ -1589,6 +1588,12 @@ def schedule_portal_certificate_reload():
     start_task('portal_certificate_reload', reload_portal_listener())
 
 
+def schedule_certificate_identity_reload():
+    start_task('portal_certificate_reload', reload_portal_listener())
+    if device_api_enabled:
+        start_task('device_api_certificate_reload', reload_device_api_listener())
+
+
 def validate_uploaded_certificates():
     staged_ca = mqtt_ca_cert_path + '.manual'
     staged_cert = web_portal_cert_path + '.manual'
@@ -1713,7 +1718,7 @@ def validate_uploaded_certificates():
         except OSError:
             pass
     if all(portal_staged):
-        credential_store.update_certificate_settings('manual')
+        credential_store.update_certificate_settings('manual', method='manual')
 
     if outbound_trust_changed:
         mark_restart_required('Outbound TLS trust changed')
@@ -1979,13 +1984,13 @@ def portal_action(action, params):
         ).strip().lower().rstrip('.')
         credential_store.update_certificate_settings(
             'acme' if enabled else 'manual', directory_url, hostname,
-            portal_hostname=hostname
+            portal_hostname=hostname, method='acme' if enabled else 'manual'
         )
-        mark_restart_required('ACME settings changed')
+        mark_restart_required('Private CA ACME settings changed')
         return (
-            'ACME certificate management enabled. Restart the device to activate it.'
+            'Private CA ACME enrollment enabled. Restart the device to activate it.'
             if enabled else
-            'ACME certificate management disabled. The installed certificate is retained; restart to activate the change.'
+            'Private CA ACME enrollment disabled. The installed certificate is retained; restart to activate the change.'
         )
 
     if action == 'ems-debug':
@@ -3072,14 +3077,13 @@ async def main(client):
                         release_available.get('version', '')
                     )
 
-    if certificate_config.get('mode') == 'acme':
-        start_task(
-            'certificate_renewal',
-            certificate_manager.renewal_monitor(
-                certificate_config, device_settings.service_ca_path('mqtt'),
-                logOutput, schedule_portal_certificate_reload
-            )
-        )
+    start_task('certificate_lifecycle', certificate_lifecycle.monitor(
+        certificate_config, {
+            'trust-ca': mqtt_ca_cert_path, 'portal-cert': web_portal_cert_path, 'portal-key': web_portal_key_path,
+            'api-server-cert': api_server_cert_path, 'api-server-key': api_server_key_path,
+        }, logOutput, schedule_portal_certificate_reload,
+        schedule_certificate_identity_reload
+    ))
 
     mqtt_started = False
     if mqtt_configured and mqtt_tls_ready:

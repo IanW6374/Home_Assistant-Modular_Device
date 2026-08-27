@@ -20,20 +20,39 @@ portal has a browser-trusted certificate.
 The first-boot wizard starts with a certificate-route selector and displays
 only the fields for the selected route:
 
-1. **IoT CA public certificate provisioning** obtains a browser-trusted portal
-   certificate and a private-CA Device API identity using an automatic,
-   short-lived enrollment window or a one-time `.iotenroll` authorization.
-2. **Local private-CA ACME** uses the device's `.local` name and HTTP-01 against
+1. **Automatic IoT CA enrollment** obtains a browser-trusted portal
+   certificate and a private-CA Device API identity through a short-lived,
+   trusted-LAN enrollment window.
+2. **IoT CA enrollment file (`.iotenroll`)** obtains the same identity
+   set from a one-time, host-bound authorization downloaded by the admin.
+3. **Private CA ACME enrollment** uses the device's `.local` name and HTTP-01 against
    the private IoT CA.
-3. **Manual certificate package** uploads an existing public portal chain/key
+4. **Manual certificate package** uploads an existing public portal chain/key
    and private Device API certificate/key.
-4. **Self-signed certificate** keeps the device-generated local fallback.
+5. **Self-signed certificate** keeps the device-generated local fallback.
 
 No route is silently applied. Selecting **Self-signed certificate** requires no
 certificate fields and continues with the identity created during the network
 step.
 
-## Automated IoT CA public provisioning
+### Renewal coverage
+
+Renewal depends on the selected route and is shown beside every choice in the
+wizard:
+
+- **Private CA ACME enrollment** automatically renews its local portal certificate
+  after two-thirds of its lifetime. It does not install or rotate a separate
+  Device API identity.
+- **Automatic IoT CA enrollment** and **IoT CA enrollment file (`.iotenroll`)**
+  install the public portal, private Device API and renewal identities together.
+  The device uses the renewal identity to rotate the complete set automatically
+  after two-thirds of either server certificate lifetime.
+- **Manual certificate package** certificates are replaced manually; neither the public nor
+  private identity is auto-renewed.
+- **Self-signed certificate** mode regenerates its local identity automatically
+  after two-thirds of its lifetime.
+
+## Automatic IoT CA enrollment
 
 For one-step provisioning, configure IoT CA with a server name the device can
 resolve (by default `iot-ca.home.arpa`) and ensure its Home Assistant network
@@ -56,8 +75,8 @@ subsequent enrollment traffic to that root. On an untrusted setup LAN, choose
 resulting `.iotenroll` file instead. That authorization expires after 30
 minutes and can be claimed only once with the same certificate requests.
 
-Upload that one file under the authorization-file fallback in **IoT CA
-automatic provisioning**. The device pins HTTPS to the private root embedded in the file,
+Select **IoT CA enrollment file (`.iotenroll`)** and upload that one
+file. The device pins HTTPS to the private root embedded in the file,
 generates independent P-256 keys for the portal, Device API and renewal
 identity, and submits only their CSRs. IoT CA completes Cloudflare DNS-01 for
 the portal CSR and signs the API and renewal CSRs with its private authority.

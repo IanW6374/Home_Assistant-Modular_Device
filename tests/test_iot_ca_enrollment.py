@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.x509.oid import ExtendedKeyUsageOID
 
 import iot_ca_enrollment
+import update_security
 
 
 class IoTCAEnrollmentTests(unittest.TestCase):
@@ -75,11 +76,11 @@ class IoTCAEnrollmentTests(unittest.TestCase):
             mock.patch('builtins.print') as output,
         ):
             iot_ca_enrollment._log_failure(
-                'IoT CA auto enrollment', OSError(-202)
+                'Automatic IoT CA enrollment', OSError(-202)
             )
 
         output.assert_called_once_with(
-            'ERROR IoT CA auto enrollment: Failed - -202'
+            'ERROR Automatic IoT CA enrollment: Failed - -202'
         )
 
     def test_automatic_package_is_host_bound_and_uses_bootstrap_only_once(self):
@@ -225,6 +226,129 @@ class IoTCAEnrollmentTests(unittest.TestCase):
                         requests[0][4],
                         (('Authorization', 'Bearer one-time-secret'),),
                     )
+                finally:
+                    os.chdir(previous)
+
+        asyncio.run(scenario())
+
+    def test_managed_set_renews_after_two_thirds_of_either_server_lifetime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            previous = os.getcwd()
+            os.chdir(directory)
+            try:
+                Path('certs').mkdir()
+                paths = {
+                    'portal-cert': 'certs/web.crt.der',
+                    'api-server-cert': 'certs/api.crt.der',
+                }
+                Path(iot_ca_enrollment.STATE_PATH).write_text(json.dumps({
+                    'portal_not_before': '2026-01-01T00:00:00Z',
+                    'portal_not_after': '2026-04-01T00:00:00Z',
+                    'api_not_before': '2026-01-01T00:00:00Z',
+                    'api_not_after': '2027-01-01T00:00:00Z',
+                }))
+                start = iot_ca_enrollment._iso_epoch('2026-01-01T00:00:00Z')
+                self.assertFalse(iot_ca_enrollment.renewal_due(
+                    paths, start + 59 * 86400
+                ))
+                self.assertTrue(iot_ca_enrollment.renewal_due(
+                    paths, start + 60 * 86400
+                ))
+            finally:
+                os.chdir(previous)
+
+    def test_authenticated_renewal_rotates_public_private_and_renewal_identities(self):
+        async def scenario():
+            requests = []
+
+            async def request(url, method, ca_path, token, body=b''):
+                requests.append((url, method, ca_path, token, body))
+                if method == 'POST':
+                    return {'status': 'pending', 'poll': '/v1/renewals/renewal-1'}
+                return {
+                    'status': 'complete',
+                    'result': {
+                        'protocol': 'iotmd-renewal-v1',
+                        'portal_hostname': 'device.example.com',
+                        'api_hostname': 'device.local',
+                        'portal_certificate_pem': base64.b64encode(b'new-portal').decode(),
+                        'api_certificate_pem': base64.b64encode(b'new-api').decode(),
+                        'renewal_certificate_der': base64.b64encode(b'new-renewal').decode(),
+                        'portal_not_before': '2027-01-01T00:00:00Z',
+                        'portal_not_after': '2027-04-01T00:00:00Z',
+                        'api_not_before': '2027-01-01T00:00:00Z',
+                        'api_not_after': '2028-01-01T00:00:00Z',
+                        'renewal_not_after': '2028-01-01T00:00:00Z',
+                    },
+                }
+
+            async def no_wait(_seconds):
+                return None
+
+            with tempfile.TemporaryDirectory() as directory:
+                previous = os.getcwd()
+                os.chdir(directory)
+                try:
+                    Path('certs/trust').mkdir(parents=True)
+                    paths = {
+                        'trust-ca': 'certs/trust/root.der',
+                        'portal-cert': 'certs/web.crt.der',
+                        'portal-key': 'certs/web.key.der',
+                        'api-server-cert': 'certs/api.crt.der',
+                        'api-server-key': 'certs/api.key.der',
+                    }
+                    for path in paths.values():
+                        Path(path).write_bytes(b'old')
+                    renewal_key = bytes(range(1, 33))
+                    Path(iot_ca_enrollment.RENEWAL_CERTIFICATE_PATH).write_bytes(
+                        b'current-renewal-certificate'
+                    )
+                    Path(iot_ca_enrollment.RENEWAL_KEY_PATH).write_bytes(renewal_key)
+                    Path(iot_ca_enrollment.STATE_PATH).write_text(json.dumps({
+                        'endpoint': 'https://iot-ca.home.arpa:9010',
+                        'enrollment_id': 'enrollment-1',
+                        'portal_hostname': 'device.example.com',
+                        'api_hostname': 'device.local',
+                        'renewal_name': 'iotmd-renewal-enrollment-1',
+                    }))
+                    validated = []
+
+                    def validate(*args):
+                        validated.append(args)
+                        return True
+
+                    with (
+                        mock.patch.object(iot_ca_enrollment, '_request', request),
+                        mock.patch.object(iot_ca_enrollment.asyncio, 'sleep', no_wait),
+                    ):
+                        state = await iot_ca_enrollment.renew({}, paths, validate)
+
+                    submitted = json.loads(requests[0][4])
+                    public = update_security.public_key_bytes(renewal_key)
+                    public_point = (
+                        int.from_bytes(public[:32], 'big'),
+                        int.from_bytes(public[32:], 'big'),
+                    )
+                    self.assertTrue(update_security.verify_message_signature(
+                        iot_ca_enrollment._renewal_message(
+                            'enrollment-1', submitted
+                        ), submitted['proof_signature'],
+                        public_point,
+                    ))
+                    self.assertEqual(
+                        base64.b64decode(submitted['renewal_certificate']),
+                        b'current-renewal-certificate',
+                    )
+                    self.assertEqual(Path(paths['portal-cert']).read_bytes(), b'new-portal')
+                    self.assertEqual(Path(paths['api-server-cert']).read_bytes(), b'new-api')
+                    self.assertEqual(
+                        Path(iot_ca_enrollment.RENEWAL_CERTIFICATE_PATH).read_bytes(),
+                        b'new-renewal',
+                    )
+                    self.assertNotEqual(Path(paths['portal-key']).read_bytes(), b'old')
+                    self.assertNotEqual(Path(paths['api-server-key']).read_bytes(), b'old')
+                    self.assertTrue(validated)
+                    self.assertEqual(state['portal_not_after'], '2027-04-01T00:00:00Z')
                 finally:
                     os.chdir(previous)
 

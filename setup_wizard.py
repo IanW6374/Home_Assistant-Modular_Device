@@ -270,7 +270,7 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                     raise ValueError('portal mDNS hostname changed during setup')
                 _write_certificate('trust-ca', parts.get('trust_ca', b''), '.acme')
                 enrollment['status'] = 'running'
-                enrollment['message'] = 'Starting ACME enrollment'
+                enrollment['message'] = 'Starting Private CA ACME enrollment'
                 enrollment['mode'] = 'acme'
                 await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
                 enrollment_task = asyncio.create_task(after_ui_ready(
@@ -317,7 +317,7 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                 config = credential_store.load()
                 enrollment.update({
                     'status': 'running', 'mode': 'iot_ca',
-                    'message': 'Requesting automatic IoT CA enrollment',
+                    'message': 'Requesting Automatic IoT CA enrollment',
                 })
                 await send(writer, '202 Accepted', _enrollment_page(enrollment['message']))
                 enrollment_task = asyncio.create_task(after_ui_ready(

@@ -309,6 +309,17 @@ def validate(config, require_provisioned=False):
     certificate_mode = certificate.get('mode', 'manual')
     if certificate_mode not in ('self_signed', 'manual', 'acme', 'iot_ca'):
         raise ValueError('certificate mode must be self_signed, manual, acme or iot_ca')
+    certificate_method = certificate.get(
+        'method', 'iot_ca_auto' if certificate_mode == 'iot_ca' else certificate_mode
+    )
+    methods = ('self_signed', 'manual', 'acme', 'iot_ca_auto', 'iot_ca_file')
+    if certificate_method not in methods:
+        raise ValueError('certificate method is invalid')
+    if (
+        (certificate_mode == 'iot_ca' and certificate_method not in ('iot_ca_auto', 'iot_ca_file')) or
+        (certificate_mode != 'iot_ca' and certificate_method != certificate_mode)
+    ):
+        raise ValueError('certificate method does not match its renewal mode')
     directory_url = _text(
         certificate.get('directory_url', ''), 'ACME directory URL',
         1 if certificate_mode == 'acme' else 0, 512

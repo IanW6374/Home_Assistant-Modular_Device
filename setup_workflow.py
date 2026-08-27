@@ -116,7 +116,7 @@ def _install_manual_certificates(parts):
     )
     hostname = config['certificate']['hostname']
     credential_store.update_certificate_settings(
-        'manual', '', hostname, portal_hostname=portal_hostname
+        'manual', '', hostname, portal_hostname=portal_hostname, method='manual'
     )
     return config
 
@@ -343,7 +343,7 @@ async def _enroll_acme_certificate(directory_url, hostname, config, enrollment):
             (staged_trust_ca, CERTIFICATE_PATHS['trust-ca']),
         ), validator=lambda: _validate_certificate_files('acme'))
         saved = credential_store.update_certificate_settings(
-            'acme', directory_url, hostname
+            'acme', directory_url, hostname, method='acme'
         )
         if saved.get('mode') != 'acme' or saved.get('directory_url') != directory_url:
             raise RuntimeError('ACME certificate settings were not preserved')

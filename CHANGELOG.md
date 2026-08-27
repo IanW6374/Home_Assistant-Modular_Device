@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.5 - 2026-08-27
+
+- Restore **IoT CA enrollment file (`.iotenroll`)** as a first-class setup
+  wizard choice instead of hiding it beneath automatic provisioning.
+- Standardise certificate method names across IoT MD and IoT CA.
+- Automatically rotate IoT CA public portal, private Device API and renewal
+  identities as one authenticated set, and regenerate self-signed identities
+  after two-thirds of their lifetime.
+- Make **Manual certificate package** the only non-renewing method and warn in
+  both the Certificates portal page and Device log.
+
 ## 2.2.4 - 2026-08-27
 
 - Validate all portal and recovery password pairs together, marking both

@@ -36,7 +36,7 @@ IMPORTABLE_SETTINGS = (
     'portal_username', 'portal_transport', 'portal_port',
     'portal_session_timeout_s', 'release_channel', 'loglevel', 'ntp_servers',
     'timezone_offset_minutes', 'timezone_name', 'log_buffer_lines', 'ha_discovery',
-    'certificate_mode', 'acme_directory_url', 'certificate_hostname',
+    'certificate_mode', 'certificate_method', 'acme_directory_url', 'certificate_hostname',
     'release_auto_download', 'release_auto_activate',
     'release_check_schedule', 'release_check_time', 'release_check_weekday',
     'api_enabled', 'api_port',

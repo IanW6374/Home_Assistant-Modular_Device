@@ -22,6 +22,7 @@ CORE_FILES = (
     'application_upload.py',
     'app_settings.json',
     'component_versions.py',
+    'certificate_lifecycle.py',
     'certificate_status.py',
     'settings_loader.py',
     'display.py',

@@ -111,7 +111,7 @@ async def wait_for_http01_mdns(hostname, timeout_s=30):
             await asyncio.sleep(1)
             return station_address
         await asyncio.sleep(1)
-    raise ValueError('ACME enrollment requires a connection to the home Wi-Fi')
+    raise ValueError('Private CA ACME enrollment requires a connection to the home Wi-Fi')
 
 async def _response_unbounded(url, method, ca_path, body=b'', content_type='', accept='',
                               extra_headers=(), tls_context=None):
@@ -656,6 +656,31 @@ async def renewal_monitor(config, ca_path, log_output, reset_device, interval_s=
                 log_output(
                     'Local', 'Certificate renewal',
                     {'log': 'Renewed until ' + str(state.get('not_after', ''))}, 'INFO'
+                )
+                await asyncio.sleep(2)
+                reset_device()
+                return
+        await asyncio.sleep(interval_s)
+
+
+async def self_signed_renewal_monitor(
+    config, log_output, reset_device, interval_s=900
+):
+    """Regenerate the managed local fallback after two-thirds of its lifetime."""
+    while True:
+        if renewal_due():
+            try:
+                state = install_self_signed(config.get('hostname', ''))
+            except Exception as exc:
+                log_output(
+                    'Local', 'Self-signed certificate renewal',
+                    {'log': 'Failed - ' + str(exc)}, 'ERROR'
+                )
+            else:
+                log_output(
+                    'Local', 'Self-signed certificate renewal',
+                    {'log': 'Renewed until ' + str(state.get('not_after', ''))},
+                    'INFO'
                 )
                 await asyncio.sleep(2)
                 reset_device()

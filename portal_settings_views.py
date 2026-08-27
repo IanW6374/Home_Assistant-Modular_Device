@@ -643,28 +643,70 @@ def render_certificate_details(certificates):
 def render_certificate_page(csrf, message='', certificates=None):
     certificates = certificates or {}
     acme = certificates.get('acme_settings', {}) or {}
-    acme_enabled = acme.get('mode') == 'acme'
+    certificate_mode = str(acme.get('mode', 'manual'))
+    certificate_method = str(acme.get(
+        'method', 'iot_ca_auto' if certificate_mode == 'iot_ca' else certificate_mode
+    ))
+    acme_enabled = certificate_mode == 'acme'
+    renewal = {
+        'iot_ca_auto': (
+            'success', 'Automatic IoT CA enrollment',
+            'The public portal, private Device API and renewal identities are '
+            'automatically rotated together after two-thirds of the public portal '
+            'or Device API certificate lifetime.'
+        ),
+        'iot_ca_file': (
+            'success', 'IoT CA enrollment file (.iotenroll)',
+            'The public portal, private Device API and renewal identities are '
+            'automatically rotated together after two-thirds of the public portal '
+            'or Device API certificate lifetime.'
+        ),
+        'acme': (
+            'success', 'Private CA ACME enrollment',
+            'The local portal certificate is automatically renewed after two-thirds '
+            'of its lifetime. This method does not manage a separate Device API identity.'
+        ),
+        'self_signed': (
+            'info', 'Self-signed certificate',
+            'The device automatically regenerates its local self-signed certificate '
+            'after two-thirds of its lifetime.'
+        ),
+        'manual': (
+            'warning', 'Manual certificate package',
+            'Automatic renewal is unavailable. Replace the public portal and private '
+            'Device API certificates before either identity expires.'
+        ),
+    }.get(certificate_method, (
+        'warning', 'Unknown certificate method',
+        'Certificate renewal status is unavailable for this configuration.'
+    ))
+    renewal_notice = (
+        '<section class="portal-status ' + renewal[0] + '" role="status">'
+        '<strong>Certificate method: ' + html_escape(renewal[1]) + '</strong><br>' +
+        html_escape(renewal[2]) + '</section>'
+    )
     body = (
         portal_ui.page_heading(
             'Maintenance', 'Certificates',
             'Review installed certificate identities and use manual DER upload when renewal is unavailable.'
-        ) + _notice(message) +
+        ) + _notice(message) + renewal_notice +
         '<section class="card"><div class="section-title"><h2>Installed certificates</h2></div>' +
         render_certificate_details(certificates) + '</section>'
-        '<section class="card"><div class="section-title"><h2>ACME certificate service</h2></div>'
+        '<section class="card"><div class="section-title"><h2>Private CA ACME enrollment</h2></div>'
         '<form action="/acme-settings" method="post"><input type="hidden" name="csrf" value="' +
         html_escape(csrf) + '"><input type="hidden" name="acme_enabled" value="false">'
         '<label class="check"><input id="acme-enabled" name="acme_enabled" type="checkbox" value="true"' +
-        (' checked' if acme_enabled else '') + '>Enable automatic ACME certificate management</label>'
+        (' checked' if acme_enabled else '') + '>Enable automatic Private CA ACME renewal for the portal certificate</label>'
         '<fieldset id="acme-fields" class="conditional-fields"' +
         ('' if acme_enabled else ' disabled') + '><div class="grid"><label class="field">ACME directory URL'
         '<input name="directory_url" type="url" maxlength="512" required value="' +
         html_escape(acme.get('directory_url', '')) + '"></label>'
         '<label class="field">Certificate hostname<input name="hostname" maxlength="253" '
         'required value="' + html_escape(acme.get('hostname', '')) + '"></label></div></fieldset>'
-        '<p class="muted">When disabled, the installed portal certificate remains in use but '
-        'automatic enrolment and renewal stop.</p><div class="actions"><span></span>'
-        '<button type="submit">Save ACME settings</button></div></form></section>'
+        '<p class="muted">This changes the certificate method to Private CA ACME enrollment. '
+        'When disabled, the installed portal certificate remains in use but this ACME renewal '
+        'service stops.</p><div class="actions"><span></span>'
+        '<button type="submit">Save Private CA ACME settings</button></div></form></section>'
         '<section class="card"><div class="section-title"><h2>Import certificate</h2></div>'
         '<p class="muted">Choose the certificate purpose, select the DER file or files, then '
         'validate and install them as one operation.</p><label class="field">Certificate type'

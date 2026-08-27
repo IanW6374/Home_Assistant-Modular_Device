@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import base64
@@ -5,6 +6,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -221,6 +223,50 @@ class CertificateManagerTests(unittest.TestCase):
                 self.assertTrue(certificate_manager.renewal_due(start + 16 * 3600))
             finally:
                 os.chdir(previous)
+
+    def test_self_signed_monitor_regenerates_due_identity(self):
+        resets = []
+        logs = []
+
+        async def no_wait(_seconds):
+            return None
+
+        with (
+            mock.patch.object(certificate_manager, 'renewal_due', return_value=True),
+            mock.patch.object(
+                certificate_manager, 'install_self_signed',
+                return_value={'not_after': '2037-12-31T23:59:59Z'},
+            ),
+            mock.patch.object(certificate_manager.asyncio, 'sleep', no_wait),
+        ):
+            asyncio.run(certificate_manager.self_signed_renewal_monitor(
+                {'hostname': 'whes01.local'},
+                lambda *args: logs.append(args),
+                lambda: resets.append(True),
+            ))
+
+        self.assertEqual(resets, [True])
+        self.assertIn('Renewed until 2037-12-31T23:59:59Z', logs[0][2]['log'])
+
+    def test_certificate_page_names_every_method_and_warns_for_manual(self):
+        methods = (
+            ('self_signed', 'self_signed', 'Self-signed certificate'),
+            ('iot_ca', 'iot_ca_auto', 'Automatic IoT CA enrollment'),
+            ('iot_ca', 'iot_ca_file', 'IoT CA enrollment file (.iotenroll)'),
+            ('acme', 'acme', 'Private CA ACME enrollment'),
+            ('manual', 'manual', 'Manual certificate package'),
+        )
+        for mode, method, name in methods:
+            html = web_portal.render_certificate_page(
+                'csrf', certificates={'acme_settings': {
+                    'mode': mode, 'method': method,
+                }}
+            )
+            self.assertIn('Certificate method: ' + name, html)
+        manual = web_portal.render_certificate_page(
+            'csrf', certificates={'acme_settings': {'mode': 'manual'}}
+        )
+        self.assertIn('Automatic renewal is unavailable', manual)
 
     def test_component_applicability_only_uses_configured_modules(self):
         components = {

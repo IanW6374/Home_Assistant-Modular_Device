@@ -389,6 +389,7 @@ def build_configuration(values, portal_password, recovery_password):
         },
         'certificate': {
             'mode': values.get('certificate_mode', 'manual'),
+            'method': values.get('certificate_method', values.get('certificate_mode', 'manual')),
             'directory_url': values.get('acme_directory_url', ''),
             'hostname': values.get('certificate_hostname', ''),
             'portal_hostname': values.get(
@@ -514,6 +515,8 @@ def public_settings():
         'portal_session_timeout_s': config['portal'].get('session_timeout_s', 3600),
         'release_channel': config['release']['channel'],
         'certificate_mode': config['certificate']['mode'],
+        'certificate_method': config['certificate'].get('method', 'iot_ca_auto' if
+            config['certificate']['mode'] == 'iot_ca' else config['certificate']['mode']),
         'acme_directory_url': config['certificate']['directory_url'],
         'certificate_hostname': config['certificate']['hostname'],
         'portal_certificate_hostname': config['certificate'].get(
@@ -608,12 +611,19 @@ def _apply_operational_settings(config, values):
     if 'release_channel' in values:
         config['release']['channel'] = values['release_channel']
     if any(key in values for key in (
-        'certificate_mode', 'acme_directory_url', 'certificate_hostname',
+        'certificate_mode', 'certificate_method', 'acme_directory_url', 'certificate_hostname',
         'portal_certificate_hostname'
     )):
         certificate = config.setdefault('certificate', {})
         if 'certificate_mode' in values:
             certificate['mode'] = str(values['certificate_mode'])
+            if 'certificate_method' not in values:
+                certificate['method'] = (
+                    'iot_ca_auto' if certificate['mode'] == 'iot_ca'
+                    else certificate['mode']
+                )
+        if 'certificate_method' in values:
+            certificate['method'] = str(values['certificate_method'])
         if 'acme_directory_url' in values:
             certificate['directory_url'] = str(values['acme_directory_url']).strip()
         if 'certificate_hostname' in values:
@@ -699,7 +709,7 @@ def update_operational_settings(values, network_trial=False):
 
 
 def update_certificate_settings(
-    mode, directory_url='', hostname='', portal_hostname=None
+    mode, directory_url='', hostname='', portal_hostname=None, method=None
 ):
     config = load()
     current = config.get('certificate', {})
@@ -707,8 +717,14 @@ def update_certificate_settings(
         hostname = current.get('hostname', '')
     if portal_hostname is None:
         portal_hostname = current.get('portal_hostname', hostname)
+    if method is None:
+        method = (
+            current.get('method', 'iot_ca_auto' if mode == 'iot_ca' else mode)
+            if current.get('mode') == mode else mode
+        )
     config['certificate'] = {
         'mode': str(mode),
+        'method': str(method),
         'directory_url': str(directory_url).strip(),
         'hostname': str(hostname).strip(),
         'portal_hostname': str(portal_hostname).strip(),

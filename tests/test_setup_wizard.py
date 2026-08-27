@@ -245,7 +245,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('id="api-server-cert"', certificates)
         self.assertIn('id="api-server-key"', certificates)
         self.assertIn('name="portal_hostname"', certificates)
-        self.assertIn('IoT CA automatic provisioning', certificates)
+        self.assertIn('Automatic IoT CA enrollment', certificates)
         self.assertIn('action="/iot-ca-auto-enrollment"', certificates)
         self.assertIn('name="ca_server"', certificates)
         self.assertIn('placeholder="iot-ca.home.arpa"', certificates)
@@ -379,21 +379,26 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('ACME certificate files are installed and validated.', html)
         self.assertIn('name="certificate_mode" value="acme"', html)
 
-    def test_certificate_page_keeps_all_four_admin_choices(self):
+    def test_certificate_page_keeps_all_five_admin_choices_and_renewal_scope(self):
         html = setup_wizard._certificate_page(
             'csrf-token', 'device.local',
             setup_wizard.SELF_SIGNED_READY_MESSAGE, True
         )
-        self.assertIn('IoT CA automatic provisioning', html)
-        self.assertIn('Direct private-CA ACME enrollment', html)
+        self.assertIn('Automatic IoT CA enrollment', html)
+        self.assertIn('IoT CA enrollment file (.iotenroll)', html)
+        self.assertIn('Private CA ACME enrollment', html)
         self.assertIn('Manual certificate package', html)
         self.assertIn('Continue with self-signed certificate', html)
         self.assertIn('action="/iot-ca-enrollment"', html)
         self.assertIn('action="/enroll-certificate"', html)
         self.assertIn('action="/manual-certificates"', html)
         self.assertIn('id="certificate-option"', html)
-        for choice in ('self_signed', 'iot_ca', 'acme', 'manual'):
+        for choice in ('self_signed', 'iot_ca_auto', 'iot_ca_file', 'acme', 'manual'):
             self.assertIn('data-certificate-option="' + choice + '" hidden', html)
+        self.assertIn('automatically rotated together', html)
+        self.assertIn('portal certificate renews automatically', html)
+        self.assertIn('certificates are not renewed automatically', html)
+        self.assertNotIn('<details>', html)
         self.assertIn('syncCertificateOption()', html)
 
     def test_setup_password_errors_are_inline_and_field_specific(self):
