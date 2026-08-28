@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record the reproducible IoTMD v2 hardware qualification."""
+"""Record the reproducible IoT-MD v2 hardware qualification."""
 
 import argparse
 import json

@@ -23,5 +23,5 @@ prevents presence chatter around the threshold. Diagnostics expose raw ADC/RMS,
 calibration and sampling errors.
 
 This module measures mains-derived signals. Use only an appropriately isolated,
-rated sensor assembly, fusing and enclosure. IoTMD readings are operational,
+rated sensor assembly, fusing and enclosure. IoT-MD readings are operational,
 not certified revenue or protective measurements.

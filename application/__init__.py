@@ -1,4 +1,4 @@
-"""Transport-neutral IoTMD application composition primitives."""
+"""Transport-neutral IoT-MD application composition primitives."""
 
 from .context import ApplicationContext, RuntimeState, TaskSupervisor
 

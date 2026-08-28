@@ -70,7 +70,7 @@ class SettingsLoaderTests(unittest.TestCase):
             settings_loader.ha_device_info['mdl'],
             device_config.DEVICE_INFO['mdl']
         )
-        self.assertEqual(settings_loader.ha_device_info['mf'], 'IoTMD')
+        self.assertEqual(settings_loader.ha_device_info['mf'], 'IoT-MD')
         self.assertEqual(
             settings_loader.ha_device_info['mdl'],
             'IoT Modular Device'

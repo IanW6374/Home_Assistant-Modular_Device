@@ -191,7 +191,7 @@ class LocalDisplayService:
 
         pages = self.build_pages()
         if not pages:
-            pages = [['IoTMD', 'No data']]
+            pages = [['IoT-MD', 'No data']]
 
         if self.page_index >= len(pages):
             self.page_index = 0
@@ -298,7 +298,7 @@ def create_display(cfg):
 
 def format_status_page(status):
     lines = [
-        status.get('device_name', 'IoTMD'),
+        status.get('device_name', 'IoT-MD'),
         'WiFi ' + status.get('wifi_ip', '-'),
         'MQTT ' + status.get('mqtt', 'unknown'),
         'Up ' + compact_duration(status.get('uptime_s')),

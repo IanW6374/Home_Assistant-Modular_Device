@@ -121,12 +121,12 @@ def _secure_crypto():
         import _iotmd_crypto
     except ImportError:
         raise RuntimeError(
-            'encrypted backups require compatible IoTMD core firmware'
+            'encrypted backups require compatible IoT-MD core firmware'
         )
     for name in ('pbkdf2_sha256', 'aes_gcm_encrypt', 'aes_gcm_decrypt'):
         if not hasattr(_iotmd_crypto, name):
             raise RuntimeError(
-                'encrypted backups require a newer IoTMD core firmware'
+                'encrypted backups require a newer IoT-MD core firmware'
             )
     return _iotmd_crypto
 

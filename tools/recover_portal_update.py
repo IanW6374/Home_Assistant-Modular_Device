@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Recover a IoTMD portal whose authenticated HTML renderer is broken.
+"""Recover an IoT-MD portal whose authenticated HTML renderer is broken.
 
 Affected portals can still authenticate and serve JSON endpoints even though
 personalising an HTML response raises on MicroPython.  This utility reuses
-those authenticated endpoints to stage and activate a signed IoTMD bundle.
+those authenticated endpoints to stage and activate a signed IoT-MD bundle.
 """
 
 import argparse
@@ -154,7 +154,7 @@ def wait_for_verification(opener, base_url, identifier):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Install a IoTMD through the authenticated portal recovery endpoints'
+        description='Install an IoT-MD update through the authenticated portal recovery endpoints'
     )
     parser.add_argument('portal_url', help='for example https://whes02.local:8443')
     parser.add_argument('bundle', type=Path, help='signed .iotapp bundle')

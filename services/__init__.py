@@ -1,1 +1,1 @@
-"""Narrow service interfaces used by the IoTMD v2 composition root."""
+"""Narrow service interfaces used by the IoT-MD v2 composition root."""

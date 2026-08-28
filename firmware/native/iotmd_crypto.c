@@ -1,4 +1,4 @@
-// Native cryptographic primitives required by IoTMD firmware.
+// Native cryptographic primitives required by IoT-MD firmware.
 
 #include "py/obj.h"
 #include "py/runtime.h"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproducibly build and package the IoTMD ESP32-S3 MicroPython firmware."""
+"""Reproducibly build and package the IoT-MD ESP32-S3 MicroPython firmware."""
 
 import argparse
 import base64
@@ -109,7 +109,7 @@ def write_core_metadata(directory, version, release_sequence, source_revision=''
         if source_revision else ''
     )
     output.write_text(
-        '"""Generated immutable IoTMD core package identity."""\n\n'
+        '"""Generated immutable IoT-MD core package identity."""\n\n'
         'CORE_FIRMWARE_VERSION = ' + repr(str(version)) + '\n'
         'RELEASE_SEQUENCE = ' + str(int(release_sequence)) + '\n'
         + provenance
@@ -192,7 +192,7 @@ def provision_factory_setup_nvs(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Build IoTMD ESP32-S3 OTA firmware')
+    parser = argparse.ArgumentParser(description='Build IoT-MD ESP32-S3 OTA firmware')
     parser.add_argument('--micropython-root', required=True)
     parser.add_argument('--version', required=True)
     parser.add_argument('--release-sequence', required=True, type=int)
@@ -282,7 +282,7 @@ def main():
     board_dir = project / 'firmware' / 'boards' / lock['board']
     user_c_modules = project / 'firmware' / 'native'
     if not (user_c_modules / 'micropython.cmake').is_file():
-        raise SystemExit('IoTMD native module definition not found: ' + str(user_c_modules))
+        raise SystemExit('IoT-MD native module definition not found: ' + str(user_c_modules))
     build_dir = 'build-' + lock['board'] + '-' + lock['variant'] + '-secure'
     core_metadata_dir = port / build_dir / 'iotmd-generated'
     write_core_metadata(
@@ -353,7 +353,7 @@ def main():
             not compile_commands.is_file()
             or 'iotmd_crypto.c' not in compile_commands.read_text()
         ):
-            raise SystemExit('refusing to package firmware without the native IoTMD crypto module')
+            raise SystemExit('refusing to package firmware without the native IoT-MD crypto module')
         sdkconfig = (port / build_dir / 'sdkconfig').read_text()
         try:
             validate_production_sdkconfig(sdkconfig)

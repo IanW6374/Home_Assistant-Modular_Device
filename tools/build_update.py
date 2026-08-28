@@ -295,7 +295,7 @@ def generated_driver_index(root):
     for name, version in sorted(application_components(root)['modules'].items()):
         versions.append("    %r: %d," % (name, version))
     return (
-        '"""Generated mapping used to import only configured IoTMD device drivers."""\n\n'
+        '"""Generated mapping used to import only configured IoT-MD device drivers."""\n\n'
         'DRIVER_MODULES = {\n' + '\n'.join(entries) + '\n}\n\n'
         'DRIVER_VERSIONS = {\n' + '\n'.join(versions) + '\n}\n'
     ).encode()

@@ -1,4 +1,4 @@
-# IoTMD security operations
+# IoT-MD security operations
 
 ## Trust domains
 

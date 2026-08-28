@@ -1,7 +1,7 @@
-# IoTMD fleet protocol v1
+# IoT-MD fleet protocol v1
 
 The independently released
-[IoTMD Fleet Manager](https://github.com/IanW6374/IoTMD-Home-Assistant-Addons)
+[IoT-MD Fleet Manager](https://github.com/IanW6374/IoTMD-Home-Assistant-Addons)
 uses the device's `/api/v2` endpoints over mandatory mutual TLS.
 
 ## Identity and inventory

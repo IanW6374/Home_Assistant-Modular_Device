@@ -143,11 +143,11 @@ def _recovery_ap_name():
         suffix = binascii.hexlify(hardware_platform.unique_id()).decode()[-6:]
     except Exception:
         suffix = 'device'
-    return 'IoTMD-Recovery-' + suffix
+    return 'IoT-MD-Recovery-' + suffix
 
 
 def _setup_ap_name():
-    return _recovery_ap_name().replace('IoTMD-Recovery-', 'IoTMD-Setup-', 1)
+    return _recovery_ap_name().replace('IoT-MD-Recovery-', 'IoT-MD-Setup-', 1)
 
 
 def _run_initial_setup():

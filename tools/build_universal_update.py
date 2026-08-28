@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a signed universal IoTMD core-and-application update bundle."""
+"""Build a signed universal IoT-MD core-and-application update bundle."""
 
 import argparse
 import hashlib

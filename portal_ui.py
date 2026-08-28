@@ -247,10 +247,10 @@ def escape(value):
 
 def brand():
     return (
-        '<div class="brand"><span class="brand-mark" aria-label="IoTMD">'
+        '<div class="brand"><span class="brand-mark" aria-label="IoT-MD">'
         '<span aria-hidden="true">IoT</span><span aria-hidden="true">MD</span></span>'
         '<span class="brand-copy">'
-        '<span class="eyebrow">IoTMD</span><span class="brand-title">'
+        '<span class="eyebrow">IoT-MD</span><span class="brand-title">'
         'IoT Modular Device</span></span></div>'
     )
 
@@ -362,7 +362,7 @@ def restart_page(target, message='Settings saved. The device is restarting.'):
         'status.textContent="Portal starting — reconnecting…";retry();}).catch(function(){retry();});}'
         'setTimeout(ready,1000);'
     )
-    return shell('IoTMD restarting', '', body, script=script, authenticated=False)
+    return shell('IoT-MD restarting', '', body, script=script, authenticated=False)
 
 
 def task_page(task_id, title, return_url='/updates'):
@@ -383,4 +383,4 @@ def task_page(task_id, title, return_url='/updates'):
         'if(s.phase==="complete"){setTimeout(function(){location.replace(r.href);},900);}return;}setTimeout(poll,600);'
         '}).catch(function(){setTimeout(poll,1200);});}poll();'
     )
-    return shell('IoTMD task', '', body, script=script, authenticated=False)
+    return shell('IoT-MD task', '', body, script=script, authenticated=False)

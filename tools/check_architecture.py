@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the inward dependency rules documented for IoTMD v2."""
+"""Enforce the inward dependency rules documented for IoT-MD v2."""
 
 import ast
 from pathlib import Path

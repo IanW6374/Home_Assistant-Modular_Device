@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "IoTMD signed application settings",
+  "title": "IoT-MD signed application settings",
   "type": "object",
   "properties": {
     "ha": {

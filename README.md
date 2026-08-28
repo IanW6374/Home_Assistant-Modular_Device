@@ -1,6 +1,6 @@
-# IoT Modular Device (IoTMD)
+# IoT Modular Device (IoT-MD)
 
-IoTMD v2 is production firmware for secure, modular ESP32-S3 devices. One
+IoT-MD v2 is production firmware for secure, modular ESP32-S3 devices. One
 device can host multiple sensors, switches and energy interfaces while exposing
 a web portal, configurable MQTT messaging and a versioned HTTPS API. Home
 Assistant is an optional built-in integration rather than a transport
@@ -83,13 +83,13 @@ refer to those same operational topics. See the
 [messaging guide](docs/MESSAGING.md).
 
 Fleet and release services are provided by the separate public
-[IoT MD Management Suite](https://github.com/IanW6374/HA-IoT-MD-Management-Suite).
+[IoT-MD Management Suite](https://github.com/IanW6374/HA-IoT-MD-Management-Suite).
 The generic IoT Certificate Authority and IoT Syslog remain independent
 add-ons. See the [management ecosystem](docs/MANAGEMENT_SUITE.md).
 
 ## Updates
 
-IoTMD uses three signed artifact types:
+IoT-MD uses three signed artifact types:
 
 | Extension | Purpose |
 | --- | --- |

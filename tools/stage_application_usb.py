@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a signed IoTMD application bundle over USB without erasing user state."""
+"""Stage a signed IoT-MD application bundle over USB without erasing user state."""
 
 import argparse
 import sys
@@ -85,7 +85,7 @@ def main():
                 while written < phase_end:
                     chunk = stream.read(min(TRANSFER_CHUNK_BYTES, phase_end - written))
                     if not chunk:
-                        raise RuntimeError('local IoTMD bundle ended early')
+                        raise RuntimeError('local IoT-MD bundle ended early')
                     board.exec_('_iotmd_write(' + repr(chunk) + ')\n_iotmd_feed()')
                     written += len(chunk)
                     if written == total or written % (64 * 1024) < TRANSFER_CHUNK_BYTES:

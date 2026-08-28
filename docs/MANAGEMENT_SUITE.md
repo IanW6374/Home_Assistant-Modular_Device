@@ -1,9 +1,9 @@
-# IoT MD management ecosystem
+# IoT-MD management ecosystem
 
-The device project has one IoTMD-specific management add-on and two generic
+The device project has one IoT-MD-specific management add-on and two generic
 security/logging add-ons. They intentionally remain independently installable.
 
-## IoT MD Management Suite
+## IoT-MD Management Suite
 
 The public `HA-IoT-MD-Management-Suite` Home Assistant add-on combines:
 
@@ -14,13 +14,13 @@ The public `HA-IoT-MD-Management-Suite` Home Assistant add-on combines:
 - Home Assistant Ingress for the management UI and release administration.
 
 Release files live in persistent add-on storage. The server distributes signed
-artifacts but never contains the offline IoTMD update-signing private key. HTTPS
+artifacts but never contains the offline IoT-MD update-signing private key. HTTPS
 uses the certificate/key configured from Home Assistant's `/ssl` share. Devices
 authenticate the release server with the installed Release trusted CA.
 
 ## Generic companion add-ons
 
-- **IoT Certificate Authority** issues and renews certificates for IoTMD and
+- **IoT Certificate Authority** issues and renews certificates for IoT-MD and
   unrelated services. It remains a separate trust boundary and repository.
 - **IoT Syslog** receives encrypted RFC 5425/5424-style device and audit
   events, provides search/filtering and applies administrator-defined retention.
@@ -34,9 +34,9 @@ single global certificate.
 
 ```text
 IoT Certificate Authority -> server/client certificates -> /ssl and devices
-offline IoTMD signing key  -> signed release artifacts -> Management Suite
-IoTMD devices              -> TLS syslog events        -> IoT Syslog
-Management Suite           <-> mTLS fleet API          <-> IoTMD devices
+offline IoT-MD signing key  -> signed release artifacts -> Management Suite
+IoT-MD devices              -> TLS syslog events        -> IoT Syslog
+Management Suite           <-> mTLS fleet API          <-> IoT-MD devices
 ```
 
 TLS proves the service or client identity. Artifact signatures independently

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a signed IoTMD core bundle over USB while servicing the device WDT."""
+"""Stage a signed IoT-MD core bundle over USB while servicing the device WDT."""
 
 import argparse
 import sys

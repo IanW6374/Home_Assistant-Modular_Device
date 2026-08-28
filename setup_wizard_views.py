@@ -14,7 +14,7 @@ from setup_workflow import (
 
 HTTPS_PORT = 8443
 HTTP_PORT = 8080
-SETUP_ASSET_VERSION = '13'
+SETUP_ASSET_VERSION = '14'
 SELF_SIGNED_READY_MESSAGE = (
     'A self-signed certificate is ready. Choose a certificate installation method.'
 )
@@ -92,12 +92,12 @@ def _page(csrf, message='', invalid_fields=(), values=None):
         application_status = ''
     return (
         '<!doctype html><html><head><meta name="viewport" '
-        'content="width=device-width,initial-scale=1"><title>IoTMD setup</title>'
+        'content="width=device-width,initial-scale=1"><title>IoT-MD setup</title>'
         '<link rel="stylesheet" href="' + _asset('/assets/portal.css') + '">'
         '</head><body>' + _setup_header() +
         '<main class="setup-main">' + _setup_progress(1) +
         '<div class="page-head"><div><span class="eyebrow">First boot</span>'
-        '<h1>Set up IoTMD</h1><p class="lead">Secure this device and connect it to the home network.</p>'
+        '<h1>Set up IoT-MD</h1><p class="lead">Secure this device and connect it to the home network.</p>'
         '</div></div>'
         '<p>Credentials are stored in encrypted NVS. Login passwords are stored only as salted verifiers.</p>' +
         notice + '<form id="setup-form" action="/configure" method="post" autocomplete="off">'
@@ -156,7 +156,7 @@ def _page(csrf, message='', invalid_fields=(), values=None):
         'certificate is installed.</p></section>'
         '<section class="card"><div class="section-title"><h2>Emergency recovery</h2></div>'
         '<div class="credential-group"><h3>Recovery Wi-Fi access</h3>'
-        '<p class="muted">Used only to join the protected IoTMD-Recovery access point.</p>'
+        '<p class="muted">Used only to join the protected IoT-MD-Recovery access point.</p>'
         '<div class="credential-pair">'
         '<label class="field">Recovery AP password<input id="recovery-ap-password" name="recovery_ap_password" type="password" '
         'minlength="16" maxlength="63" required autocomplete="new-password"' + invalid('recovery_ap_password') + '></label>'
@@ -317,7 +317,7 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
         '>Continue with self-signed certificate</button></form></section>'
         '<section class="card certificate-option-panel" data-certificate-option="iot_ca_auto" hidden>'
         '<div class="section-title"><h2>Automatic IoT CA enrollment</h2></div>'
-        '<p>When automatic IoT MD enrollment is enabled in IoT CA, this device can request its '
+        '<p>When automatic IoT-MD enrollment is enabled in IoT CA, this device can request its '
         'host-bound authorization and complete the whole certificate process. The device generates '
         'all private keys locally; Cloudflare credentials remain on IoT CA. Use automatic '
         'enrollment only on a trusted setup LAN.</p>'
@@ -522,7 +522,7 @@ def _portal_handoff_page(config, message):
     destination = _portal_url(config)
     return (
         '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<meta name="referrer" content="no-referrer"><title>Opening IoTMD</title>'
+        '<meta name="referrer" content="no-referrer"><title>Opening IoT-MD</title>'
         '<style>' + portal_ui.PORTAL_CSS + '</style></head><body>' + _setup_header() +
         '<main class="setup-main">' + _setup_progress(4) + portal_ui.page_heading(
             'First boot', 'Device setup complete',

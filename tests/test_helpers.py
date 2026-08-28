@@ -118,7 +118,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(info['name'], 'Configured Device')
         self.assertEqual(info['ids'], ['abc123_configured_device'])
         self.assertEqual(info['sn'], 'abc123')
-        self.assertEqual(info['mf'], 'IoTMD')
+        self.assertEqual(info['mf'], 'IoT-MD')
         self.assertEqual(info['mdl'], 'IoT Modular Device')
         self.assertEqual(info['hw'], 'ESP32-S3-DevKitC-1-N8R8')
 

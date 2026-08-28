@@ -47,7 +47,7 @@ def render_operational(route, token, current_settings, message='', error=False,
 def render_login_page(username='', error=''):
     body = (
         '<section class="auth-card card"><span class="eyebrow">Secure device portal</span>'
-        '<h1>Welcome back</h1><p class="lead">Sign in to manage this IoTMD device.</p>' +
+        '<h1>Welcome back</h1><p class="lead">Sign in to manage this IoT-MD device.</p>' +
         _notice(error, True) +
         '<form id="login-form" action="/login" method="post">'
         '<label class="field">Username<input name="username" autocomplete="username" value="' +
@@ -64,7 +64,7 @@ def render_login_page(username='', error=''):
         '"auth-status").textContent="Securely verifying your password…";};'
     )
     return portal_ui.shell(
-        'IoTMD login', '', body, script=script, authenticated=False
+        'IoT-MD login', '', body, script=script, authenticated=False
     )
 
 def render_password_change_form(csrf, error='', required=False):
@@ -94,7 +94,7 @@ def render_password_change_page(csrf, error='', required=False):
         portal_ui.page_heading('User', 'Account', message) +
         render_password_change_form(csrf, error, required)
     )
-    return portal_ui.shell('IoTMD account', 'user_settings', body, csrf)
+    return portal_ui.shell('IoT-MD account', 'user_settings', body, csrf)
 
 def render_operational_hidden_fields(settings, excluded=()):
     settings = settings or {}
@@ -232,7 +232,7 @@ def render_settings_page(csrf, settings, message='', error=False):
         'for(var i=0;i<fields.length;i++)fields[i].required=manual;}dhcp.onchange=syncNetworkMode;'
         'syncNetworkMode();'
     )
-    return portal_ui.shell('IoTMD network', 'settings', body, csrf, script)
+    return portal_ui.shell('IoT-MD network', 'settings', body, csrf, script)
 
 def render_portal_settings_page(csrf, settings, message='', error=False):
     settings = settings or {}
@@ -267,7 +267,7 @@ def render_portal_settings_page(csrf, settings, message='', error=False):
         'certificate enrollment and recovery.</p><div class="actions"><span></span>'
         '<button type="submit">Save changes</button></div></section></form>'
     )
-    return portal_ui.shell('IoTMD portal settings', 'portal_settings', body, csrf)
+    return portal_ui.shell('IoT-MD portal settings', 'portal_settings', body, csrf)
 
 def render_wifi_settings_page(csrf, settings, message='', error=False):
     # Keep the former URL working for bookmarks while presenting the merged page.
@@ -308,7 +308,7 @@ def render_ntp_settings_page(csrf, settings, message='', error=False):
         '<div class="actions"><span></span><button type="submit">Save changes</button>'
         '</div></section></form>'
     )
-    return portal_ui.shell('IoTMD time and date settings', 'ntp_settings', body, csrf)
+    return portal_ui.shell('IoT-MD time and date settings', 'ntp_settings', body, csrf)
 
 def render_messaging_page(csrf, settings, message='', error=False):
     settings = settings or {}
@@ -383,7 +383,7 @@ def render_messaging_page(csrf, settings, message='', error=False):
         '<form id="discovery-publish-form" action="/discover" method="post">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '"></form>'
     )
-    return portal_ui.shell('IoTMD messaging', 'messaging', body, csrf)
+    return portal_ui.shell('IoT-MD messaging', 'messaging', body, csrf)
 
 def render_device_api_page(csrf, settings, message='', error=False):
     enabled = ' checked' if settings.get('api_enabled') else ''
@@ -439,7 +439,7 @@ def render_device_api_page(csrf, settings, message='', error=False):
         '<h2>Enrolled clients</h2></div><div class="module-grid">' + ''.join(rows) +
         '</div></section>'
     )
-    return portal_ui.shell('IoTMD Device API', 'device_api', body, csrf)
+    return portal_ui.shell('IoT-MD Device API', 'device_api', body, csrf)
 
 def render_user_settings_page(
     csrf, settings, message='', error=False, password_message='', password_error=False,
@@ -503,7 +503,7 @@ def render_user_settings_page(
         '<div class="actions"><span></span><button type="submit">Add portal user</button></div>'
         '</form></section>'
     )
-    return portal_ui.shell('IoTMD account', 'user_settings', body, csrf)
+    return portal_ui.shell('IoT-MD account', 'user_settings', body, csrf)
 
 def render_module_settings_page(csrf, module_json='{"devices":[]}', message='', error=False):
     body = (
@@ -541,7 +541,7 @@ def render_module_settings_page(csrf, module_json='{"devices":[]}', message='', 
         'document.getElementById("module-progress").hidden=false;document.getElementById("module-submit").disabled=true;};'
         'formatJson(false);'
     )
-    return portal_ui.shell('IoTMD modules', 'modules', body, csrf, script)
+    return portal_ui.shell('IoT-MD modules', 'modules', body, csrf, script)
 
 def render_certificate_details(certificates):
     certificates = certificates or {}
@@ -766,7 +766,7 @@ def render_certificate_page(csrf, message='', certificates=None):
         'label.textContent="Installation failed";'
         'this.disabled=false;}};'
     )
-    return portal_ui.shell('IoTMD certificates', 'certificates', body, csrf, script)
+    return portal_ui.shell('IoT-MD certificates', 'certificates', body, csrf, script)
 
 def render_device_control_page(csrf, error=''):
     body = (
@@ -799,12 +799,12 @@ def render_device_control_page(csrf, error=''):
         'maxlength="63" required></label>'
         '<label class="field">Type RESET to confirm<input name="reset_confirmation" '
         'autocomplete="off" maxlength="5" pattern="RESET" required></label></div>'
-        '<p class="muted">After restart, connect to the IoTMD-Setup access point using the new '
+        '<p class="muted">After restart, connect to the IoT-MD-Setup access point using the new '
         'setup password, then browse to http://192.168.4.1.</p><div class="actions">'
         '<span></span><button class="danger" type="submit">Erase settings and restart</button>'
         '</div></form></section>'
     )
-    return portal_ui.shell('IoTMD device control', 'device_control', body, csrf)
+    return portal_ui.shell('IoT-MD device control', 'device_control', body, csrf)
 
 
 def render_factory_default_page(csrf, error=''):
@@ -956,7 +956,7 @@ def render_configuration_backup_page(csrf, message=''):
         'previewImport.call(actionButton);};'
     )
     return portal_ui.shell(
-        'IoTMD configuration backup', 'configuration_backup', body, csrf, script
+        'IoT-MD configuration backup', 'configuration_backup', body, csrf, script
     )
 
 def _health_time_text(epoch, timezone_name='UTC'):
@@ -1090,7 +1090,7 @@ def render_health_history_page(csrf, status):
         html_escape(csrf) + '"><div class="actions"><span></span><button class="danger" '
         'type="submit">Reset health history</button></div></form></section>'
     )
-    return portal_ui.shell('IoTMD health history', 'health_history', body, csrf)
+    return portal_ui.shell('IoT-MD health history', 'health_history', body, csrf)
 
 def render_factory_default_complete_page(csrf):
     body = (
@@ -1098,13 +1098,13 @@ def render_factory_default_complete_page(csrf):
             'Maintenance', 'Factory reset armed',
             'The immutable recovery layer will erase user data and open first-boot setup.'
         ) + '<section class="card"><p class="notice">The device is restarting.</p>'
-        '<p>When this network disconnects, join the <strong>IoTMD-Setup-xxxxxx</strong> '
+        '<p>When this network disconnects, join the <strong>IoT-MD-Setup-xxxxxx</strong> '
         'access point with the setup password you just chose and browse to '
         '<a href="http://192.168.4.1/"><strong>http://192.168.4.1</strong></a>.</p>'
         '<div class="page-load-action"><a class="button" href="http://192.168.4.1/">'
         'Open device setup</a></div></section>'
     )
-    return portal_ui.shell('IoTMD factory reset', 'device_control', body, csrf)
+    return portal_ui.shell('IoT-MD factory reset', 'device_control', body, csrf)
 
 
 def render_shutdown_complete_page(message):
@@ -1116,5 +1116,5 @@ def render_shutdown_complete_page(message):
         '</p><p>No configuration or installed software is erased.</p></section>'
     )
     return portal_ui.shell(
-        'IoTMD device shutdown', 'device_control', body, authenticated=False
+        'IoT-MD device shutdown', 'device_control', body, authenticated=False
     )

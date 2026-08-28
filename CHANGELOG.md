@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.9 - 2026-08-28
+
+- Standardise the human-facing product acronym as **IoT-MD** across the web
+  portal, setup and recovery pages, access-point names, device display,
+  Home Assistant metadata, syslog application labels and documentation while
+  preserving compatibility-sensitive protocol and update identifiers.
+- Keep the daily and weekly automatic-upgrade schedule fields the same width
+  as the adjacent release-channel and schedule controls.
+
 ## 2.2.8 - 2026-08-28
 
 - Keep the certificate-enrollment **Check status now** button visually stable
@@ -33,7 +42,7 @@
 
 - Restore **IoT CA enrollment file (`.iotenroll`)** as a first-class setup
   wizard choice instead of hiding it beneath automatic provisioning.
-- Standardise certificate method names across IoT MD and IoT CA.
+- Standardise certificate method names across IoT-MD and IoT CA.
 - Automatically rotate IoT CA public portal, private Device API and renewal
   identities as one authenticated set, and regenerate self-signed identities
   after two-thirds of their lifetime.
@@ -142,7 +151,7 @@
 
 ## 2.1.0 - 2026-08-25
 
-- Rebrand the product as IoT Modular Device (IoTMD), including the runtime,
+- Rebrand the product as IoT Modular Device (IoT-MD), including the runtime,
   firmware board, native module, repository references and signed update
   formats (`.iotapp`, `.iotcore` and `.iotuni`).
 - Replace platform-specific MQTT topics with administrator-defined templates,
@@ -151,7 +160,7 @@
   MQTT connection and combine both settings under **Messaging**.
 - Publish a complete API contract, MQTT and Home Assistant integration guides,
   detailed per-module references and the WHES calculation assumptions.
-- Define the companion IoTMD Management Suite for fleet and secure release
+- Define the companion IoT-MD Management Suite for fleet and secure release
   management while retaining the generic IoT Certificate Authority and IoT
   Syslog Server as independent add-ons.
 - Persist upgrade upload, verification, staging, download and activation
@@ -167,7 +176,7 @@
 ## 2.0.14 - 2026-08-25
 
 - Add a one-time transition core that accepts both the established v2 update
-  containers and the new IoTMD application, core and universal formats.
+  containers and the new IoT-MD application, core and universal formats.
 - Allow the normal and recovery upload interfaces to select either generation
   so a deployed v2.0.13 device can cross the v2.1 format boundary safely.
 
@@ -321,7 +330,7 @@
 
 ## 2.0.0 - 2026-08-24
 
-IoTMD v2 is the first production release of the clean-seed ESP32-S3 platform.
+IoT-MD v2 is the first production release of the clean-seed ESP32-S3 platform.
 
 ### Added
 

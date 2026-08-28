@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Return a secured IoTMD device to its shipping first-run state over USB.
+"""Return a secured IoT-MD device to its shipping first-run state over USB.
 
 This tool is for devices whose Secure Boot and release-mode Flash Encryption
 eFuses are already committed.  It deliberately leaves those eFuses and the
@@ -122,7 +122,7 @@ def reset_board(board):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Install a signed core and reset a secured IoTMD device to first-run setup"
+        description="Install a signed core and reset a secured IoT-MD device to first-run setup"
     )
     parser.add_argument("--device", required=True)
     parser.add_argument("--bundle", required=True)

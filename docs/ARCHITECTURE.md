@@ -1,6 +1,6 @@
-# IoTMD v2 architecture
+# IoT-MD v2 architecture
 
-IoTMD v2 is a clean-seed ESP32-S3 platform. Dependencies point inward:
+IoT-MD v2 is a clean-seed ESP32-S3 platform. Dependencies point inward:
 
 ```text
 frozen platform -> application domain <- services <- portal/API/MQTT/display

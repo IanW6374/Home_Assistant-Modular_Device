@@ -1,4 +1,4 @@
-"""Signed fleet policy and rollout state for the IoTMD v2 device API."""
+"""Signed fleet policy and rollout state for the IoT-MD v2 device API."""
 
 try:
     import ujson as json

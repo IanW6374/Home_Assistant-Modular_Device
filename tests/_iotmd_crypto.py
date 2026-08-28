@@ -1,4 +1,4 @@
-"""Host-test stand-in for the firmware-only native IoTMD crypto module."""
+"""Host-test stand-in for the firmware-only native IoT-MD crypto module."""
 
 import hashlib
 

@@ -31,7 +31,7 @@ DEVICE_API_PORT = 8444
 DEVICE_API_MAX_BODY_BYTES = 8192
 
 DEVICE_INFO = {
-    'mf': 'IoTMD',
+    'mf': 'IoT-MD',
     'mdl': 'IoT Modular Device',
     'hw': 'ESP32-S3-DevKitC-1-N8R8',
 }

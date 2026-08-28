@@ -1,6 +1,6 @@
 # Certificate identities and provisioning
 
-IoTMD deliberately separates browser-facing and service-facing trust.
+IoT-MD deliberately separates browser-facing and service-facing trust.
 
 | Purpose | Identity or trust | Expected issuer |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ wizard:
 For one-step provisioning, configure IoT CA with a server name the device can
 resolve (by default `iot-ca.home.arpa`) and ensure its Home Assistant network
 mapping matches the configured provisioning port (9010 by default). Open the
-automatic IoT MD enrollment window from the CA Overview; it closes after the
+automatic IoT-MD enrollment window from the CA Overview; it closes after the
 configured interval, five minutes by default. In the device wizard, leave the
 server and port blank to use those defaults or enter the matching values, then
 choose **Request and install certificates**. The CA accepts only private-LAN
@@ -71,7 +71,7 @@ remapped from 9000 in Home Assistant, enter the corresponding URL instead.
 The first automatic exchange is a trusted-LAN bootstrap because the device
 does not yet possess the private root. The returned authorization pins all
 subsequent enrollment traffic to that root. On an untrusted setup LAN, choose
-**Authorize IoT MD** in IoT CA, enter the portal host label and download the
+**Authorize IoT-MD** in IoT CA, enter the portal host label and download the
 resulting `.iotenroll` file instead. That authorization expires after 30
 minutes and can be claimed only once with the same certificate requests.
 
@@ -93,7 +93,7 @@ commits the complete set with rollback protection.
 
 ## Manual public profile provisioning
 
-Issue an **IoT MD public portal** profile in IoT Certificate Authority before
+Issue an **IoT-MD public portal** profile in IoT Certificate Authority before
 starting device provisioning. The CA performs Cloudflare DNS-01 and returns a
 one-time ZIP. Unzip it on the administrator workstation; do not copy the ZIP or
 Cloudflare credentials to the device.

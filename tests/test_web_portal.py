@@ -366,10 +366,10 @@ class WebPortalTests(unittest.TestCase):
             render_page('csrf', 'INFO', ('INFO',)),
         )
         for html in pages:
-            self.assertIn('IoTMD', html)
+            self.assertIn('IoT-MD', html)
             self.assertIn('IoT Modular Device', html)
             self.assertIn('class="brand-mark"', html)
-            self.assertIn('class="brand-mark" aria-label="IoTMD"', html)
+            self.assertIn('class="brand-mark" aria-label="IoT-MD"', html)
             self.assertIn('<span aria-hidden="true">IoT</span>', html)
             self.assertIn('<span aria-hidden="true">MD</span>', html)
             self.assertNotIn('class="brand-mark">IM</span>', html)
@@ -2134,6 +2134,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('releaseTime.disabled=disabled', idle)
         self.assertIn('releaseWeekdayField.hidden=!weekly', idle)
         self.assertIn('syncReleaseSchedule()', idle)
+        self.assertNotIn('#release-check-fields{grid-column:1/-1}', idle)
 
         daily = web_portal.render_updates_page('csrf', {
             'release_checks_enabled': True,

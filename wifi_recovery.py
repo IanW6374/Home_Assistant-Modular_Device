@@ -268,14 +268,14 @@ def _login_page(message=''):
     )
     return (
         '<!doctype html><html><head><meta name="viewport" '
-        'content="width=device-width,initial-scale=1"><title>IoTMD recovery</title>'
+        'content="width=device-width,initial-scale=1"><title>IoT-MD recovery</title>'
         '<style>body{font-family:system-ui;margin:0;background:#f3f5f7;color:#17202a;'
         'min-height:100vh;display:grid;place-items:center;padding:1rem}main{width:min(25rem,100%);'
         'background:white;border:1px solid #d7dde5;border-radius:10px;padding:1.3rem;'
         'box-sizing:border-box}form,label{display:grid;gap:.5rem}input,button{font:inherit;'
         'padding:.65rem;border:1px solid #b9c2ce;border-radius:7px}button{background:#1769aa;'
         'color:white;font-weight:700}.error{color:#a32222}</style></head><body><main>'
-        '<h1>IoTMD recovery</h1><p>IoT Modular Device</p>'
+        '<h1>IoT-MD recovery</h1><p>IoT Modular Device</p>'
         '<p>Enter the dedicated recovery password.</p>' +
         notice + '<form action="/login" method="post"><label>Password'
         '<input name="password" type="password" autocomplete="current-password" '
@@ -343,7 +343,7 @@ def _recovery_page(reason, csrf, message=''):
     )
     return (
         '<!doctype html><html><head><meta name="viewport" '
-        'content="width=device-width,initial-scale=1"><title>IoTMD recovery</title>'
+        'content="width=device-width,initial-scale=1"><title>IoT-MD recovery</title>'
         '<style>:root{--line:#d7dde5;--blue:#1769aa;--red:#a32222}*{box-sizing:border-box}'
         'body{font-family:system-ui;margin:0;background:#f3f5f7;color:#17202a;padding:1rem}'
         'main{max-width:48rem;margin:auto}section{background:white;border:1px solid var(--line);'
@@ -354,7 +354,7 @@ def _recovery_page(reason, csrf, message=''):
         'font-weight:700;cursor:pointer}.secondary{background:white;color:var(--blue)}'
         '.muted{color:#667384}.error{color:var(--red)}.notice{padding:.6rem;background:#edf7ef;'
         'border:1px solid #a8d2b0;border-radius:7px}code{overflow-wrap:anywhere}</style></head>'
-        '<body><main><h1>IoTMD core recovery</h1><p>IoT Modular Device</p>'
+        '<body><main><h1>IoT-MD core recovery</h1><p>IoT Modular Device</p>'
         '<p class="error">Normal application startup failed.</p>'
         '<section><h2>Failure</h2><code>' + _escape(reason) + '</code>' + notice + '</section>'
         '<section><h2>Wi-Fi credentials</h2><form action="/wifi" method="post">'

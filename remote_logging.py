@@ -28,7 +28,7 @@ def rfc5424_message(timestamp, hostname, application, message, severity='INFO'):
     if timestamp != '-' and not timestamp.endswith('Z'):
         timestamp += 'Z'
     safe_host = str(hostname or '-')[:64].replace(' ', '_')
-    safe_app = str(application or 'IoTMD')[:48].replace(' ', '_')
+    safe_app = str(application or 'IoT-MD')[:48].replace(' ', '_')
     safe_message = str(message).replace('\r', ' ').replace('\n', '\\n')
     return (
         '<' + str(priority) + '>1 ' + timestamp + ' ' + safe_host + ' ' +
@@ -70,7 +70,7 @@ class RemoteSyslog:
             self.queue.pop(0)
             self.dropped += 1
         self.queue.append(rfc5424_message(
-            timestamp, self.hostname, 'IoTMD-Audit' if audit else 'IoTMD',
+            timestamp, self.hostname, 'IoT-MD-Audit' if audit else 'IoT-MD',
             message, severity
         ))
         return True

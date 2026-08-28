@@ -115,7 +115,7 @@ def _pbkdf2_sha256(password, salt, iterations):
         import _iotmd_crypto
     except ImportError:
         raise RuntimeError(
-            'IoTMD native PBKDF2 support is required; install compatible core firmware'
+            'IoT-MD native PBKDF2 support is required; install compatible core firmware'
         )
     _report_progress(True)
     try:

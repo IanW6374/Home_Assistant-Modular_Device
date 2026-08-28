@@ -1,6 +1,6 @@
 # MQTT messaging and Home Assistant
 
-IoTMD treats MQTT as a platform-neutral transport. Home Assistant discovery is
+IoT-MD treats MQTT as a platform-neutral transport. Home Assistant discovery is
 an optional integration layered over the same secure broker connection. Both
 are configured under **System > Messaging**.
 

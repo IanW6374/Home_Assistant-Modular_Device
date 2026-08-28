@@ -12,8 +12,8 @@ import credential_store
 
 class RecoveryBootTests(unittest.TestCase):
     def test_user_visible_access_point_names_use_iotmd_brand(self):
-        self.assertTrue(recovery_boot._setup_ap_name().startswith('IoTMD-Setup-'))
-        self.assertTrue(recovery_boot._recovery_ap_name().startswith('IoTMD-Recovery-'))
+        self.assertTrue(recovery_boot._setup_ap_name().startswith('IoT-MD-Setup-'))
+        self.assertTrue(recovery_boot._recovery_ap_name().startswith('IoT-MD-Recovery-'))
 
     def setUp(self):
         self.previous_cwd = os.getcwd()

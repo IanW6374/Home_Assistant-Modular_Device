@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish a signed IoTMD application or firmware bundle to a static host tree."""
+"""Publish a signed IoT-MD application or firmware bundle to a static host tree."""
 
 import argparse
 import hashlib
@@ -57,7 +57,7 @@ def read_bundle_manifest(path):
         magic = stream.read(6)
         release_type = BUNDLE_TYPES.get(magic)
         if not release_type:
-            raise ValueError('input is not a IoTMD .iotapp or .iotcore bundle')
+            raise ValueError('input is not an IoT-MD .iotapp or .iotcore bundle')
         length = int.from_bytes(stream.read(4), 'big')
         if length <= 0 or length > 65535:
             raise ValueError('bundle manifest length is invalid')
@@ -219,7 +219,7 @@ def publish_release(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Create a static, signed IoTMD stable/beta release tree'
+        description='Create a static, signed IoT-MD stable/beta release tree'
     )
     parser.add_argument('--bundle', required=True)
     parser.add_argument('--output-root', required=True)

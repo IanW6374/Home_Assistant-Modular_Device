@@ -485,7 +485,7 @@ def render_overview_page(token, status=None, modules=None, value_refresh_ms=5000
         'document.getElementById("overview-modules").outerHTML=p.modules;})'
         '.catch(function(){});}setInterval(refreshOverview,' + str(interval) + ');'
     )
-    return portal_ui.shell('IoTMD overview', 'overview', body, token, script)
+    return portal_ui.shell('IoT-MD overview', 'overview', body, token, script)
 
 def render_logging_page(token, current_loglevel, levels, logs,
                         log_refresh_ms=5000, settings=None, message=''):
@@ -529,7 +529,7 @@ def render_logging_page(token, current_loglevel, levels, logs,
         'if(t!==null&&t!==undefined&&e.textContent!==t){e.textContent=t;if(b)e.scrollTop=e.scrollHeight;}})'
         '.catch(function(){});}setInterval(refreshLogs,' + str(interval) + ');updateLogRefresh();'
     )
-    return portal_ui.shell('IoTMD device log', 'logging', body, token, script)
+    return portal_ui.shell('IoT-MD device log', 'logging', body, token, script)
 
 def render_audit_logging_page(token, logs, log_refresh_ms=5000):
     body = (
@@ -561,7 +561,7 @@ def render_audit_logging_page(token, logs, log_refresh_ms=5000):
         '.catch(function(){});}setInterval(refreshAuditLogs,' + str(interval) + ');updateAuditRefresh();'
     )
     return portal_ui.shell(
-        'IoTMD audit log', 'audit_logging', body, token, script
+        'IoT-MD audit log', 'audit_logging', body, token, script
     )
 
 def render_logging_settings_page(token, settings, message='', error=False):
@@ -613,7 +613,7 @@ def render_logging_settings_page(token, settings, message='', error=False):
         'syslogTransport.onchange=function(){syslogPort.value=this.value==="tls"?"6514":"514";};'
     )
     return portal_ui.shell(
-        'IoTMD logging settings', 'logging_settings', body, token, script
+        'IoT-MD logging settings', 'logging_settings', body, token, script
     )
 
 def render_module_diagnostics_page(token, modules, value_refresh_ms=5000,
@@ -638,7 +638,7 @@ def render_module_diagnostics_page(token, modules, value_refresh_ms=5000,
         str(interval) + ');'
     )
     return portal_ui.shell(
-        'IoTMD module diagnostics', 'module_diagnostics', body, token, script
+        'IoT-MD module diagnostics', 'module_diagnostics', body, token, script
     )
 
 def render_update_preferences(csrf, settings):
@@ -845,7 +845,7 @@ def render_updates_page(token, status=None, settings=None, message='', error=Fal
         manual_content + '</section></div>'
     )
     return portal_ui.shell(
-        'IoTMD upgrades', 'updates', body, token, script
+        'IoT-MD upgrades', 'updates', body, token, script
     )
 
 def render_page_parts(token, current_loglevel, levels, logs=None, log_refresh_ms=5000,

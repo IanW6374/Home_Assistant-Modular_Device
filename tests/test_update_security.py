@@ -252,7 +252,7 @@ class UpdateSecurityTests(unittest.TestCase):
             'application failed', 'csrf-value'
         )
 
-        self.assertIn('IoTMD core recovery', html)
+        self.assertIn('IoT-MD core recovery', html)
         self.assertIn('Wi-Fi credentials', html)
         self.assertIn(
             'accept=".iotapp,.iotcore,.iotuni"', html
@@ -343,7 +343,7 @@ class UpdateSecurityTests(unittest.TestCase):
                 'Console-Ash-82!Stone', bytes(range(16))
             )
             task = asyncio.create_task(wifi_recovery.serve_core_recovery(
-                'IoTMD-Recovery-test', 'recovery-ap-password', verifier, 'app failed',
+                'IoT-MD-Recovery-test', 'recovery-ap-password', verifier, 'app failed',
                 lambda: None, lambda: None
             ))
             try:
@@ -369,7 +369,7 @@ class UpdateSecurityTests(unittest.TestCase):
                      '\r\n\r\n').encode()
                 )
                 self.assertIn('200 OK', page)
-                self.assertIn('IoTMD core recovery', page)
+                self.assertIn('IoT-MD core recovery', page)
 
                 bad_csrf = b'csrf=wrong'
                 rejected = await request(

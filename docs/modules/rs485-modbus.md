@@ -26,7 +26,7 @@ Send a JSON object to the configured command topic or module command API:
 Writes use `operation: "write"` plus `value`, type and scaling. The asynchronous
 result includes `request_id` and is published on the configured response topic;
 the API operation also reports completion. Validate writes against the target
-manufacturer's register map—IoTMD cannot determine whether a writable register
+manufacturer's register map—IoT-MD cannot determine whether a writable register
 is operationally safe.
 
 ## Wiring and troubleshooting

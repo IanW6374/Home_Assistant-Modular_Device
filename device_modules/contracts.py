@@ -1,4 +1,4 @@
-"""Stable IoTMD v2 driver metadata and conformance checks."""
+"""Stable IoT-MD v2 driver metadata and conformance checks."""
 
 from .driver_index import DRIVER_VERSIONS
 
