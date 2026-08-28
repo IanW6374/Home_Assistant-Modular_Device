@@ -52,6 +52,8 @@ PORTAL_CSS = (
     '.field-hint code{white-space:normal;overflow-wrap:anywhere}input,select,textarea,button{'
     'font:inherit;border-radius:9px}input,select,textarea{width:100%;padding:10px 12px;'
     'color:var(--ink);background:var(--bg);border:1px solid var(--line);outline:none}'
+    'input:not([type="checkbox"]):not([type="radio"]),select{min-height:46px}'
+    '.field[hidden],.conditional-fields[hidden]{display:none}'
     'input:focus,select:focus,textarea:focus{border-color:var(--accent);'
     'box-shadow:0 0 0 3px rgba(8,126,139,.18)}'
     'input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]{'

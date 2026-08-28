@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.2.7 - 2026-08-28
+
+- Show only the schedule fields relevant to disabled, daily or weekly automatic
+  upgrade checks, and give selects and other form controls a consistent height.
+- Combine scanned and manually entered Wi-Fi network names into one editable
+  SSID control in both first-boot setup and System > Network.
+- Preserve non-secret setup values after a failed Wi-Fi join, clear all
+  password fields, and reset the ESP station interface before a retry to avoid
+  stale `Wifi Internal State Error` failures.
+- Embed the setup-complete page styling before reboot and centre its login
+  action, eliminating the remaining Safari render race during first boot.
+
 ## 2.2.6 - 2026-08-28
 
 - Close and await setup, recovery and upgrade HTTP responses before restarting

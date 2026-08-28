@@ -670,12 +670,12 @@ def render_update_preferences(csrf, settings):
         '>Daily</option><option value="weekly"' +
         (' selected' if schedule == 'weekly' else '') + '>Weekly</option></select></label>'
         '<fieldset id="release-check-fields" class="conditional-fields"' +
-        (' disabled' if schedule_disabled else '') + '><div class="grid">'
+        (' hidden disabled' if schedule_disabled else '') + '><div class="grid">'
         '<label class="field">Check time (device local time)<input id="release-check-time" '
         'name="release_check_time" type="time"' +
         (' required' if not schedule_disabled else '') + ' value="' + html_escape(check_time) + '"></label>'
-        '<label id="release-weekday-field" class="field' +
-        ('' if weekly else ' disabled-field') + '">Weekly check day<select id="release-check-weekday" '
+        '<label id="release-weekday-field" class="field"' +
+        ('' if weekly else ' hidden') + '>Weekly check day<select id="release-check-weekday" '
         'name="release_check_weekday"' + ('' if weekly else ' disabled') + '>' +
         weekday_options + '</select></label></div></fieldset></div>'
         '<p class="muted">Scheduled checks use the device time zone configured under Time / Date. '
@@ -695,9 +695,10 @@ def update_preferences_script():
         '"release-check-weekday"),releaseFields=document.getElementById("release-check-fields"),'
         'releaseWeekdayField=document.getElementById("release-weekday-field");'
         'function syncReleaseSchedule(){if(!releaseSchedule)return;var disabled='
-        'releaseSchedule.value==="disabled";releaseFields.disabled=disabled;releaseTime.required=!disabled;'
-        'releaseWeekday.disabled=disabled||releaseSchedule.value!=="weekly";releaseWeekdayField.classList.toggle('
-        '"disabled-field",releaseWeekday.disabled);}if(releaseSchedule){releaseSchedule.onchange='
+        'releaseSchedule.value==="disabled",weekly=releaseSchedule.value==="weekly";'
+        'releaseFields.hidden=disabled;releaseFields.disabled=disabled;releaseTime.disabled=disabled;'
+        'releaseTime.required=!disabled;releaseWeekdayField.hidden=!weekly;releaseWeekday.disabled=!weekly;}'
+        'if(releaseSchedule){releaseSchedule.onchange='
         'syncReleaseSchedule;syncReleaseSchedule();}'
     )
 

@@ -210,7 +210,7 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                         writer, '400 Bad Request',
                         _page(
                             session, 'Setup failed: ' + str(exc),
-                            _setup_error_fields(exc)
+                            _setup_error_fields(exc), params
                         )
                     )
                     return

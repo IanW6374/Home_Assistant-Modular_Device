@@ -140,7 +140,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('api-server-key', certificates)
         self.assertIn('secondary.disabled=!d[1]', certificates)
         self.assertIn('if(!d[1])secondary.value=""', certificates)
-        self.assertIn('.field[hidden]{display:none}', portal_ui.PORTAL_CSS)
+        self.assertIn('.field[hidden],.conditional-fields[hidden]{display:none}', portal_ui.PORTAL_CSS)
         self.assertIn('portalRequire(input', update)
         self.assertIn('input[aria-invalid="true"]', portal_ui.PORTAL_CSS)
         self.assertIn('document.addEventListener("invalid"', portal_ui.PORTAL_JS)
@@ -488,9 +488,12 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('name="portal_username"', network)
         self.assertIn('Automatic (HTTPS with certificate)', portal)
         self.assertIn('name="wifi_ssid"', network)
-        self.assertIn('id="wifi-network-select"', network)
-        self.assertIn('id="wifi-manual-field"', network)
-        self.assertIn('Enter network name manually', network)
+        self.assertIn('id="wifi-ssid-input"', network)
+        self.assertIn('list="wifi-network-options"', network)
+        self.assertIn('id="wifi-network-options"', network)
+        self.assertIn('Select or enter a network', network)
+        self.assertNotIn('id="wifi-network-select"', network)
+        self.assertNotIn('id="wifi-manual-field"', network)
         self.assertIn('fetch("/api/wifi-networks"', network)
         self.assertIn('>Network password<input', network)
         self.assertIn('name="wifi_dhcp" type="checkbox" value="true" checked', network)
@@ -2122,8 +2125,43 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('name="release_check_time" type="time"', idle)
         self.assertIn('name="release_check_weekday"', idle)
         self.assertIn('id="release-check-fields" class="conditional-fields"', idle)
+        self.assertIn(
+            'id="release-check-fields" class="conditional-fields" hidden disabled', idle
+        )
+        self.assertIn('id="release-weekday-field" class="field" hidden', idle)
+        self.assertIn('releaseFields.hidden=disabled', idle)
         self.assertIn('releaseFields.disabled=disabled', idle)
+        self.assertIn('releaseTime.disabled=disabled', idle)
+        self.assertIn('releaseWeekdayField.hidden=!weekly', idle)
         self.assertIn('syncReleaseSchedule()', idle)
+
+        daily = web_portal.render_updates_page('csrf', {
+            'release_checks_enabled': True,
+            'update_status': 'idle',
+            'firmware_update_status': 'idle',
+        }, {
+            'release_check_schedule': 'daily',
+            'release_check_time': '03:15',
+        })
+        self.assertIn('<option value="daily" selected>Daily</option>', daily)
+        self.assertIn(
+            'id="release-check-fields" class="conditional-fields"><div', daily
+        )
+        self.assertIn('name="release_check_time" type="time" required value="03:15"', daily)
+        self.assertIn('id="release-weekday-field" class="field" hidden', daily)
+
+        weekly = web_portal.render_updates_page('csrf', {
+            'release_checks_enabled': True,
+            'update_status': 'idle',
+            'firmware_update_status': 'idle',
+        }, {
+            'release_check_schedule': 'weekly',
+            'release_check_time': '04:30',
+            'release_check_weekday': 2,
+        })
+        self.assertIn('<option value="weekly" selected>Weekly</option>', weekly)
+        self.assertIn('id="release-weekday-field" class="field">', weekly)
+        self.assertIn('<option value="2" selected>Wednesday</option>', weekly)
 
         ready = web_portal.render_updates_page('csrf', {
             'release_checks_enabled': True,

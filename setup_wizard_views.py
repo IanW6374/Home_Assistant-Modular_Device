@@ -14,7 +14,7 @@ from setup_workflow import (
 
 HTTPS_PORT = 8443
 HTTP_PORT = 8080
-SETUP_ASSET_VERSION = '11'
+SETUP_ASSET_VERSION = '12'
 SELF_SIGNED_READY_MESSAGE = (
     'A self-signed certificate is ready. Choose a certificate installation method.'
 )
@@ -41,7 +41,18 @@ def _setup_progress(step):
     )
     return '<div class="setup-steps" aria-label="Setup progress">' + markers + '</div>'
 
-def _page(csrf, message='', invalid_fields=()):
+def _page(csrf, message='', invalid_fields=(), values=None):
+    submitted = values is not None
+    values = values or {}
+    def field_value(name, default=''):
+        return _escape(values.get(name, default))
+    def selected(name, option, default=''):
+        return ' selected' if str(values.get(name, default)) == option else ''
+    dhcp_checked = (
+        not submitted or
+        str(values.get('wifi_dhcp', '')).lower() in ('1', 'true', 'on')
+    )
+    wifi_ssid = str(values.get('wifi_ssid', ''))
     invalid_fields = set(str(name) for name in (invalid_fields or ()))
     def invalid(name):
         return ' aria-invalid="true"' if name in invalid_fields else ''
@@ -65,10 +76,15 @@ def _page(csrf, message='', invalid_fields=()):
         )
     else:
         download_available = bool(factory_config.SETUP_RELEASE_MANIFEST_URL)
+        default_install = 'download' if download_available else 'upload'
         install_options = (
-            '<option value="download">Download the latest signed application</option>'
+            '<option value="download"' +
+            selected('install_mode', 'download', default_install) +
+            '>Download the latest signed application</option>'
             if download_available else ''
-        ) + '<option value="upload">Upload a signed application bundle</option>'
+        ) + '<option value="upload"' + selected(
+            'install_mode', 'upload', default_install
+        ) + '>Upload a signed application bundle</option>'
         application_control = (
             '<label class="field">Application fallback<select name="install_mode">' +
             install_options + '</select></label>'
@@ -88,42 +104,47 @@ def _page(csrf, message='', invalid_fields=()):
         '<input type="hidden" name="csrf" value="' + _escape(csrf) + '">'
         '<section class="card"><div class="section-title"><h2>Device &amp; Application</h2>' +
         application_status + '</div><div class="grid">'
-        '<label class="field">Device name<input id="device-name" name="device_name" required maxlength="64"></label>'
+        '<label class="field">Device name<input id="device-name" name="device_name" required maxlength="64" value="' +
+        field_value('device_name') + '"></label>'
         + application_control +
         '<label class="field">Current UTC time<input id="browser-time" name="browser_time" required maxlength="32" '
         'placeholder="2026-07-23T05:30:00Z"></label>'
         '</div></section><section class="card"><div class="section-title"><h2>Wi-Fi</h2>'
         '<button id="wifi-rescan" class="secondary compact" type="button">Scan again</button></div><div class="grid">'
-        '<label class="field">Available network<select id="wifi-network-select" required>'
-        '<option value="">Select a Wi-Fi network</option>'
-        '<option value="__manual__">Enter network name manually…</option></select></label>'
-        '<label id="wifi-manual-field" class="field" hidden>Network name (SSID)'
-        '<input id="wifi-ssid-input" name="wifi_ssid" maxlength="32"></label>'
+        '<label class="field">Network name (SSID)<input id="wifi-ssid-input" name="wifi_ssid" '
+        'list="wifi-network-options" required maxlength="32" value="' + _escape(wifi_ssid) + '" '
+        'placeholder="Select or enter a network"><datalist id="wifi-network-options"></datalist></label>'
         '<label class="field">Network password<input name="wifi_password" type="password" maxlength="64" '
         'autocomplete="new-password"></label>'
         '<label class="field">Portal mDNS hostname<input id="mdns-hostname" name="certificate_hostname" required maxlength="253" '
-        'placeholder="whes01.local" pattern="[A-Za-z0-9-]+\\.local"></label></div>'
+        'placeholder="whes01.local" pattern="[A-Za-z0-9-]+\\.local" value="' +
+        field_value('certificate_hostname') + '"></label></div>'
         '<p id="wifi-scan-status" class="portal-status" role="status" aria-live="polite">'
         'Scanning for nearby networks…</p>'
         '<label class="check"><input id="wifi-dhcp" name="wifi_dhcp" type="checkbox" '
-        'value="true" checked>Use DHCP to obtain network settings automatically</label>'
-        '<div id="wifi-static-settings" class="grid" hidden>'
+        'value="true"' + (' checked' if dhcp_checked else '') +
+        '>Use DHCP to obtain network settings automatically</label>'
+        '<div id="wifi-static-settings" class="grid"' + (' hidden' if dhcp_checked else '') + '>'
         '<label class="field">IP address<input name="wifi_ip_address" inputmode="decimal" maxlength="15" '
-        'placeholder="192.168.1.50"></label>'
+        'placeholder="192.168.1.50" value="' + field_value('wifi_ip_address') + '"></label>'
         '<label class="field">Subnet mask<input name="wifi_subnet_mask" inputmode="decimal" maxlength="15" '
-        'placeholder="255.255.255.0"></label>'
+        'placeholder="255.255.255.0" value="' + field_value('wifi_subnet_mask') + '"></label>'
         '<label class="field">Default gateway<input name="wifi_gateway" inputmode="decimal" maxlength="15" '
-        'placeholder="192.168.1.1"></label>'
+        'placeholder="192.168.1.1" value="' + field_value('wifi_gateway') + '"></label>'
         '<label class="field">DNS server<input name="wifi_dns_server" inputmode="decimal" maxlength="15" '
-        'placeholder="192.168.1.1"></label></div>'
+        'placeholder="192.168.1.1" value="' + field_value('wifi_dns_server') + '"></label></div>'
         '<p class="muted">After Wi-Fi connects, this setup network will close and setup will continue '
         'on the home network using this .local address.</p></section>'
         '<section class="card"><div class="section-title"><h2>Administration</h2></div><div class="grid">'
-        '<label class="field">Portal username<input name="portal_username" value="admin" required maxlength="32"></label>'
+        '<label class="field">Portal username<input name="portal_username" value="' +
+        field_value('portal_username', 'admin') + '" required maxlength="32"></label>'
         '<label class="field">Portal transport<select name="portal_transport">'
-        '<option value="auto" selected>Automatic (HTTPS with certificate)</option>'
-        '<option value="https">Always HTTPS</option>'
-        '<option value="http">HTTP (unencrypted)</option></select></label></div>'
+        '<option value="auto"' + selected('portal_transport', 'auto', 'auto') +
+        '>Automatic (HTTPS with certificate)</option>'
+        '<option value="https"' + selected('portal_transport', 'https', 'auto') +
+        '>Always HTTPS</option>'
+        '<option value="http"' + selected('portal_transport', 'http', 'auto') +
+        '>HTTP (unencrypted)</option></select></label></div>'
         '<div class="credential-group"><h3>Portal sign-in password</h3>'
         '<p class="muted">Used with the portal username above.</p><div class="credential-pair">'
         '<label class="field">Portal password<input id="portal-password" name="portal_password" type="password" minlength="16" '
@@ -152,34 +173,27 @@ def _page(csrf, message='', invalid_fields=()):
         '</section><button type="submit">Save and continue</button></form>'
         '<script>document.getElementById("browser-time").value=new Date().toISOString();'
         'var deviceName=document.getElementById("device-name"),mdns=document.getElementById('
-        '"mdns-hostname"),mdnsEdited=false;function hostnameFromDevice(){var label=deviceName.value'
+        '"mdns-hostname"),mdnsEdited=!!mdns.value;function hostnameFromDevice(){var label=deviceName.value'
         '.toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,63);'
         'if(!mdnsEdited)mdns.value=label?label+".local":"";}mdns.addEventListener("input",'
         'function(){mdnsEdited=true;});deviceName.addEventListener("input",hostnameFromDevice);'
-        'var wifiSelect=document.getElementById("wifi-network-select"),wifiInput=document.getElementById('
-        '"wifi-ssid-input"),wifiManual=document.getElementById("wifi-manual-field"),wifiStatus='
+        'var wifiInput=document.getElementById("wifi-ssid-input"),wifiOptions=document.getElementById('
+        '"wifi-network-options"),wifiStatus='
         'document.getElementById("wifi-scan-status"),wifiRescan=document.getElementById("wifi-rescan");'
         'function setWifiStatus(state,text){wifiStatus.className="portal-status"+(state?" "+state:"");'
         'wifiStatus.textContent=text;}'
-        'function syncWifiSelection(){var manual=wifiSelect.value==="__manual__";wifiManual.hidden=!manual;'
-        'wifiInput.required=manual;if(!manual&&wifiSelect.value)wifiInput.value=wifiSelect.value;}'
         'function wifiOption(value,text){var option=document.createElement("option");option.value=value;'
-        'option.textContent=text;return option;}function scanWifi(){var current=wifiInput.value;wifiRescan.disabled=true;'
+        'option.label=text;return option;}function scanWifi(){wifiRescan.disabled=true;'
         'setWifiStatus("","Scanning for nearby networks…");fetch("/wifi-networks",{cache:"no-store",'
         'credentials:"same-origin"}).then(function(response){if(!response.ok)throw new Error("HTTP "+response.status);'
-        'return response.json();}).then(function(networks){wifiSelect.textContent="";wifiSelect.appendChild('
-        'wifiOption("","Select a Wi-Fi network"));var found=false;for(var i=0;i<networks.length;i++){var network='
+        'return response.json();}).then(function(networks){wifiOptions.textContent="";for(var i=0;i<networks.length;i++){var network='
         'networks[i],label=network.ssid+(typeof network.rssi==="number"?" ("+network.rssi+" dBm)":"");'
-        'wifiSelect.appendChild(wifiOption(network.ssid,label));if(network.ssid===current)found=true;}'
-        'wifiSelect.appendChild(wifiOption("__manual__","Enter network name manually…"));if(current){wifiSelect.value='
-        'found?current:"__manual__";}else wifiSelect.value="";syncWifiSelection();setWifiStatus('
+        'wifiOptions.appendChild(wifiOption(network.ssid,label));}setWifiStatus('
         'networks.length?"success":"warning",networks.length?networks.length+" network"+'
-        '(networks.length===1?"":"s")+" found.":"No visible networks found; use manual entry.");'
-        'if(!networks.length){wifiSelect.value="__manual__";syncWifiSelection();}}).catch(function(){wifiSelect.value='
-        '"__manual__";syncWifiSelection();setWifiStatus("warning",'
+        '(networks.length===1?"":"s")+" found; select one or enter its name.":'
+        '"No visible networks found; enter the network name.");}).catch(function(){setWifiStatus("warning",'
         '"Network scan unavailable; enter the SSID manually.");'
-        '}).finally(function(){wifiRescan.disabled=false;});}wifiSelect.onchange=syncWifiSelection;wifiRescan.onclick=scanWifi;'
-        'syncWifiSelection();scanWifi();'
+        '}).finally(function(){wifiRescan.disabled=false;});}wifiRescan.onclick=scanWifi;scanWifi();'
         'var dhcp=document.getElementById("wifi-dhcp"),staticBox=document.getElementById('
         '"wifi-static-settings");function syncNetworkMode(){var manual=!dhcp.checked;'
         'staticBox.hidden=!manual;var fields=staticBox.querySelectorAll("input");for(var i=0;'
@@ -508,7 +522,7 @@ def _portal_handoff_page(config, message):
     return (
         '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">'
         '<meta name="referrer" content="no-referrer"><title>Opening IoTMD</title>'
-        '<link rel="stylesheet" href="' + _asset('/assets/portal.css') + '"></head><body>' + _setup_header() +
+        '<style>' + portal_ui.PORTAL_CSS + '</style></head><body>' + _setup_header() +
         '<main class="setup-main">' + _setup_progress(4) + portal_ui.page_heading(
             'First boot', 'Device setup complete',
             'The permanent portal will open as soon as the device has restarted.'

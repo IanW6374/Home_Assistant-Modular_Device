@@ -369,15 +369,36 @@ async def _connect_station(ssid, password, timeout_s=30, hostname='', wifi=None)
     wlan_class = network.WLAN
     interface = getattr(wlan_class, 'IF_STA', getattr(network, 'STA_IF', 0))
     station = wlan_class(interface)
-    credential_store.configure_station(station, wifi or {'dhcp': True})
     if station.isconnected():
         return station
-    station.connect(ssid, password)
+
+    async def reset_station():
+        try:
+            station.disconnect()
+        except Exception:
+            pass
+        try:
+            station.active(False)
+        except Exception:
+            pass
+        if hasattr(asyncio, 'sleep_ms'):
+            await asyncio.sleep_ms(250)
+        else:
+            await asyncio.sleep(0.25)
+
+    await reset_station()
+    credential_store.configure_station(station, wifi or {'dhcp': True})
+    try:
+        station.connect(ssid, password)
+    except Exception:
+        await reset_station()
+        raise OSError('could not connect to the selected Wi-Fi network')
     remaining = int(timeout_s)
     while remaining > 0 and not station.isconnected():
         await asyncio.sleep(1)
         remaining -= 1
     if not station.isconnected():
+        await reset_station()
         raise OSError('could not connect to the selected Wi-Fi network')
     return station
 

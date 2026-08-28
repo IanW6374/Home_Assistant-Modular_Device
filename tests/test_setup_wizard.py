@@ -83,6 +83,8 @@ class SetupWizardTests(unittest.TestCase):
             'padding:9px 10px;background:var(--soft);min-width:0;text-align:center}',
             '.setup-main button,.setup-main .button{width:100%}',
             '.setup-main .section-title button.compact{width:auto;',
+            'input:not([type="checkbox"]):not([type="radio"]),select{min-height:46px}',
+            '.field[hidden],.conditional-fields[hidden]{display:none}',
             'input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]',
         ):
             self.assertIn(rule, setup_wizard.portal_ui.PORTAL_CSS)
@@ -193,9 +195,12 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('.setup-main{width:auto;max-width:none;', setup_wizard.portal_ui.PORTAL_CSS)
         self.assertIn('id="device-name"', html)
         self.assertIn('id="mdns-hostname"', html)
-        self.assertIn('id="wifi-network-select"', html)
-        self.assertIn('id="wifi-manual-field"', html)
-        self.assertIn('Enter network name manually', html)
+        self.assertIn('id="wifi-ssid-input"', html)
+        self.assertIn('list="wifi-network-options"', html)
+        self.assertIn('id="wifi-network-options"', html)
+        self.assertIn('Select or enter a network', html)
+        self.assertNotIn('id="wifi-network-select"', html)
+        self.assertNotIn('id="wifi-manual-field"', html)
         self.assertIn('fetch("/wifi-networks"', html)
         self.assertIn('hostnameFromDevice()', html)
         self.assertIn('mdnsEdited=true', html)
@@ -355,6 +360,98 @@ class SetupWizardTests(unittest.TestCase):
         }, 'Restarting')
         self.assertIn('https://whes01.local:8443/', portal)
         self.assertIn('window.location.replace(target)', portal)
+        self.assertIn('<style>' + setup_wizard.portal_ui.PORTAL_CSS + '</style>', portal)
+        self.assertNotIn('/assets/portal.css', portal)
+        self.assertIn('<div class="page-load-action"><a id="portal-link"', portal)
+
+    def test_setup_error_retains_safe_values_but_clears_secrets(self):
+        params = {
+            'device_name': 'Boiler & controller',
+            'install_mode': 'upload',
+            'wifi_ssid': 'Home "LAN"',
+            'wifi_password': 'not-rendered-wifi-secret',
+            'wifi_ip_address': '192.168.7.21',
+            'wifi_subnet_mask': '255.255.255.0',
+            'wifi_gateway': '192.168.7.1',
+            'wifi_dns_server': '192.168.7.2',
+            'certificate_hostname': 'boiler.local',
+            'portal_username': 'field-admin',
+            'portal_transport': 'https',
+            'portal_password': 'not-rendered-portal-secret',
+            'recovery_ap_password': 'not-rendered-recovery-secret',
+        }
+        html = setup_wizard._page(
+            'csrf-token', 'Setup failed: could not connect', ('wifi_ssid',), params
+        )
+        self.assertIn('value="Boiler &amp; controller"', html)
+        self.assertIn('value="Home &quot;LAN&quot;"', html)
+        self.assertIn('value="192.168.7.21"', html)
+        self.assertIn('value="255.255.255.0"', html)
+        self.assertIn('value="192.168.7.1"', html)
+        self.assertIn('value="192.168.7.2"', html)
+        self.assertIn('value="boiler.local"', html)
+        self.assertIn('value="field-admin"', html)
+        self.assertIn('<option value="https" selected>', html)
+        self.assertNotIn('name="wifi_dhcp" type="checkbox" value="true" checked', html)
+        self.assertNotIn('id="wifi-static-settings" class="grid" hidden', html)
+        self.assertIn('mdnsEdited=!!mdns.value', html)
+        for secret in (
+            'not-rendered-wifi-secret', 'not-rendered-portal-secret',
+            'not-rendered-recovery-secret',
+        ):
+            self.assertNotIn(secret, html)
+
+    def test_failed_station_state_is_reset_before_wifi_retry(self):
+        events = []
+
+        class Station:
+            def __init__(self):
+                self.connected = False
+                self.internal_error = True
+
+            def isconnected(self):
+                return self.connected
+
+            def disconnect(self):
+                events.append('disconnect')
+
+            def active(self, enabled):
+                events.append('active:' + str(enabled))
+                if not enabled:
+                    self.internal_error = False
+
+            def ipconfig(self, **kwargs):
+                events.append('dhcp:' + str(kwargs.get('dhcp4')))
+
+            def connect(self, ssid, password):
+                events.append('connect:' + ssid)
+                if self.internal_error:
+                    raise OSError('Wifi Internal State Error')
+                self.connected = True
+
+        station = Station()
+
+        class WLAN:
+            IF_STA = 0
+
+            def __new__(cls, _interface):
+                return station
+
+        fake_network = type('Network', (), {'WLAN': WLAN, 'STA_IF': 0})
+
+        async def no_wait(_delay):
+            return None
+
+        with mock.patch.object(setup_workflow, 'network', fake_network), \
+                mock.patch.object(setup_workflow.asyncio, 'sleep', no_wait):
+            connected = asyncio.run(setup_workflow._connect_station(
+                'home-network', 'password', timeout_s=1, wifi={'dhcp': True}
+            ))
+        self.assertIs(connected, station)
+        self.assertEqual(events[:4], [
+            'disconnect', 'active:False', 'active:True', 'dhcp:True'
+        ])
+        self.assertEqual(events[-1], 'connect:home-network')
 
     def test_certificate_completion_must_match_verified_installed_mode(self):
         original_validate = setup_workflow._validate_certificates
