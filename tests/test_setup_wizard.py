@@ -37,6 +37,29 @@ class SetupWizardTests(unittest.TestCase):
             'certificate_hostname': 'whes01.local',
         }
 
+    def test_setup_response_waits_for_socket_close_before_restart(self):
+        events = []
+
+        class Writer:
+            def close(self):
+                events.append('close')
+
+            async def wait_closed(self):
+                events.append('wait_closed')
+
+        asyncio.run(setup_wizard._close_writer(Writer()))
+        self.assertEqual(events, ['close', 'wait_closed'])
+
+    def test_setup_response_close_supports_streams_without_wait_closed(self):
+        events = []
+
+        class Writer:
+            def close(self):
+                events.append('close')
+
+        asyncio.run(setup_wizard._close_writer(Writer()))
+        self.assertEqual(events, ['close'])
+
     def test_wizard_and_portal_share_visual_foundations(self):
         for rule in (
             '--accent:#087e8b',

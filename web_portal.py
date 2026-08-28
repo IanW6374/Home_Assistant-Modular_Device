@@ -203,10 +203,7 @@ async def start_web_portal(portal):
                     # the upload response before receiving the acknowledgement.
                     pass
                 finally:
-                    try:
-                        writer.close()
-                    except Exception:
-                        pass
+                    await close_writer()
                 if asyncio:
                     await asyncio.sleep(0)
 
@@ -220,12 +217,7 @@ async def start_web_portal(portal):
             return True
 
         async def close_writer():
-            try:
-                writer.close()
-                if hasattr(writer, 'wait_closed'):
-                    await writer.wait_closed()
-            except Exception:
-                pass
+            await http_support.close_writer(writer)
 
         try:
             line, headers = await http_support.read_request(reader)

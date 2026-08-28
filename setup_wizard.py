@@ -100,6 +100,11 @@ def _multipart_form(body, content_type):
             values[field_name] = payload
     return values
 
+async def _close_writer(writer):
+    """Finish an HTTP response before a setup handover or device restart."""
+    await http_support.close_writer(writer)
+
+
 async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
     """Serve first-boot setup until a signed application is ready."""
     if network is None:
@@ -403,10 +408,7 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
             except Exception:
                 pass
         finally:
-            try:
-                writer.close()
-            except Exception:
-                pass
+            await _close_writer(writer)
         if reboot:
             await asyncio.sleep(1)
             reset_device()

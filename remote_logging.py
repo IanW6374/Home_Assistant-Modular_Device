@@ -15,6 +15,8 @@ try:
 except ImportError:
     import ssl
 
+import http_support
+
 
 SEVERITY = {'ERROR': 3, 'INFO': 6, 'DEBUG': 7}
 FACILITY_LOCAL0 = 16
@@ -178,10 +180,9 @@ class RemoteSyslog:
             except Exception as exc:
                 self._delivery_failed(exc)
                 if tls_writer is not None:
-                    try:
-                        tls_writer.close()
-                    except Exception:
-                        pass
+                    await http_support.close_writer(tls_writer)
                 tls_reader = None
                 tls_writer = None
                 await asyncio.sleep(5)
+        if tls_writer is not None:
+            await http_support.close_writer(tls_writer)

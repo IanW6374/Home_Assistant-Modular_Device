@@ -1111,7 +1111,9 @@ def render_factory_default_complete_page(csrf):
         ) + '<section class="card"><p class="notice">The device is restarting.</p>'
         '<p>When this network disconnects, join the <strong>IoTMD-Setup-xxxxxx</strong> '
         'access point with the setup password you just chose and browse to '
-        '<strong>http://192.168.4.1</strong>.</p></section>'
+        '<a href="http://192.168.4.1/"><strong>http://192.168.4.1</strong></a>.</p>'
+        '<div class="actions"><span></span><a class="button" href="http://192.168.4.1/">'
+        'Open device setup</a></div></section>'
     )
     return portal_ui.shell('IoTMD factory reset', 'device_control', body, csrf)
 

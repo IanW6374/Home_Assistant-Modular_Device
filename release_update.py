@@ -26,6 +26,7 @@ except ImportError:
     import binascii
 
 import update_security
+import http_support
 
 
 MAX_DESCRIPTOR_BYTES = 16384
@@ -90,11 +91,8 @@ def _tls_context(ca_path):
     return context
 
 
-def _close(writer):
-    try:
-        writer.close()
-    except Exception:
-        pass
+async def _close(writer):
+    await http_support.close_writer(writer)
 
 
 async def _read_exact(reader, size):
@@ -183,12 +181,12 @@ async def _open_response(url, ca_path, redirects=MAX_REDIRECTS):
     status_line = (await reader.readline()).decode().strip()
     parts = status_line.split()
     if len(parts) < 2:
-        _close(writer)
+        await _close(writer)
         raise OSError('release server returned an invalid status line')
     try:
         status = int(parts[1])
     except ValueError:
-        _close(writer)
+        await _close(writer)
         raise OSError('release server returned an invalid status code')
     headers = {}
     while True:
@@ -202,13 +200,13 @@ async def _open_response(url, ca_path, redirects=MAX_REDIRECTS):
 
     if status in (301, 302, 303, 307, 308):
         location = headers.get('location', '')
-        _close(writer)
+        await _close(writer)
         if redirects <= 0:
             raise ValueError('release URL exceeded the redirect limit')
         _parse_https_url(location)
         return await _open_response(location, ca_path, redirects - 1)
     if status != 200:
-        _close(writer)
+        await _close(writer)
         raise OSError('release server returned ' + status_line)
 
     chunked = 'chunked' in headers.get('transfer-encoding', '').lower()
@@ -219,7 +217,7 @@ async def _open_response(url, ca_path, redirects=MAX_REDIRECTS):
         except ValueError:
             length = 0
         if length <= 0:
-            _close(writer)
+            await _close(writer)
             raise ValueError('release response has no valid length')
     return (_ChunkedReader(reader) if chunked else reader), writer, length
 
@@ -269,7 +267,7 @@ async def fetch_releases(manifest_url, channel, ca_path):
         document = json.loads(payload.decode())
         return release_descriptors(document, channel)
     finally:
-        _close(writer)
+        await _close(writer)
 
 
 async def check_release(manifest_url, channel, ca_path):
@@ -407,4 +405,4 @@ async def stage_release(
             _discard_staged(release.get('type'))
         raise
     finally:
-        _close(writer)
+        await _close(writer)

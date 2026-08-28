@@ -354,12 +354,7 @@ async def start_device_api(settings, api):
                 api.log_output('API', 'Error', {'log': str(exc)}, 'ERROR')
             await _write_response(writer, 400, {'error': str(exc)})
         finally:
-            try:
-                writer.close()
-                if hasattr(writer, 'wait_closed'):
-                    await writer.wait_closed()
-            except Exception:
-                pass
+            await http_support.close_writer(writer)
 
     context = make_mtls_context(
         settings['cert_path'], settings['key_path'], settings['client_ca_paths']

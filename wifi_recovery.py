@@ -525,10 +525,7 @@ async def serve_core_recovery(
             except Exception:
                 pass
         finally:
-            try:
-                writer.close()
-            except Exception:
-                pass
+            await http_support.close_writer(writer)
         if reboot:
             await asyncio.sleep(1)
             if clear_before_reboot:

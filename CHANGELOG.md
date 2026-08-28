@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.6 - 2026-08-28
+
+- Close and await setup, recovery and upgrade HTTP responses before restarting
+  or continuing background verification, so Safari renders styled transition
+  pages immediately instead of waiting for the browser to stop the request.
+- Use the same MicroPython-safe stream shutdown for the Device API, outbound
+  release and ACME clients, ACME challenge handling and TLS syslog retries.
+- Make the factory-reset setup address clickable and add a dedicated
+  **Open device setup** button for reconnecting to `http://192.168.4.1`.
+
 ## 2.2.5 - 2026-08-27
 
 - Restore **IoT CA enrollment file (`.iotenroll`)** as a first-class setup

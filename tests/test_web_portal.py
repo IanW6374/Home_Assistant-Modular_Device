@@ -1311,6 +1311,8 @@ class WebPortalTests(unittest.TestCase):
                 )
                 self.assertIn('200 OK', reset_response)
                 self.assertIn('Factory reset armed', reset_response)
+                self.assertIn('href="http://192.168.4.1/"', reset_response)
+                self.assertIn('>Open device setup</a>', reset_response)
                 self.assertIn('Max-Age=0', reset_response)
                 self.assertEqual(factory_resets, ['Setup-Maple-53!Harbour'])
 

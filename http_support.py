@@ -83,6 +83,20 @@ def is_timeout_error(exc):
     return exc.__class__.__name__ == 'TimeoutError'
 
 
+async def close_writer(writer):
+    """Close an asyncio stream on CPython and MicroPython without leaking it."""
+    try:
+        writer.close()
+    except Exception:
+        pass
+    try:
+        wait_closed = getattr(writer, 'wait_closed', None)
+        if wait_closed is not None:
+            await wait_closed()
+    except Exception:
+        pass
+
+
 async def _line(reader, maximum):
     bounded = getattr(reader, 'read_bounded_line', None)
     if bounded:

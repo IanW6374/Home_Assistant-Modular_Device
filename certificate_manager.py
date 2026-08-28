@@ -38,6 +38,7 @@ try:
 except ImportError:
     network = None
 import time
+import http_support
 
 import update_security
 from certificate_codec import (
@@ -144,7 +145,7 @@ async def _response_unbounded(url, method, ca_path, body=b'', content_type='', a
     status_line = (await reader.readline()).decode().strip()
     parts = status_line.split()
     if len(parts) < 2:
-        writer.close()
+        await http_support.close_writer(writer)
         raise OSError('ACME server returned an invalid response')
     status = int(parts[1])
     response_headers = {}
@@ -174,9 +175,9 @@ async def _response_unbounded(url, method, ca_path, body=b'', content_type='', a
                 break
             payload.extend(chunk)
         if len(payload) > MAX_RESPONSE_BYTES:
-            writer.close()
+            await http_support.close_writer(writer)
             raise ValueError('ACME response is too large')
-    writer.close()
+    await http_support.close_writer(writer)
     return status, response_headers, bytes(payload)
 
 
@@ -276,7 +277,7 @@ async def _challenge_server():
             )
             await writer.drain()
         finally:
-            writer.close()
+            await http_support.close_writer(writer)
     return await asyncio.start_server(handle, '0.0.0.0', 80, backlog=2)
 
 def _replace(source, target):
