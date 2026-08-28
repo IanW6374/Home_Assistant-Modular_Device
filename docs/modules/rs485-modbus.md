@@ -9,10 +9,12 @@ Use `class: sensor` and `subclass: RS485-Modbus` for one Modbus RTU port named
 
 Each polled entity defines `slave`, `function`, `address`, `count`, `data_type`,
 optional byte/word order, `scale`, `offset`, and `pollinterval`. Supported codec
-types include signed/unsigned 16/32/64-bit values, floating point and ASCII. Adjacent
-compatible registers are grouped to reduce bus traffic. MQTT `/set` also accepts
-ad-hoc read and write requests and returns correlated results on `/response`.
-Diagnostics report the last operation, address, error and latency.
+types are `ascii`, `float32`, `int16`, `int32`, `uint16` and `uint32`. ASCII and
+float values are read-only; numeric integer writes use the supported 16/32-bit
+types. Adjacent compatible registers are grouped to reduce bus traffic. MQTT
+`/set` also accepts ad-hoc read and write requests and returns correlated
+results on `/response`. Diagnostics report the last operation, address, error
+and latency.
 
 ## Ad-hoc request contract
 

@@ -47,7 +47,10 @@ Diagnostics** to confirm values and driver health.
 
 Use unique UUIDs permanently: changing a UUID changes MQTT topics, API identity
 and Home Assistant unique IDs. A module-level `retain_state` overrides the
-global Messaging setting. Poll intervals are seconds unless a driver explicitly
-names a millisecond field. Treat all mains, boiler, inverter and high-current
-connections as hardware engineering work requiring appropriate isolation,
-protection and enclosure.
+global Messaging setting. It controls the MQTT retain flag for that module's
+state publication so new subscribers receive the broker's last value; it does
+not persist driver memory or physical output state across a device restart.
+Never retain command messages. Poll intervals are seconds unless a driver
+explicitly names a millisecond field. Treat all mains, boiler, inverter and
+high-current connections as hardware engineering work requiring appropriate
+isolation, protection and enclosure.

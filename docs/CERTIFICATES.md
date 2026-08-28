@@ -4,9 +4,9 @@ IoT-MD deliberately separates browser-facing and service-facing trust.
 
 | Purpose | Identity or trust | Expected issuer |
 | --- | --- | --- |
-| Web portal HTTPS | `web.crt.pem` / `web.key.der` | Public ACME for the configured portal DNS name |
+| Web portal HTTPS | `web.crt.pem` / `web.key.der` | Selected setup method: public ACME, private CA, self-signed or manual |
 | Device API and fleet server | `api-server.crt.der` / `api-server.key.der` | Private IoT CA for the device `.local` name |
-| MQTT server authentication | `mqtt-ca.der` | Private CA used by the broker |
+| MQTT server authentication | `mqtt-ca.der` trust anchor | Broker leaf must chain to the installed CA |
 | Release server authentication | `update-ca.der` | Private CA used by the release service |
 | Syslog server authentication | Dedicated Syslog trusted CA | Private CA used by IoT Syslog |
 | API/fleet clients | One or more API client CAs and enrolled client certificates | Private IoT CA |
@@ -14,6 +14,27 @@ IoT-MD deliberately separates browser-facing and service-facing trust.
 The public certificate is limited to the human-facing portal. MQTT, Device API,
 fleet, Syslog and release services do not become public merely because the
 portal has a browser-trusted certificate.
+
+## TLS names and certificate chains
+
+A trusted issuer and a matching service identity are both required. IoT-MD
+verifies the exact configured hostname against a certificate DNS SAN, or an IP
+literal against an IP SAN. When a SAN extension exists, a matching Common Name
+alone is not sufficient. For example, a broker configured as
+`homeassistant.local` needs that DNS SAN even if its certificate Common Name is
+`mqtt-broker.home.arpa`; alternatively configure the broker using the latter
+name and ensure DNS resolves it.
+
+Servers must present their leaf certificate and required intermediate
+certificates. The IoT-MD trust file normally contains the issuing root; adding
+that root does not repair a missing intermediate or bypass hostname checks.
+After replacing a broker, syslog, release or API certificate, reload the
+service and inspect the certificate actually presented on its network port.
+
+Public portal names such as `whes02.iot.example.com` and private service names
+such as `whes02.local` are intentionally separate. A public portal certificate
+does not replace the private Device API identity or any outbound service trust
+anchor.
 
 ## Initial setup choices
 

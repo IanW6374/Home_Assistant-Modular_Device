@@ -7,7 +7,7 @@ servers:
   - url: https://{device}:8444
     variables:
       device:
-        default: iotmd.local
+        default: device.local
 security:
   - mutualTLS: []
 paths:

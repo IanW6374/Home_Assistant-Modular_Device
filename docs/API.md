@@ -9,6 +9,23 @@ Its server certificate is stored independently from the web portal identity
 and is expected to chain to the private IoT CA. A public portal renewal never
 changes the Device API/fleet server identity.
 
+## TLS identities and trust
+
+Mutual TLS performs two independent checks:
+
+- IoT-MD authenticates the client certificate against an installed API-client
+  CA, then applies the fingerprint registration and scopes described below.
+- The API client authenticates IoT-MD against its private IoT CA. The API
+  server certificate must contain the exact device hostname, such as
+  `whes02.local`, in a DNS Subject Alternative Name (SAN).
+
+The client certificate and key supplied to `curl` prove the caller's identity;
+they do not make the workstation trust the server. Supply the private IoT CA
+root, plus any required intermediate, with `--cacert`. IoT-MD installs its API
+server identity as a leaf-plus-intermediate chain, but using a complete CA
+bundle on the client also supports diagnostic and older installations. Do not
+use `-k` to bypass verification.
+
 ## Authentication and authorization
 
 Install one or more API client CAs under **Maintenance > Certificates**, then
@@ -47,8 +64,13 @@ immediately; poll its URL until `status` is `complete` or `failed`.
 ## Example
 
 ```sh
-curl --cert client.crt --key client.key --cacert device-ca.crt \
-  https://iotmd01.local:8444/api/v2/modules/00A1/state
+cat home-iot-intermediate.pem home-iot-root.pem > home-iot-ca-bundle.pem
+
+curl --fail-with-body \
+  --cacert home-iot-ca-bundle.pem \
+  --cert api-client.pem \
+  --key api-client-key.pem \
+  https://whes02.local:8444/api/v2/modules/00A1/state
 ```
 
 ```json

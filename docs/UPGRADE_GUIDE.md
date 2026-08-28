@@ -62,6 +62,21 @@ Do not interrupt power during core activation. A rejected or failed artifact
 must remain visibly failed in the portal; consult the structured log for its
 reason.
 
+### Automatic release checks
+
+**Maintenance > Upgrades > Automatic upgrade** separates an immediate manual
+check from saved scheduling preferences. A schedule can be disabled, daily at
+the selected device-local time, or weekly at the selected weekday and local
+time. The device time zone is configured under **System > Time / Date**.
+
+**Automatically download applicable signed releases** and **Automatically
+activate verified releases** are independent settings. A check without
+automatic download only reports availability; a download without automatic
+activation leaves the verified release staged for an administrator. Fleet
+policy can additionally prevent automatic activation while a rollout is paused
+or outside its maintenance window. Manual uploads remain available regardless
+of the automatic check schedule.
+
 ## Production build
 
 Build only from a clean, tested commit. This example uses production version
@@ -131,3 +146,6 @@ python3 tools/hil_qualify.py --host device.local \
 Also verify first boot, portal/API TLS, MQTT, interrupted upload, low-storage
 cleanup, universal activation, watchdog recovery, rollback and configuration
 restore on production-equivalent hardware.
+
+Release-specific reports are indexed in
+[`docs/qualification`](qualification/README.md).

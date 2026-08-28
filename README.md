@@ -45,7 +45,7 @@ from the production core to preserve recovery capacity.
 ## First boot
 
 Production devices are seeded with a signed factory image and a unique setup
-password. Connect to the device setup Wi-Fi network, browse to
+password. Connect to the `IoT-MD-Setup-xxxxxx` Wi-Fi network, browse to
 `http://192.168.4.1`, enter that password and complete the wizard.
 
 The wizard configures:
@@ -70,7 +70,8 @@ The portal provides:
 - module configuration, calibration and debug controls;
 - users and role-aware permissions;
 - application, core and universal upgrades;
-- certificates, ACME, backup/restore, health history, logs and factory reset.
+- certificates, ACME, backup/restore, health history, device/audit logs, and
+  non-destructive restart, shutdown or factory reset controls.
 
 Settings that require a restart are committed immediately and collected behind
 one banner action so several changes can be activated with one reboot.
@@ -79,7 +80,11 @@ one banner action so several changes can be activated with one reboot.
 
 MQTT base and state/command/response/availability topics are administrator
 defined. The optional Home Assistant profile publishes discovery records that
-refer to those same operational topics. See the
+refer to those same operational topics. Broker TLS verifies the exact hostname
+configured under **System > Messaging** against the certificate DNS/IP SAN;
+the installed MQTT CA establishes trust but does not replace that identity
+check. Retained module state is an MQTT broker feature, not persistence of
+physical output state across a device restart. See the
 [messaging guide](docs/MESSAGING.md).
 
 Fleet and release services are provided by the separate public
@@ -99,7 +104,9 @@ IoT-MD uses three signed artifact types:
 
 Use **Maintenance > Upgrades** for normal installation. Release sequences must
 increase monotonically. Verification occurs before staging, and activation uses
-trial health checks with rollback support.
+trial health checks with rollback support. Automatic checks can be disabled or
+scheduled daily/weekly in device-local time, independently of automatic
+download and activation.
 
 See the [upgrade guide](docs/UPGRADE_GUIDE.md) for release and USB recovery
 procedures.

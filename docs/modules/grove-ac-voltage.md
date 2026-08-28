@@ -6,8 +6,14 @@ Use `class: sensor` and `subclass: Grove-AC-Voltage`. The `ac_voltage` object
 selects `adc_pin` and controls RMS sampling (`vref`, `adc_max`, `sample_count`,
 `sample_delay_us`), conversion (`calibration`, `offset`, `precision`) and the
 optional presence threshold (`threshold`, `hysteresis`, `threshold_key`). The
-defaults are GPIO 26, 600 samples, 200 µs spacing, calibration 700, a 180 V
+sampling defaults are 600 samples, 200 µs spacing, calibration 700, a 180 V
 threshold and 5 V hysteresis. `pollinterval` defaults to five seconds.
+
+Always configure `adc_pin` explicitly for the production
+ESP32-S3-DevKitC-1-N8R8. The driver's legacy GPIO 26 fallback is not suitable
+for that board because its octal flash/PSRAM reserves GPIO 26. The standalone
+example uses ADC-capable GPIO 1; the HTW example uses GPIO 4. Confirm the chosen
+pin against the board schematic and every other configured module.
 
 The main `voltage` entity can be accompanied by `ac_present`, ADC and error
 diagnostics. Calibrate from **Module > Diagnostics** using a trusted meter; the
