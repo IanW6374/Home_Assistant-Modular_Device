@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.8 - 2026-08-28
+
+- Keep the certificate-enrollment **Check status now** button visually stable
+  during automatic polling instead of repeatedly applying the disabled style.
+- Prevent overlapping automatic and manual enrollment-status requests with an
+  internal in-flight guard that does not alter the control’s appearance.
+
 ## 2.2.7 - 2026-08-28
 
 - Show only the schedule fields relevant to disabled, daily or weekly automatic

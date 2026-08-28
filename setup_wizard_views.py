@@ -14,7 +14,7 @@ from setup_workflow import (
 
 HTTPS_PORT = 8443
 HTTP_PORT = 8080
-SETUP_ASSET_VERSION = '12'
+SETUP_ASSET_VERSION = '13'
 SELF_SIGNED_READY_MESSAGE = (
     'A self-signed certificate is ready. Choose a certificate installation method.'
 )
@@ -420,12 +420,13 @@ def _enrollment_page(message):
         'Check status now</button></div></section></main>'
         '<script src="' + _asset('/assets/portal.js') + '"></script><script>'
         'var enrollmentLabel=document.querySelector("#enrollment-progress .status-text"),'
-        'enrollmentButton=document.getElementById("enrollment-check");function pollEnrollment(){'
-        'enrollmentButton.disabled=true;fetch("/enrollment-state",{cache:"no-store",credentials:"same-origin"})'
+        'enrollmentButton=document.getElementById("enrollment-check"),enrollmentRequestRunning=false;'
+        'function pollEnrollment(){if(enrollmentRequestRunning)return;enrollmentRequestRunning=true;'
+        'fetch("/enrollment-state",{cache:"no-store",credentials:"same-origin"})'
         '.then(function(response){if(!response.ok)throw new Error("HTTP "+response.status);return response.json();})'
         '.then(function(state){if(state.message&&enrollmentLabel)enrollmentLabel.textContent=state.message;if('
         'state.status!=="running")window.location.replace("/enrollment-status");else setTimeout(pollEnrollment,2000);})'
-        '.catch(function(){setTimeout(pollEnrollment,2000);}).finally(function(){enrollmentButton.disabled=false;});}'
+        '.catch(function(){setTimeout(pollEnrollment,2000);}).finally(function(){enrollmentRequestRunning=false;});}'
         'enrollmentButton.onclick=pollEnrollment;setTimeout(pollEnrollment,1500);</script></body></html>'
     )
 

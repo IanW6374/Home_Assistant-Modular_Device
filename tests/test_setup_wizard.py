@@ -305,6 +305,9 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('fetch("/enrollment-state"', enrolling)
         self.assertIn('setTimeout(pollEnrollment,2000)', enrolling)
         self.assertIn('Check status now', enrolling)
+        self.assertIn('enrollmentRequestRunning=false', enrolling)
+        self.assertIn('if(enrollmentRequestRunning)return', enrolling)
+        self.assertNotIn('enrollmentButton.disabled', enrolling)
         complete = setup_wizard._certificate_complete_page(
             'csrf-token', 'Certificate enrolled until tomorrow', 'acme'
         )
