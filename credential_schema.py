@@ -248,6 +248,35 @@ def validate(config, require_provisioned=False):
         not 0 <= release_weekday <= 6
     ):
         raise ValueError('automatic update check weekday is invalid')
+    release_base_url = str(preferences.get(
+        'release_base_url', 'https://iotmd-update.home.arpa:8443'
+    )).strip().rstrip('/')
+    if not release_base_url.startswith('https://'):
+        raise ValueError('release server URL must use HTTPS')
+    release_authority = release_base_url[8:]
+    if (
+        not release_authority or
+        any(marker in release_authority for marker in ('/', '?', '#', '@'))
+    ):
+        raise ValueError(
+            'release server URL must contain only an HTTPS host and optional port'
+        )
+    release_host, release_separator, release_port = release_authority.rpartition(':')
+    if release_separator:
+        if (
+            not release_host or not release_port.isdigit() or
+            not 1 <= int(release_port) <= 65535
+        ):
+            raise ValueError('release server URL port must be between 1 and 65535')
+    else:
+        release_host = release_authority
+    if (
+        not release_host or len(release_host) > 253 or
+        release_host.startswith('.') or release_host.endswith('.') or
+        any(character not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-'
+            for character in release_host)
+    ):
+        raise ValueError('release server URL hostname is invalid')
     timezone_offset = preferences.get('timezone_offset_minutes', 0)
     if (
         not isinstance(timezone_offset, int) or isinstance(timezone_offset, bool) or

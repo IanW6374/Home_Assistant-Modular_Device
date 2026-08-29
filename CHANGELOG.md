@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.1 - 2026-08-30
+
+- Make the automatic-upgrade release server visible and editable under
+  Maintenance > Upgrades, defaulting to
+  `https://iotmd-update.home.arpa:8443` and deriving the selected Stable or
+  Beta catalog path automatically.
+- Require an HTTPS origin with a valid hostname and optional port before a
+  release-server change is stored or used.
+
 ## 2.3.0 - 2026-08-29
 
 - Accept Management Suite format-3 Stable/Beta release catalogs signed by the

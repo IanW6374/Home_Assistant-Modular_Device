@@ -35,6 +35,34 @@ class UpdateSecurityTests(unittest.TestCase):
         os.chdir(self.previous_cwd)
         self.temp.cleanup()
 
+    def test_release_server_origin_builds_channel_catalog(self):
+        self.assertEqual(
+            release_update.normalize_release_base_url(
+                ' https://iotmd-update.home.arpa:8443/ '
+            ),
+            'https://iotmd-update.home.arpa:8443',
+        )
+        self.assertEqual(
+            release_update.release_manifest_url(
+                'https://iotmd-update.home.arpa:8443'
+            ),
+            'https://iotmd-update.home.arpa:8443/{channel}/latest.json',
+        )
+        self.assertEqual(
+            release_update.release_base_url(
+                'https://iotmd-update.home.arpa:8443/{channel}/latest.json'
+            ),
+            'https://iotmd-update.home.arpa:8443',
+        )
+        for invalid in (
+            'http://updates.home.arpa:8443',
+            'https://updates.home.arpa:8443/stable',
+            'https://user@updates.home.arpa:8443',
+            'https://updates.home.arpa:70000',
+        ):
+            with self.assertRaises(ValueError):
+                release_update.normalize_release_base_url(invalid)
+
     def test_highest_bit_does_not_require_int_bit_length(self):
         self.assertEqual(update_security._highest_bit(0), 0)
         self.assertEqual(update_security._highest_bit(1), 1)

@@ -208,7 +208,10 @@ web_portal_value_refresh_s = device_settings.web_portal_value_refresh_s
 wifi_recovery_enabled = device_settings.wifi_recovery_enabled
 wifi_recovery_timeout_s = device_settings.wifi_recovery_timeout_s
 network_trial_timeout_s = device_settings.network_trial_timeout_s
-release_manifest_url = device_settings.release_manifest_url
+release_base_url = runtime_credentials.get('preferences', {}).get(
+    'release_base_url', ''
+) or release_update.release_base_url(device_settings.release_manifest_url)
+release_manifest_url = release_update.release_manifest_url(release_base_url)
 release_channel = runtime_credentials['release']['channel']
 certificate_config = runtime_credentials.get('certificate', {'mode': 'manual'})
 portal_certificate_hostname = (
@@ -964,6 +967,7 @@ def portal_status():
     status['storage_total_bytes'] = storage.get('total_bytes', 0)
     status['update_history'] = update_support.update_history()
     status['release_channel'] = release_channel
+    status['release_base_url'] = release_base_url
     status['release_available_version'] = release_available.get('version', '')
     status['release_available_type'] = release_available.get('type', '')
     status['release_available_sequence'] = release_available.get('release_sequence', 0)
@@ -1441,40 +1445,14 @@ def update_portal_settings(params):
 
 
 def update_release_preferences(params):
+    global release_base_url, release_manifest_url
     global release_channel, release_auto_download, release_auto_activate
     global release_check_schedule, release_check_time, release_check_weekday
     current = credential_store.public_settings()
-    schedule = str(params.get('release_check_schedule', 'disabled'))
-    check_time = str(params.get(
-        'release_check_time', current.get('release_check_time', '03:00')
-    ))
-    try:
-        weekday = int(params.get(
-            'release_check_weekday', current.get('release_check_weekday', 0)
-        ))
-        hour, minute = [int(part) for part in check_time.split(':')]
-    except (TypeError, ValueError):
-        raise ValueError('automatic update check time must use HH:MM')
-    if schedule not in ('disabled', 'daily', 'weekly'):
-        raise ValueError('automatic update check schedule is invalid')
-    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
-        raise ValueError('automatic update check time is invalid')
-    if not 0 <= weekday <= 6:
-        raise ValueError('automatic update check weekday is invalid')
-    check_time = '{:02}:{:02}'.format(hour, minute)
-    values = {
-        'release_channel': str(params.get('release_channel', 'stable')),
-        'release_auto_download': str(
-            params.get('release_auto_download', '')
-        ).lower() in ('1', 'true', 'on'),
-        'release_auto_activate': str(
-            params.get('release_auto_activate', '')
-        ).lower() in ('1', 'true', 'on'),
-        'release_check_schedule': schedule,
-        'release_check_time': check_time,
-        'release_check_weekday': weekday,
-    }
+    values = release_update.update_preferences(params, current)
     credential_store.update_operational_settings(values)
+    release_base_url = values['release_base_url']
+    release_manifest_url = release_update.release_manifest_url(release_base_url)
     release_channel = values['release_channel']
     release_auto_download = values['release_auto_download']
     release_auto_activate = values['release_auto_activate']

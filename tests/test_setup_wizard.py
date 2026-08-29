@@ -889,6 +889,7 @@ class SetupWizardTests(unittest.TestCase):
             'release_check_schedule': 'weekly',
             'release_check_time': '04:30',
             'release_check_weekday': 6,
+            'release_base_url': 'https://updates.home.arpa:9443',
             'certificate_mode': 'acme',
             'acme_directory_url': 'https://acme.example/directory',
             'certificate_hostname': 'controller.local',
@@ -903,6 +904,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertEqual(public['release_check_schedule'], 'weekly')
         self.assertEqual(public['release_check_time'], '04:30')
         self.assertEqual(public['release_check_weekday'], 6)
+        self.assertEqual(public['release_base_url'], 'https://updates.home.arpa:9443')
         self.assertEqual(public['certificate_mode'], 'acme')
         self.assertEqual(
             public['acme_directory_url'], 'https://acme.example/directory'
@@ -919,6 +921,14 @@ class SetupWizardTests(unittest.TestCase):
             credential_store.update_operational_settings({'release_check_schedule': 'monthly'})
         with self.assertRaisesRegex(ValueError, 'update check time'):
             credential_store.update_operational_settings({'release_check_time': '25:00'})
+        with self.assertRaisesRegex(ValueError, 'must use HTTPS'):
+            credential_store.update_operational_settings({
+                'release_base_url': 'http://updates.home.arpa:8443'
+            })
+        with self.assertRaisesRegex(ValueError, 'only an HTTPS host'):
+            credential_store.update_operational_settings({
+                'release_base_url': 'https://updates.home.arpa:8443/stable'
+            })
 
     def test_schema_five_implicit_timeout_migrates_to_sixty_minutes(self):
         config = credential_store.build_configuration(

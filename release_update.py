@@ -33,6 +33,83 @@ MAX_DESCRIPTOR_BYTES = 16384
 MAX_REDIRECTS = 4
 
 
+def normalize_release_base_url(url):
+    """Return a canonical HTTPS release-server origin."""
+    value = str(url or '').strip().rstrip('/')
+    if not value.startswith('https://'):
+        raise ValueError('release server URL must use HTTPS')
+    remainder = value[8:]
+    if not remainder or any(marker in remainder for marker in ('/', '?', '#', '@')):
+        raise ValueError('release server URL must contain only an HTTPS host and optional port')
+    host, separator, port_text = remainder.rpartition(':')
+    if separator:
+        if not host or not port_text.isdigit() or not 1 <= int(port_text) <= 65535:
+            raise ValueError('release server URL port must be between 1 and 65535')
+    else:
+        host = remainder
+    if (
+        not host or len(host) > 253 or host.startswith('.') or host.endswith('.') or
+        any(character not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-'
+            for character in host)
+    ):
+        raise ValueError('release server URL hostname is invalid')
+    return value
+
+
+def release_base_url(manifest_url):
+    """Extract the origin from an existing channel catalog URL."""
+    value = str(manifest_url or '').strip()
+    if not value:
+        return ''
+    remainder = value[8:] if value.startswith('https://') else ''
+    authority = remainder.split('/', 1)[0]
+    return normalize_release_base_url('https://' + authority)
+
+
+def release_manifest_url(base_url):
+    """Build the channel-aware catalog URL from a release-server origin."""
+    return normalize_release_base_url(base_url) + '/{channel}/latest.json'
+
+
+def update_preferences(params, current):
+    """Validate and normalize release preferences submitted by the portal."""
+    schedule = str(params.get('release_check_schedule', 'disabled'))
+    check_time = str(params.get(
+        'release_check_time', current.get('release_check_time', '03:00')
+    ))
+    try:
+        weekday = int(params.get(
+            'release_check_weekday', current.get('release_check_weekday', 0)
+        ))
+        hour, minute = [int(part) for part in check_time.split(':')]
+    except (TypeError, ValueError):
+        raise ValueError('automatic update check time must use HH:MM')
+    if schedule not in ('disabled', 'daily', 'weekly'):
+        raise ValueError('automatic update check schedule is invalid')
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError('automatic update check time is invalid')
+    if not 0 <= weekday <= 6:
+        raise ValueError('automatic update check weekday is invalid')
+    base_url = normalize_release_base_url(params.get(
+        'release_base_url', current.get(
+            'release_base_url', 'https://iotmd-update.home.arpa:8443'
+        )
+    ))
+    return {
+        'release_base_url': base_url,
+        'release_channel': str(params.get('release_channel', 'stable')),
+        'release_auto_download': str(
+            params.get('release_auto_download', '')
+        ).lower() in ('1', 'true', 'on'),
+        'release_auto_activate': str(
+            params.get('release_auto_activate', '')
+        ).lower() in ('1', 'true', 'on'),
+        'release_check_schedule': schedule,
+        'release_check_time': '{:02}:{:02}'.format(hour, minute),
+        'release_check_weekday': weekday,
+    }
+
+
 def application_release_applicable(
     components, configured_modules, runtime_version, module_versions
 ):
