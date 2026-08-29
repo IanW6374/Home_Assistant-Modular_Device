@@ -462,6 +462,9 @@ class AppUpdateTests(unittest.TestCase):
             'web_portal_ui.py', 'web_portal.py',
             'release_update.py', 'certificate_manager.py', 'certificate_lifecycle.py',
             'certificate_status.py',
+            'certificate_enrollment_service.py', 'certificate_portal_actions.py',
+            'certificate_portal_transport.py', 'certificate_portal_views.py',
+            'certificate_trust.py',
             'portal_http.py', 'portal_live_views.py',
             'portal_presenters.py', 'portal_settings_views.py',
             'api_security.py', 'configuration_manager.py', 'device_api.py',
@@ -497,6 +500,12 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIn('iotmd.py', default_names)
         self.assertIn('app_settings.json', default_names)
         self.assertIn('web_portal_ui.py', default_names)
+        for certificate_module in (
+            'certificate_enrollment_service.py', 'certificate_portal_actions.py',
+            'certificate_portal_transport.py', 'certificate_portal_views.py',
+            'certificate_trust.py',
+        ):
+            self.assertIn(certificate_module, default_names)
         self.assertNotIn('portal_ui.py', default_names)
         self.assertTrue(set(default_names).isdisjoint(app_update.RECOVERY_FILES))
         self.assertNotIn('hardware_platform.py', default_names)

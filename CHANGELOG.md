@@ -20,6 +20,8 @@
   the active enrollment method, and remove obsolete trust anchors explicitly.
 - Standardise **IoT CA enrollment authorization (`.iotenroll`)** and the other
   certificate-method names across first boot, maintenance and IoT CA.
+- Include every certificate enrollment, trust and portal module in application
+  update bundles, with a regression check against incomplete releases.
 - Update the reproducible firmware baseline to MicroPython 1.29.0 while
   retaining the supported ESP-IDF 5.5.1 toolchain.
 
