@@ -456,6 +456,33 @@ class UpdateSecurityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'signature verification failed'):
             update_security.validate_release_descriptor(descriptor, 'stable')
 
+    def test_management_suite_catalog_uses_shared_suite_verification_key(self):
+        catalog_private_key = bytes(range(33, 65))
+        Path(update_security.CATALOG_VERIFICATION_KEY_PATH).write_bytes(
+            update_security.public_key_bytes(catalog_private_key)
+        )
+        descriptor = {
+            'format_version': 3, 'target_board': 'esp32-s3',
+            'channel': 'stable', 'type': 'application', 'version': '2.3.0',
+            'release_sequence': 23000,
+            'url': 'https://updates.example/bundles/application-2.3.0.iotapp',
+            'size': 123, 'sha256': 'b' * 64, 'minimum_core_api': 9,
+            'minimum_config_api': 3, 'maximum_config_api': 3,
+            'components': {'runtime': 59, 'modules': {}},
+            'notes': 'Imported and verified by the management suite',
+            'published_at': '2026-08-29T10:00:00Z',
+            'signature_scheme': update_security.SIGNATURE_SCHEME,
+        }
+        descriptor['signature'] = update_security.sign_manifest(
+            'release-catalog', descriptor, catalog_private_key
+        )
+        self.assertIs(
+            update_security.validate_release_descriptor(descriptor, 'stable'), descriptor
+        )
+        Path(update_security.CATALOG_VERIFICATION_KEY_PATH).unlink()
+        with self.assertRaisesRegex(ValueError, 'Management Suite verification key'):
+            update_security.validate_release_descriptor(descriptor, 'stable')
+
     def test_static_release_publisher_creates_signed_channel_tree(self):
         source = Path('source.py')
         source.write_text('VALUE=1')

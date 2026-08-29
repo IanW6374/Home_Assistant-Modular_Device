@@ -17,7 +17,7 @@ Mutual TLS performs two independent checks:
   CA, then applies the fingerprint registration and scopes described below.
 - The API client authenticates IoT-MD against its private IoT CA. The API
   server certificate must contain the exact device hostname, such as
-  `whes02.local`, in a DNS Subject Alternative Name (SAN).
+  `iot-md-001.local`, in a DNS Subject Alternative Name (SAN).
 
 The client certificate and key supplied to `curl` prove the caller's identity;
 they do not make the workstation trust the server. Supply the private IoT CA
@@ -70,7 +70,7 @@ curl --fail-with-body \
   --cacert home-iot-ca-bundle.pem \
   --cert api-client.pem \
   --key api-client-key.pem \
-  https://whes02.local:8444/api/v2/modules/00A1/state
+  https://iot-md-001.local:8444/api/v2/modules/00A1/state
 ```
 
 ```json

@@ -19,6 +19,7 @@ RECOVERY_API_VERSION = 6
 CORE_API_VERSION = 9
 CONFIG_API_VERSION = 3
 VERIFICATION_KEY_PATH = '.update-verification-key'
+CATALOG_VERIFICATION_KEY_PATH = '.fleet-verification-key'
 SIGNATURE_SCHEME = 'ecdsa-p256-sha256'
 TARGET_BOARD = 'esp32-s3'
 
@@ -144,10 +145,34 @@ def public_key_bytes(private_key):
     return _int_to_bytes(point[0]) + _int_to_bytes(point[1])
 
 
+def validate_public_key_bytes(value):
+    value = bytes(value)
+    if len(value) != 64:
+        value = value.strip()
+    if len(value) == 128:
+        try:
+            value = binascii.unhexlify(value)
+        except Exception:
+            raise ValueError('verification key is not valid hexadecimal')
+    if len(value) != 64:
+        raise ValueError('verification key must contain exactly 64 bytes')
+    point = (_bytes_to_int(value[:32]), _bytes_to_int(value[32:]))
+    if not _point_is_valid(point):
+        raise ValueError('verification key is not a valid P-256 point')
+    return point
+
+
+def append_staged_verification_key(pairs, path, exists):
+    staged = path + '.manual'
+    if exists(staged):
+        _public_key(staged)
+        pairs.append((staged, path))
+
+
 def _public_key(path=VERIFICATION_KEY_PATH):
     try:
         with open(path, 'rb') as stream:
-            value = stream.read().strip()
+            value = stream.read()
     except OSError:
         try:
             import credential_store
@@ -156,17 +181,7 @@ def _public_key(path=VERIFICATION_KEY_PATH):
             value = b''
         if not value:
             return None
-    if len(value) == 128:
-        try:
-            value = binascii.unhexlify(value)
-        except Exception:
-            raise ValueError('update verification key is not valid hexadecimal')
-    if len(value) != 64:
-        raise ValueError('update verification key must contain exactly 64 bytes')
-    point = (_bytes_to_int(value[:32]), _bytes_to_int(value[32:]))
-    if not _point_is_valid(point):
-        raise ValueError('update verification key is not a valid P-256 point')
-    return point
+    return validate_public_key_bytes(value)
 
 
 def signing_enabled(path=VERIFICATION_KEY_PATH):
@@ -271,7 +286,7 @@ def manifest_message(bundle_type, manifest):
                 str(manifest.get('rollback_policy', '')),
                 str(manifest.get('trial_timeout_s', '')),
             ))
-    elif bundle_type == 'release':
+    elif bundle_type in ('release', 'release-catalog'):
         fields.extend((
             str(manifest.get('channel', '')),
             str(manifest.get('type', '')),
@@ -548,12 +563,13 @@ def release_is_compatible(descriptor):
 
 
 def validate_release_descriptor(
-    descriptor, channel='', key_path=VERIFICATION_KEY_PATH, check_compatibility=True
+    descriptor, channel='', key_path=None, check_compatibility=True
 ):
     """Validate signed metadata used to discover remotely hosted bundles."""
     if not isinstance(descriptor, dict):
         raise ValueError('release descriptor must be an object')
-    if int(descriptor.get('format_version', 0)) != 2:
+    format_version = int(descriptor.get('format_version', 0))
+    if format_version not in (2, 3):
         raise ValueError('unsupported release descriptor format')
     if str(descriptor.get('target_board', '')) != TARGET_BOARD:
         raise ValueError('release target board is not supported')
@@ -580,14 +596,25 @@ def validate_release_descriptor(
     if descriptor.get('type') == 'application':
         validate_components(descriptor.get('components'))
 
+    if key_path is None:
+        key_path = (
+            CATALOG_VERIFICATION_KEY_PATH
+            if format_version == 3 else VERIFICATION_KEY_PATH
+        )
     public_key = _public_key(key_path)
     if public_key is None:
-        raise ValueError('update verification key is not provisioned')
+        raise ValueError(
+            ('Management Suite' if format_version == 3 else 'update') +
+            ' verification key is not provisioned'
+        )
     signature = str(descriptor.get('signature', '')).lower()
     if (
         descriptor.get('signature_scheme') != SIGNATURE_SCHEME or
         len(signature) != 128 or
-        not verify_manifest_signature('release', descriptor, signature, public_key)
+        not verify_manifest_signature(
+            'release-catalog' if format_version == 3 else 'release',
+            descriptor, signature, public_key
+        )
     ):
         raise ValueError('release descriptor signature verification failed')
     return descriptor

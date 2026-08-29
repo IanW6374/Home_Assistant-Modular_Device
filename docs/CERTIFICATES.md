@@ -31,8 +31,8 @@ that root does not repair a missing intermediate or bypass hostname checks.
 After replacing a broker, syslog, release or API certificate, reload the
 service and inspect the certificate actually presented on its network port.
 
-Public portal names such as `whes02.iot.example.com` and private service names
-such as `whes02.local` are intentionally separate. A public portal certificate
+Public portal names such as `iot-md-001.iot.example.com` and private service names
+such as `iot-md-001.local` are intentionally separate. A public portal certificate
 does not replace the private Device API identity or any outbound service trust
 anchor.
 
@@ -44,17 +44,43 @@ only the fields for the selected route:
 1. **Automatic IoT CA enrollment** obtains a browser-trusted portal
    certificate and a private-CA Device API identity through a short-lived,
    trusted-LAN enrollment window.
-2. **IoT CA enrollment file (`.iotenroll`)** obtains the same identity
+2. **IoT CA enrollment authorization (`.iotenroll`)** obtains the same identity
    set from a one-time, host-bound authorization downloaded by the admin.
 3. **Private CA ACME enrollment** uses the device's `.local` name and HTTP-01 against
    the private IoT CA.
 4. **Manual certificate package** uploads an existing public portal chain/key
    and private Device API certificate/key.
-5. **Self-signed certificate** keeps the device-generated local fallback.
+5. **Self-signed device certificate** keeps the device-generated local fallback.
 
-No route is silently applied. Selecting **Self-signed certificate** requires no
+No route is silently applied. Selecting **Self-signed device certificate** requires no
 certificate fields and continues with the identity created during the network
 step.
+
+## Maintenance certificate pages
+
+The authenticated portal separates certificate material by role so that a
+trust anchor is not mistaken for a device or client identity:
+
+- **Certificate enrollment** shows the active enrollment method and its renewal
+  behaviour. An administrator can change to **Self-signed device certificate**,
+  **Automatic IoT CA enrollment**, **IoT CA enrollment authorization
+  (`.iotenroll`)**, **Private CA ACME enrollment**, or **Manual certificate
+  package**. Only the controls for the selected method are displayed.
+- **CA & signing trust** contains the outbound **MQTT broker CA**, **Release
+  server CA**, **Syslog server CA**, and **Management Suite signing key**. Each
+  installed item can be removed explicitly. Removing a CA prevents the related
+  TLS client from reconnecting until replacement trust is installed.
+- **API client trust** contains **Device API client issuer CA** anchors and
+  enrolled **Device API caller certificates**. Removing an issuer CA reloads
+  Device API trust; revoking a caller removes only that enrolled caller.
+- **Device certificates** contains the identities presented by the device:
+  **Portal HTTPS identity** and **Device API server identity**. Manual identity
+  installation is available here and is the only method without automatic
+  renewal.
+
+The Management Suite verification key is a signing key rather than an X.509
+CA certificate. It verifies fleet policy and format-3 release catalogs; update
+artifacts remain independently verified by the immutable offline update key.
 
 ### Renewal coverage
 
@@ -64,13 +90,13 @@ wizard:
 - **Private CA ACME enrollment** automatically renews its local portal certificate
   after two-thirds of its lifetime. It does not install or rotate a separate
   Device API identity.
-- **Automatic IoT CA enrollment** and **IoT CA enrollment file (`.iotenroll`)**
+- **Automatic IoT CA enrollment** and **IoT CA enrollment authorization (`.iotenroll`)**
   install the public portal, private Device API and renewal identities together.
   The device uses the renewal identity to rotate the complete set automatically
   after two-thirds of either server certificate lifetime.
 - **Manual certificate package** certificates are replaced manually; neither the public nor
   private identity is auto-renewed.
-- **Self-signed certificate** mode regenerates its local identity automatically
+- **Self-signed device certificate** mode regenerates its local identity automatically
   after two-thirds of its lifetime.
 
 ## Automatic IoT CA enrollment
@@ -96,7 +122,7 @@ subsequent enrollment traffic to that root. On an untrusted setup LAN, choose
 resulting `.iotenroll` file instead. That authorization expires after 30
 minutes and can be claimed only once with the same certificate requests.
 
-Select **IoT CA enrollment file (`.iotenroll`)** and upload that one
+Select **IoT CA enrollment authorization (`.iotenroll`)** and upload that one
 file. The device pins HTTPS to the private root embedded in the file,
 generates independent P-256 keys for the portal, Device API and renewal
 identity, and submits only their CSRs. IoT CA completes Cloudflare DNS-01 for

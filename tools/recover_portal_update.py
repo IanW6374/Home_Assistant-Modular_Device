@@ -156,7 +156,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='Install an IoT-MD update through the authenticated portal recovery endpoints'
     )
-    parser.add_argument('portal_url', help='for example https://whes02.local:8443')
+    parser.add_argument('portal_url', help='for example https://iot-md-001.local:8443')
     parser.add_argument('bundle', type=Path, help='signed .iotapp bundle')
     parser.add_argument('--username', default='admin')
     args = parser.parse_args()

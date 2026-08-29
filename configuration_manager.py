@@ -329,7 +329,7 @@ def _protected_files_preview(files):
         'mqtt_ca': 'MQTT CA', 'release_ca': 'release CA',
         'syslog_ca': 'syslog CA', 'acme_account_key': 'ACME account key',
         'acme_state': 'ACME state', 'api_client_registry': 'API clients',
-        'fleet_verification_key': 'fleet policy verification key',
+        'fleet_verification_key': 'Management Suite verification key',
         'fleet_state': 'fleet policy state',
     }
     names = []

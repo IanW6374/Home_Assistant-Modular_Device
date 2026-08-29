@@ -169,17 +169,17 @@ async def automatic_package(
 def _package(payload, expected_api_hostname):
     payload = bytes(payload)
     if not payload or len(payload) > MAX_PACKAGE_BYTES:
-        raise ValueError('IoT CA enrollment file size is invalid')
+        raise ValueError('IoT CA enrollment authorization size is invalid')
     try:
         value = json.loads(payload.decode())
     except Exception:
-        raise ValueError('IoT CA enrollment file is not valid JSON')
+        raise ValueError('IoT CA enrollment authorization is not valid JSON')
     required = (
         'protocol', 'enrollment_id', 'endpoint', 'token', 'portal_hostname',
         'api_hostname', 'renewal_name', 'ca_root_der', 'expires_at',
     )
     if not isinstance(value, dict) or any(not value.get(name) for name in required):
-        raise ValueError('IoT CA enrollment file is incomplete')
+        raise ValueError('IoT CA enrollment authorization is incomplete')
     if value['protocol'] != PROTOCOL:
         raise ValueError('IoT CA enrollment protocol is unsupported')
     endpoint = str(value['endpoint']).rstrip('/')
@@ -188,7 +188,7 @@ def _package(payload, expected_api_hostname):
     if str(value['api_hostname']).lower().rstrip('.') != str(
         expected_api_hostname
     ).lower().rstrip('.'):
-        raise ValueError('IoT CA enrollment file is authorized for another device hostname')
+        raise ValueError('IoT CA enrollment authorization is for another device hostname')
     now = int(time.time())
     expires = _iso_epoch(value['expires_at'])
     if now >= 1577836800 and (not expires or expires <= now):

@@ -59,6 +59,7 @@ RECOVERY_FILES = (
     'iot_ca_enrollment.py',
     'application_storage.py',
     '.update-verification-key',
+    '.fleet-verification-key',
     '.recovery-state.json'
 )
 

@@ -54,6 +54,15 @@ class RemoteLoggingTests(unittest.TestCase):
         self.assertTrue(client.audit_enabled)
         self.assertTrue(client.enqueue('-', 'legacy audit event', audit=True))
 
+    def test_overview_status_distinguishes_disabled_online_and_error(self):
+        disabled = RemoteSyslog({'enabled': False, 'audit_enabled': False})
+        self.assertEqual(disabled.overview_status(), 'Disabled')
+
+        active = RemoteSyslog({'enabled': True, 'host': 'logs.local'})
+        self.assertEqual(active.overview_status(), 'Online')
+        active.last_error = 'connection refused'
+        self.assertEqual(active.overview_status(), 'Error')
+
     def test_delivery_failures_are_visible_and_recovery_is_reported_once(self):
         notices = []
         client = RemoteSyslog(

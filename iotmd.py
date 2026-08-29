@@ -29,6 +29,7 @@ import component_versions
 import certificate_manager
 import certificate_status
 import certificate_lifecycle
+import certificate_portal_actions
 import configuration_manager
 import api_security
 import portal_auth
@@ -504,13 +505,9 @@ def logOutput(mode, action, data, logtype):
                 log += '\n\tPayload: ' + json.dumps(payload)
             if topic is not None or 'payload' in data:
                 log += '\n'
-                   
         if logtype == 'ERROR':
-            
             print (f'{Style.ERROR}' + log + f'{Style.RESET}')
-            
         else:
-            
             print (log)
 
         if is_audit:
@@ -985,6 +982,7 @@ def portal_status():
     status['mqtt_publish_queue'] = mqtt_publish_queue.stats()
     status['module_command_broker'] = module_broker.stats()
     status['remote_syslog'] = remote_syslog.status()
+    status['syslog'] = remote_syslog.overview_status()
     status['paired_update'] = update_orchestrator.status()
     return status
 
@@ -1093,8 +1091,8 @@ def _secure_restore_targets(files):
                 raise ValueError('encrypted backup contains invalid ' + name)
             if not isinstance(structured, dict):
                 raise ValueError('encrypted backup contains invalid ' + name)
-        if name == 'fleet_verification_key' and len(payload.strip()) not in (64, 128):
-            raise ValueError('encrypted backup contains an invalid fleet verification key')
+        if name == 'fleet_verification_key':
+            update_security.validate_public_key_bytes(payload)
         if name in fixed:
             targets[fixed[name]] = payload
         elif name.startswith('api_client_ca_'):
@@ -1297,7 +1295,6 @@ def portal_settings():
     settings['api_client_ca_installed'] = bool(api_client_ca_store.paths())
     return settings
 
-
 def installed_certificate_details():
     try:
         migration_pending = os.stat(API_SERVER_MIGRATION_MARKER)[6] >= 0
@@ -1307,11 +1304,10 @@ def installed_certificate_details():
         certificate_manager, {
             'portal': web_portal_cert_path, 'api_server': api_server_cert_path,
             'mqtt_ca': mqtt_ca_cert_path, 'release_ca': release_ca_cert_path,
-            'syslog_ca': device_settings.syslog_ca_path,
+            'syslog_ca': device_settings.syslog_ca_path, 'management_suite_key':
+            fleet_management.FLEET_VERIFICATION_KEY_PATH,
         }, api_client_ca_store, api_client_registry, certificate_config,
-        migration_pending
-    )
-
+        migration_pending)
 
 async def certificate_alert_monitor():
     await certificate_status.alert_monitor(
@@ -1320,9 +1316,7 @@ async def certificate_alert_monitor():
             'mqtt_ca': mqtt_ca_cert_path, 'release_ca': release_ca_cert_path,
             'syslog_ca': device_settings.syslog_ca_path,
         }, api_client_ca_store, api_client_registry, logOutput, runtime_health,
-        asyncio.sleep
-    )
-
+        asyncio.sleep)
 
 def update_portal_settings(params):
     current_settings = credential_store.public_settings()
@@ -1518,16 +1512,16 @@ def update_module_settings(payload):
 
     mark_restart_required('Module configuration changed')
     return 'Module settings saved and verified. Restart the device to activate them.'
-
-
 async def upload_certificate_file(kind, reader, length):
     paths = {
         'trust-ca': mqtt_ca_cert_path,
         'mqtt-ca': getattr(__import__('device_config'), 'MQTT_CA_PATH', mqtt_ca_cert_path),
         'release-ca': getattr(__import__('device_config'), 'RELEASE_CA_PATH', release_ca_cert_path),
+        'management-suite-key': fleet_management.FLEET_VERIFICATION_KEY_PATH,
         'api-client-ca': 'certs/api-client-ca-stage.der',
         'api-client-cert': 'certs/api-client-enrol.der',
         'fleet-client-cert': 'certs/fleet-client-enrol.der',
+        'iot-ca-enrollment': 'certs/.iot-ca-enrollment.manual',
         'syslog-ca': device_settings.syslog_ca_path,
         'portal-cert': web_portal_cert_path,
         'portal-key': web_portal_key_path,
@@ -1587,12 +1581,15 @@ async def reload_device_api_listener(delay_s=1):
 def schedule_portal_certificate_reload():
     start_task('portal_certificate_reload', reload_portal_listener())
 
-
 def schedule_certificate_identity_reload():
     start_task('portal_certificate_reload', reload_portal_listener())
     if device_api_enabled:
         start_task('device_api_certificate_reload', reload_device_api_listener())
 
+certificate_portal_actions.configure(
+    api_client_ca_store, schedule_portal_certificate_reload,
+    schedule_certificate_identity_reload, lambda: start_task(
+        'api_trust_reload', reload_device_api_listener()), mark_restart_required)
 
 def validate_uploaded_certificates():
     staged_ca = mqtt_ca_cert_path + '.manual'
@@ -1650,6 +1647,7 @@ def validate_uploaded_certificates():
         pairs.append((staged, target))
         outbound_trust_changed = True
 
+    update_security.append_staged_verification_key(pairs, fleet_management.FLEET_VERIFICATION_KEY_PATH, exists)
     try:
         staged_names = os.listdir('certs')
     except OSError:
@@ -2011,6 +2009,9 @@ def portal_action(action, params):
         if not api_client_registry.revoke(fingerprint):
             return 'API client was not found'
         return 'API client certificate revoked'
+
+    certificate_action = certificate_portal_actions.apply(action, params)
+    if certificate_action is not None: return certificate_action
 
     if action == 'activate-update':
         state = app_update.update_status()

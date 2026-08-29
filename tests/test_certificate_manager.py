@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import load_der_private_key
 
 import certificate_manager
+import certificate_trust
 import release_update
 import web_portal
 
@@ -116,7 +117,7 @@ class CertificateManagerTests(unittest.TestCase):
             certificate_manager.socket.getaddrinfo = self_lookup_must_not_run
             self.assertEqual(
                 __import__('asyncio').run(
-                    certificate_manager.wait_for_http01_mdns('whes01.local', 1)
+                    certificate_manager.wait_for_http01_mdns('iot-md-001.local', 1)
                 ),
                 '192.168.1.42'
             )
@@ -124,12 +125,12 @@ class CertificateManagerTests(unittest.TestCase):
             certificate_manager._station_address = lambda: ''
             with self.assertRaisesRegex(ValueError, 'connection to the home Wi-Fi'):
                 __import__('asyncio').run(
-                    certificate_manager.wait_for_http01_mdns('whes01.local', 1)
+                    certificate_manager.wait_for_http01_mdns('iot-md-001.local', 1)
                 )
 
             with self.assertRaisesRegex(ValueError, r'must end in \.local'):
                 __import__('asyncio').run(
-                    certificate_manager.wait_for_http01_mdns('whes01.home.arpa', 1)
+                    certificate_manager.wait_for_http01_mdns('iot-md-001.home.arpa', 1)
                 )
         finally:
             certificate_manager._station_address = original_station
@@ -159,7 +160,7 @@ class CertificateManagerTests(unittest.TestCase):
         private = bytes(range(1, 33))
         certificate = x509.load_der_x509_certificate(
             certificate_manager._self_signed_certificate(
-                private, 'whes01.local', (2026, 7, 23, 6, 0, 0, 0, 0, 0)
+                private, 'iot-md-001.local', (2026, 7, 23, 6, 0, 0, 0, 0, 0)
             )
         )
         key = load_der_private_key(
@@ -174,17 +175,17 @@ class CertificateManagerTests(unittest.TestCase):
         self.assertEqual(
             certificate.extensions.get_extension_for_class(x509.SubjectAlternativeName)
             .value.get_values_for_type(x509.DNSName),
-            ['whes01.local'],
+            ['iot-md-001.local'],
         )
 
     def test_installed_certificate_details_decode_safe_identity_fields(self):
         payload = certificate_manager._self_signed_certificate(
-            bytes(range(1, 33)), 'whes01.local',
+            bytes(range(1, 33)), 'iot-md-001.local',
             (2026, 7, 23, 6, 0, 0, 0, 0, 0)
         )
         details = certificate_manager.decode_certificate(payload)
-        self.assertEqual(details['subject'], 'CN=whes01.local')
-        self.assertEqual(details['issuer'], 'CN=whes01.local')
+        self.assertEqual(details['subject'], 'CN=iot-md-001.local')
+        self.assertEqual(details['issuer'], 'CN=iot-md-001.local')
         self.assertEqual(details['not_before'], '2026-01-01 00:00:00 UTC')
         self.assertEqual(details['not_after'], '2036-12-31 23:59:59 UTC')
         self.assertTrue(details['serial_number'])
@@ -195,7 +196,7 @@ class CertificateManagerTests(unittest.TestCase):
             b'\n-----END CERTIFICATE-----\n'
         )
         pem_details = certificate_manager.decode_certificate(pem_chain)
-        self.assertEqual(pem_details['subject'], 'CN=whes01.local')
+        self.assertEqual(pem_details['subject'], 'CN=iot-md-001.local')
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'portal.der'
@@ -203,7 +204,7 @@ class CertificateManagerTests(unittest.TestCase):
             installed = certificate_manager.certificate_details(str(path))
             self.assertTrue(installed['installed'])
             self.assertEqual(installed['size'], len(payload))
-            self.assertEqual(installed['subject'], 'CN=whes01.local')
+            self.assertEqual(installed['subject'], 'CN=iot-md-001.local')
             self.assertFalse(
                 certificate_manager.certificate_details(str(path) + '.missing')['installed']
             )
@@ -240,7 +241,7 @@ class CertificateManagerTests(unittest.TestCase):
             mock.patch.object(certificate_manager.asyncio, 'sleep', no_wait),
         ):
             asyncio.run(certificate_manager.self_signed_renewal_monitor(
-                {'hostname': 'whes01.local'},
+                {'hostname': 'iot-md-001.local'},
                 lambda *args: logs.append(args),
                 lambda: resets.append(True),
             ))
@@ -250,9 +251,9 @@ class CertificateManagerTests(unittest.TestCase):
 
     def test_certificate_page_names_every_method_and_warns_for_manual(self):
         methods = (
-            ('self_signed', 'self_signed', 'Self-signed certificate'),
+            ('self_signed', 'self_signed', 'Self-signed device certificate'),
             ('iot_ca', 'iot_ca_auto', 'Automatic IoT CA enrollment'),
-            ('iot_ca', 'iot_ca_file', 'IoT CA enrollment file (.iotenroll)'),
+            ('iot_ca', 'iot_ca_file', 'IoT CA enrollment authorization (.iotenroll)'),
             ('acme', 'acme', 'Private CA ACME enrollment'),
             ('manual', 'manual', 'Manual certificate package'),
         )
@@ -262,7 +263,8 @@ class CertificateManagerTests(unittest.TestCase):
                     'mode': mode, 'method': method,
                 }}
             )
-            self.assertIn('Certificate method: ' + name, html)
+            self.assertIn(name, html)
+            self.assertIn('Current enrollment', html)
         manual = web_portal.render_certificate_page(
             'csrf', certificates={'acme_settings': {'mode': 'manual'}}
         )
@@ -297,29 +299,63 @@ class CertificateManagerTests(unittest.TestCase):
         self.assertIn('id="module-settings-file"', modules)
         self.assertIn('Verify and apply configuration', modules)
 
-        certificates = web_portal.render_certificate_page('csrf', certificates={
+        details = {
             'portal': {
-                'installed': True, 'subject': 'CN=whes01.local',
+                'installed': True, 'subject': 'CN=iot-md-001.local',
                 'issuer': 'CN=IoTMD CA', 'not_before': '2026-01-01 00:00:00 UTC',
                 'not_after': '2027-01-01 00:00:00 UTC', 'serial_number': '01',
                 'size': 512,
             },
             'trusted_ca': {'installed': False},
-        })
-        self.assertIn('/certificate-upload', certificates)
-        self.assertIn('/validate-certificates', certificates)
-        self.assertIn('Import certificate', certificates)
-        self.assertIn('id="certificate-type"', certificates)
-        self.assertIn('value="fleet-client-cert"', certificates)
-        self.assertIn('Installed certificates', certificates)
-        self.assertIn('CA Trust', certificates)
-        self.assertIn('Device Certificates', certificates)
-        self.assertLess(certificates.index('CA Trust'), certificates.index('Device Certificates'))
-        self.assertIn('CN=whes01.local', certificates)
-        self.assertIn('CN=IoTMD CA', certificates)
-        self.assertIn('not installed', certificates)
-        self.assertIn('No separate CA trust anchor is installed.', certificates)
-        self.assertIn('self-signed portal certificate is listed under Device Certificates', certificates)
+        }
+        identities = web_portal.render_certificate_route(
+            '/device-certificates', 'csrf', certificates=details
+        )
+        api_trust = web_portal.render_certificate_route(
+            '/api-client-trust', 'csrf', certificates=details
+        )
+        ca_trust = web_portal.render_certificate_route(
+            '/certificate-authorities', 'csrf', certificates=details
+        )
+        self.assertIn('/certificate-upload', identities)
+        self.assertIn('/validate-certificates', identities)
+        self.assertIn('Manual identity installation', identities)
+        self.assertIn('Device API server identity', identities)
+        self.assertIn('value="fleet-client-cert"', api_trust)
+        self.assertIn('value="management-suite-key"', ca_trust)
+        self.assertIn('MQTT broker CA', ca_trust)
+        self.assertIn('Release server CA', ca_trust)
+        self.assertIn('Syslog server CA', ca_trust)
+        self.assertIn('CN=iot-md-001.local', identities)
+        self.assertIn('CN=IoTMD CA', identities)
+        self.assertIn('not installed', ca_trust)
+
+    def test_replaceable_ca_and_exact_api_client_trust_can_be_removed(self):
+        class APITrust:
+            def __init__(self):
+                self.revoked = []
+
+            def revoke(self, fingerprint):
+                self.revoked.append(fingerprint)
+                return fingerprint == 'aabb'
+
+        api_trust = APITrust()
+        with tempfile.TemporaryDirectory() as directory:
+            mqtt_ca = Path(directory) / 'mqtt-ca.der'
+            mqtt_ca.write_bytes(b'certificate')
+            message, reload_api = certificate_trust.remove(
+                'mqtt-ca', '', api_trust, {'mqtt-ca': str(mqtt_ca)}
+            )
+            self.assertEqual(message, 'MQTT broker CA removed')
+            self.assertFalse(reload_api)
+            self.assertFalse(mqtt_ca.exists())
+
+        message, reload_api = certificate_trust.remove(
+            'api-client-ca', 'AA:BB'.replace(':', ''), api_trust, {}
+        )
+        self.assertEqual(message, 'Device API client issuer CA removed')
+        self.assertTrue(reload_api)
+        self.assertEqual(api_trust.revoked, ['aabb'])
 
 
 if __name__ == '__main__':

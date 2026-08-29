@@ -1,5 +1,18 @@
 """Certificate inventory and lifecycle alerts for the device application."""
 
+import certificate_enrollment_service
+try:
+    import uos as os
+except ImportError:
+    import os
+
+
+def _file_status(path):
+    try:
+        return {'installed': os.stat(path)[6] > 0, 'size': os.stat(path)[6]}
+    except OSError:
+        return {'installed': False, 'size': 0}
+
 
 def installed_details(manager, paths, api_ca_store, client_registry, config,
                       migration_pending=False):
@@ -15,7 +28,9 @@ def installed_details(manager, paths, api_ca_store, client_registry, config,
         'api_client_cas': api_ca_store.list(),
         'api_clients': client_registry.list_clients(),
         'syslog_ca': manager.certificate_lifecycle(paths['syslog_ca']),
+        'management_suite_key': _file_status(paths.get('management_suite_key', '')),
         'acme_settings': dict(config),
+        'enrollment_operation': certificate_enrollment_service.snapshot(),
     }
 
 

@@ -192,21 +192,8 @@ class FleetService:
             raise ValueError('fleet policy sequence is not newer')
         try:
             with open(self.key_path, 'rb') as stream:
-                raw_key = stream.read().strip()
-            if len(raw_key) == 128:
-                try:
-                    import ubinascii as binascii
-                except ImportError:
-                    import binascii
-                raw_key = binascii.unhexlify(raw_key)
-            if len(raw_key) != 64:
-                raise ValueError
-            public_key = (
-                update_security._bytes_to_int(raw_key[:32]),
-                update_security._bytes_to_int(raw_key[32:])
-            )
-            if not update_security._point_is_valid(public_key):
-                raise ValueError
+                raw_key = stream.read()
+            public_key = update_security.validate_public_key_bytes(raw_key)
         except Exception:
             raise ValueError('fleet verification key is not provisioned or invalid')
         if public_key is None or not update_security.verify_manifest_signature(

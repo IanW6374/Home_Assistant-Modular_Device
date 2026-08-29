@@ -6,6 +6,7 @@ OVERVIEW_FIELDS = (
     ('wifi_ip', 'Wi-Fi address'),
     ('mqtt', 'MQTT'),
     ('api', 'Device API'),
+    ('syslog', 'Remote syslog'),
     ('uptime_s', 'Uptime (s)'),
     ('running_version', 'Application version'),
     ('firmware_running_version', 'Core version'),

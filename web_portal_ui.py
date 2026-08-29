@@ -306,7 +306,10 @@ NAVIGATION = (
     )),
     ('maintenance', '/updates', 'Maintenance', (
         ('updates', '/updates', 'Upgrades'),
-        ('certificates', '/certificates', 'Certificates'),
+        ('certificates', '/certificates', 'Certificate enrollment'),
+        ('certificate_authorities', '/certificate-authorities', 'CA & signing trust'),
+        ('api_client_trust', '/api-client-trust', 'API client trust'),
+        ('device_certificates', '/device-certificates', 'Device certificates'),
         ('configuration_backup', '/configuration-backup', 'Configuration backup'),
         ('health_history', '/health-history', 'Health history'),
         ('logging', '/logging', 'Device log'),

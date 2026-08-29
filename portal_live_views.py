@@ -421,7 +421,7 @@ def render_overview_status(status):
         if key == 'firmware_running_version':
             value = display_release_version(value)
         tone = ''
-        if key in ('mqtt', 'api'):
+        if key in ('mqtt', 'api', 'syslog'):
             lowered = str(value).lower()
             tone = ' good' if lowered in ('connected', 'up', 'online') else (
                 '' if lowered in ('not configured', 'disabled') else ' warn'

@@ -295,7 +295,7 @@ async def serve(ap_name, ap_password, reset_device, port=SETUP_PORT):
                     return
                 package = parts.get('enrollment_file', b'')
                 if not package or len(package) > iot_ca_enrollment.MAX_PACKAGE_BYTES:
-                    raise ValueError('IoT CA enrollment file size is invalid')
+                    raise ValueError('IoT CA enrollment authorization size is invalid')
                 config = credential_store.load()
                 enrollment['status'] = 'running'
                 enrollment['message'] = 'Starting IoT CA enrollment'

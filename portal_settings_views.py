@@ -645,7 +645,7 @@ def render_certificate_page(csrf, message='', certificates=None):
             'or Device API certificate lifetime.'
         ),
         'iot_ca_file': (
-            'success', 'IoT CA enrollment file (.iotenroll)',
+            'success', 'IoT CA enrollment authorization (.iotenroll)',
             'The public portal, private Device API and renewal identities are '
             'automatically rotated together after two-thirds of the public portal '
             'or Device API certificate lifetime.'
@@ -656,7 +656,7 @@ def render_certificate_page(csrf, message='', certificates=None):
             'of its lifetime. This method does not manage a separate Device API identity.'
         ),
         'self_signed': (
-            'info', 'Self-signed certificate',
+            'info', 'Self-signed device certificate',
             'The device automatically regenerates its local self-signed certificate '
             'after two-thirds of its lifetime.'
         ),
@@ -702,6 +702,7 @@ def render_certificate_page(csrf, message='', certificates=None):
         '<select id="certificate-type"><option value="portal">Portal certificate and private key</option>'
         '<option value="api-server">Device API server certificate and private key</option>'
         '<option value="mqtt-ca">MQTT trusted CA</option><option value="release-ca">Release-server trusted CA</option>'
+        '<option value="management-suite-key">Management Suite verification key</option>'
         '<option value="syslog-ca">Syslog trusted CA</option><option value="api-client-ca">API client CA trust</option>'
         '<option value="api-client-cert">Module API client certificate</option>'
         '<option value="fleet-client-cert">Fleet manager client certificate</option></select></label>'
@@ -723,7 +724,8 @@ def render_certificate_page(csrf, message='', certificates=None):
         '"Both files are validated together; installation restarts the portal."],"api-server":["Device API server certificate",'
         '"Device API server private key","Both private-CA files are validated together; the mTLS API reloads without a device restart."],"mqtt-ca":["MQTT trusted CA","",'
         '"Authenticates the MQTT broker."],"release-ca":["Release-server trusted CA","",'
-        '"Authenticates the signed release server."],"syslog-ca":["Syslog trusted CA","",'
+        '"Authenticates the signed release server."],"management-suite-key":["Management Suite verification key","",'
+        '"Verifies fleet policy and format-3 release catalogs; bundle signatures remain independently verified."],"syslog-ca":["Syslog trusted CA","",'
         '"Authenticates an encrypted syslog server."],"api-client-ca":["API client CA files","",'
         '"Install one or more issuing CAs; the device restarts once."],"api-client-cert":['
         '"API client certificates","","Enrol module API identities with read/write scopes without a restart."],'
@@ -1118,3 +1120,10 @@ def render_shutdown_complete_page(message):
     return portal_ui.shell(
         'IoT-MD device shutdown', 'device_control', body, authenticated=False
     )
+
+
+# Certificate pages are separated from general settings so enrollment, trust,
+# API callers, and presented identities can evolve independently.
+from certificate_portal_views import (
+    render_certificate_page, render_certificate_route,
+)

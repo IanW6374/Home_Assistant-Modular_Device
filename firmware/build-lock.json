@@ -1,6 +1,6 @@
 {
-  "micropython": "v1.28.0",
-  "micropython_commit": "e0e9fbb17ed6fd06bb76e266ae554784c9c80804",
+  "micropython": "v1.29.0",
+  "micropython_commit": "0fd6c573ea815774668bbb16b8e197c8822368b2",
   "esp_idf": "v5.5.1",
   "esp_idf_commit": "fcae32885b0296b32044cb99ecbdc50d98dddb83",
   "board": "IOTMD_ESP32_S3",

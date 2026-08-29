@@ -34,7 +34,7 @@ class SetupWizardTests(unittest.TestCase):
             'recovery_ap_password': 'Recovery-Access-Cedar-47!',
             'recovery_ap_password_confirm': 'Recovery-Access-Cedar-47!',
             'channel': 'stable',
-            'certificate_hostname': 'whes01.local',
+            'certificate_hostname': 'iot-md-001.local',
         }
 
     def test_setup_response_waits_for_socket_close_before_restart(self):
@@ -195,6 +195,9 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('.setup-main{width:auto;max-width:none;', setup_wizard.portal_ui.PORTAL_CSS)
         self.assertIn('id="device-name"', html)
         self.assertIn('id="mdns-hostname"', html)
+        self.assertIn('name="device_name" required maxlength="64" value="iot-md-001"', html)
+        self.assertIn('name="certificate_hostname" required maxlength="253"', html)
+        self.assertIn('value="iot-md-001.local"', html)
         self.assertIn('id="wifi-ssid-input"', html)
         self.assertIn('list="wifi-network-options"', html)
         self.assertIn('id="wifi-network-options"', html)
@@ -264,7 +267,7 @@ class SetupWizardTests(unittest.TestCase):
             '</section>', preloaded.index('<h2>Device &amp; Application</h2>')
         )
         self.assertLess(preloaded.index('class="setup-application-status"'), device_section_end)
-        certificates = setup_wizard._certificate_page('csrf-token', 'whes01.local')
+        certificates = setup_wizard._certificate_page('csrf-token', 'iot-md-001.local')
         self.assertIn('id="trust-ca"', certificates)
         self.assertNotIn('id="mqtt-ca"', certificates)
         self.assertNotIn('id="update-ca"', certificates)
@@ -290,7 +293,7 @@ class SetupWizardTests(unittest.TestCase):
             certificates,
         )
         self.assertIn('id="certificate-hostname"', certificates)
-        self.assertIn('value="whes01.local" readonly', certificates)
+        self.assertIn('value="iot-md-001.local" readonly', certificates)
         self.assertIn('<code>.local</code> hostname with mDNS', certificates)
         self.assertIn('action="/enroll-certificate"', certificates)
         self.assertIn('action="/manual-certificates"', certificates)
@@ -298,7 +301,7 @@ class SetupWizardTests(unittest.TestCase):
         self.assertNotIn('onclick=', certificates)
         self.assertIn('id="continue" class="secondary" disabled', certificates)
         self.assertIn('name="certificate_mode" value="self_signed"', certificates)
-        self.assertIn('Continue with self-signed certificate', certificates)
+        self.assertIn('Continue with self-signed device certificate', certificates)
         enrolling = setup_wizard._enrollment_page('Creating the certificate order')
         self.assertIn('Creating the certificate order', enrolling)
         self.assertNotIn('http-equiv="refresh"', enrolling)
@@ -320,12 +323,12 @@ class SetupWizardTests(unittest.TestCase):
         self.assertIn('document.getElementById("next-step").submit()', complete)
         self.assertNotIn('Automatic enrollment', complete)
         ready = setup_wizard._certificate_page(
-            'csrf-token', 'whes01.local', 'Certificate enrolled', ready=True
+            'csrf-token', 'iot-md-001.local', 'Certificate enrolled', ready=True
         )
         self.assertIn('Certificate enrolled', ready)
         self.assertIn('id="continue" class="secondary">', ready)
         self_signed = setup_wizard._certificate_resume_page('csrf-token', {
-            'certificate': {'hostname': 'whes01.local', 'mode': 'self_signed'},
+            'certificate': {'hostname': 'iot-md-001.local', 'mode': 'self_signed'},
         })
         self.assertIn('>Self-signed ready</span>', self_signed)
         self.assertIn(
@@ -341,8 +344,8 @@ class SetupWizardTests(unittest.TestCase):
             self_signed.index('<h1>Install device certificates</h1>'),
             self_signed.index('>Self-signed ready</span>'),
         )
-        handover = setup_wizard._handover_page('whes01.local', 'csrf-token')
-        self.assertIn('http://whes01.local/resume/csrf-token', handover)
+        handover = setup_wizard._handover_page('iot-md-001.local', 'csrf-token')
+        self.assertIn('http://iot-md-001.local/resume/csrf-token', handover)
         self.assertIn('setup access point will now close', handover)
         source = Path(setup_wizard.__file__).read_text()
         configure_start = source.index("path == '/configure'")
@@ -359,9 +362,9 @@ class SetupWizardTests(unittest.TestCase):
         self.assertNotIn("'Location', '/certificates'", resume_route)
         portal = setup_wizard._portal_handoff_page({
             'portal': {'transport': 'https'},
-            'certificate': {'hostname': 'whes01.local'},
+            'certificate': {'hostname': 'iot-md-001.local'},
         }, 'Restarting')
-        self.assertIn('https://whes01.local:8443/', portal)
+        self.assertIn('https://iot-md-001.local:8443/', portal)
         self.assertIn('window.location.replace(target)', portal)
         self.assertIn('<style>' + setup_wizard.portal_ui.PORTAL_CSS + '</style>', portal)
         self.assertNotIn('/assets/portal.css', portal)
@@ -468,7 +471,7 @@ class SetupWizardTests(unittest.TestCase):
         def details(path):
             if path == setup_wizard.CERTIFICATE_PATHS['portal-cert']:
                 return {
-                    'installed': True, 'subject': 'CN=whes01.local',
+                    'installed': True, 'subject': 'CN=iot-md-001.local',
                     'issuer': 'CN=Home IoT CA',
                 }
             return {'installed': True, 'subject': 'CN=Home IoT CA', 'issuer': 'CN=Home IoT CA'}
@@ -482,7 +485,7 @@ class SetupWizardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'certificate setup changed'):
                 setup_wizard._validate_certificate_selection(config, 'self_signed')
             setup_wizard.certificate_manager.certificate_details = lambda _path: {
-                'installed': True, 'subject': 'CN=whes01.local', 'issuer': 'CN=whes01.local'
+                'installed': True, 'subject': 'CN=iot-md-001.local', 'issuer': 'CN=iot-md-001.local'
             }
             with self.assertRaisesRegex(ValueError, 'self-issued'):
                 setup_wizard._validate_certificate_files('acme')
@@ -495,7 +498,7 @@ class SetupWizardTests(unittest.TestCase):
         setup_wizard_views._validate_certificate_selection = lambda _config, mode: mode == 'acme'
         try:
             html = setup_wizard._certificate_resume_page('csrf-token', {
-                'certificate': {'mode': 'acme', 'hostname': 'whes01.local'},
+                'certificate': {'mode': 'acme', 'hostname': 'iot-md-001.local'},
             })
         finally:
             setup_wizard_views._validate_certificate_selection = original
@@ -508,10 +511,10 @@ class SetupWizardTests(unittest.TestCase):
             setup_wizard.SELF_SIGNED_READY_MESSAGE, True
         )
         self.assertIn('Automatic IoT CA enrollment', html)
-        self.assertIn('IoT CA enrollment file (.iotenroll)', html)
+        self.assertIn('IoT CA enrollment authorization (.iotenroll)', html)
         self.assertIn('Private CA ACME enrollment', html)
         self.assertIn('Manual certificate package', html)
-        self.assertIn('Continue with self-signed certificate', html)
+        self.assertIn('Continue with self-signed device certificate', html)
         self.assertIn('action="/iot-ca-enrollment"', html)
         self.assertIn('action="/enroll-certificate"', html)
         self.assertIn('action="/manual-certificates"', html)
@@ -591,16 +594,16 @@ class SetupWizardTests(unittest.TestCase):
         try:
             config = {
                 'portal': {'transport': 'auto'},
-                'certificate': {'hostname': 'whes01.local'},
+                'certificate': {'hostname': 'iot-md-001.local'},
             }
             self.assertEqual(
                 setup_wizard._portal_url(config),
-                'https://whes01.local:8443/',
+                'https://iot-md-001.local:8443/',
             )
             config['portal']['transport'] = 'http'
             self.assertEqual(
                 setup_wizard._portal_url(config),
-                'http://whes01.local:8080/',
+                'http://iot-md-001.local:8080/',
             )
         finally:
             setup_wizard_views._file_exists = original
@@ -774,14 +777,14 @@ class SetupWizardTests(unittest.TestCase):
             'recovery_password': 'Console-Ash-82!Stone',
             'recovery_password_confirm': 'Console-Ash-82!Stone',
             'install_mode': 'upload',
-            'certificate_hostname': 'whes01.home.arpa',
+            'certificate_hostname': 'iot-md-001.home.arpa',
         })
         with self.assertRaisesRegex(ValueError, r'followed by \.local'):
             setup_wizard._form_values(params)
-        params['certificate_hostname'] = 'WHES01.local.'
+        params['certificate_hostname'] = 'IOT-MD-001.local.'
         self.assertEqual(
             setup_wizard._form_values(params)['certificate_hostname'],
-            'whes01.local'
+            'iot-md-001.local'
         )
 
     def test_certificate_multipart_form_preserves_binary_files(self):

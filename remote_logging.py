@@ -91,6 +91,11 @@ class RemoteSyslog:
             'last_error': self.last_error,
         }
 
+    def overview_status(self):
+        if not self.active:
+            return 'Disabled'
+        return 'Error' if self.last_error else 'Online'
+
     def _notify(self, severity, message):
         if not self.status_callback:
             return

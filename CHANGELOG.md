@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.3.0 - 2026-08-29
+
+- Accept Management Suite format-3 Stable/Beta release catalogs signed by the
+  existing fleet-policy identity, while continuing to verify every downloaded
+  application or core bundle with the immutable offline update key.
+- Add **Management Suite verification key** import under Maintenance >
+  Certificates and retain that shared fleet/catalog trust identity through update, encrypted
+  backup/restore and factory reset workflows.
+- Preserve format-2 offline-signed release catalogs for direct/static release
+  publication.
+- Use `iot-md-001` and `iot-md-001.local` as the first-boot device-name and
+  mDNS defaults, and align device identity examples without changing the WHES
+  module name or identifiers.
+- Show remote syslog health alongside Wi-Fi, MQTT and Device API state on the
+  overview page.
+- Split certificate enrollment, outbound CA/signing trust, Device API client
+  trust and device identities into focused Maintenance pages. Show and change
+  the active enrollment method, and remove obsolete trust anchors explicitly.
+- Standardise **IoT CA enrollment authorization (`.iotenroll`)** and the other
+  certificate-method names across first boot, maintenance and IoT CA.
+- Update the reproducible firmware baseline to MicroPython 1.29.0 while
+  retaining the supported ESP-IDF 5.5.1 toolchain.
+
 ## 2.2.9 - 2026-08-28
 
 - Standardise the human-facing product acronym as **IoT-MD** across the web

@@ -31,6 +31,7 @@ import web_portal_ui as portal_ui
 import http_support
 import timezone_rules
 import portal_auth
+import certificate_portal_transport
 from portal_view_models import overview_metrics, update_check_summary
 from portal_sessions import PortalSessions
 from device_modules.base import module_diagnostics_need_attention
@@ -280,7 +281,6 @@ async def start_web_portal(portal):
                 is_logging_settings or is_user_settings
             )
             is_module_settings = route == '/module-settings'
-            is_certificates = route == '/certificates'
             is_updates = route == '/updates'
             is_diagnostics = route == '/diagnostics'
             is_logging = route == '/logging'
@@ -745,16 +745,13 @@ async def start_web_portal(portal):
                             message
                         )
                     )
-            elif method == 'GET' and is_certificates:
-                await send_response(
-                    writer, '200 OK', render_certificate_page(
-                        csrf_token,
-                        certificates=(
-                            certificate_info_getter()
-                            if certificate_info_getter else {}
-                        )
-                    )
-                )
+            elif await certificate_portal_transport.handle(
+                method, route, action_path, writer, reader, headers, form_params,
+                csrf_token, action_handler, log_output, certificate_upload_handler,
+                certificate_validate_handler, certificate_info_getter,
+                send_response, send_redirect
+            ):
+                pass
             elif method == 'GET' and is_updates:
                 await send_response(
                     writer, '200 OK',
@@ -898,7 +895,7 @@ async def start_web_portal(portal):
                     'revoke-api-client', action_path, action_handler, log_output,
                     form_params
                 )
-                await send_redirect(writer, '/device-api')
+                await send_redirect(writer, form_params.get('return_to', '/device-api'))
             elif method == 'POST' and route == '/acme-settings':
                 result = apply_portal_action(
                     'update-acme-settings', action_path, action_handler, log_output,
@@ -987,34 +984,6 @@ async def start_web_portal(portal):
                     else:
                         if not await finish_progress_response('complete', result):
                             await send_response(writer, '200 OK', str(result), 'text/plain')
-            elif method == 'POST' and path.startswith('/certificate-upload'):
-                if certificate_upload_handler is None:
-                    await send_response(writer, '503 Service Unavailable', 'Certificate upload is unavailable', 'text/plain')
-                else:
-                    length = int(headers.get('content-length', '0') or 0)
-                    if length <= 0 or length > 16384:
-                        raise ValueError('certificate file size is invalid')
-                    await certificate_upload_handler(
-                        headers.get('x-certificate-kind', ''), reader, length
-                    )
-                    await send_response(writer, '200 OK', 'Certificate file stored', 'text/plain')
-            elif method == 'POST' and route == '/validate-certificates':
-                try:
-                    if certificate_validate_handler is None:
-                        raise RuntimeError('certificate validation is unavailable')
-                    result = certificate_validate_handler()
-                except Exception as exc:
-                    await send_response(writer, '400 Bad Request', str(exc), 'text/plain')
-                else:
-                    message = (
-                        result.get('message', '') if isinstance(result, dict) else str(result)
-                    )
-                    await send_response(
-                        writer, '200 OK', render_certificate_page(
-                            csrf_token, message,
-                            certificate_info_getter() if certificate_info_getter else {}
-                        )
-                    )
             elif method == 'POST' and path.startswith('/set-loglevel'):
                 try:
                     apply_logging_change(

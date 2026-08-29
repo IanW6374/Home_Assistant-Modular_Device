@@ -34,7 +34,7 @@ configurations are in [`examples/`](examples/).
 ## Hardware and software
 
 - ESP32-S3-DevKitC-1-N8R8 with 8 MB flash, 8 MB octal PSRAM and Wi-Fi.
-- MicroPython 1.28.0 built with ESP-IDF 5.5.1.
+- MicroPython 1.29.0 built with ESP-IDF 5.5.1.
 - Python 3.12 or newer for host tooling.
 - ESP-IDF and the pinned MicroPython checkout for core builds.
 
@@ -53,8 +53,8 @@ The wizard configures:
 1. device identity, Wi-Fi and network mode;
 2. portal administrator credentials;
 3. an administrator-selected certificate method: **Automatic IoT CA
-   enrollment**, **IoT CA enrollment file (`.iotenroll`)**, **Private CA ACME
-   enrollment**, **Manual certificate package**, or **Self-signed certificate**; and
+   enrollment**, **IoT CA enrollment authorization (`.iotenroll`)**, **Private CA ACME
+   enrollment**, **Manual certificate package**, or **Self-signed device certificate**; and
 4. signed application installation and restart.
 
 After setup, open the configured portal DNS name on port 8443. The device also
@@ -154,6 +154,7 @@ Important entry points:
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [MicroPython and firmware baseline](docs/MICROPYTHON.md)
 - [Certificate identities and initial provisioning](docs/CERTIFICATES.md)
 - [MQTT messaging and Home Assistant](docs/MESSAGING.md)
 - [Device API v2](docs/API.md) and [OpenAPI contract](docs/openapi.yaml)

@@ -674,12 +674,12 @@ async def self_signed_renewal_monitor(
                 state = install_self_signed(config.get('hostname', ''))
             except Exception as exc:
                 log_output(
-                    'Local', 'Self-signed certificate renewal',
+                    'Local', 'Self-signed device certificate renewal',
                     {'log': 'Failed - ' + str(exc)}, 'ERROR'
                 )
             else:
                 log_output(
-                    'Local', 'Self-signed certificate renewal',
+                    'Local', 'Self-signed device certificate renewal',
                     {'log': 'Renewed until ' + str(state.get('not_after', ''))},
                     'INFO'
                 )

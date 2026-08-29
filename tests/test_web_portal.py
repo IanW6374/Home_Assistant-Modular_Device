@@ -66,6 +66,7 @@ class WebPortalTests(unittest.TestCase):
                 'hostname': 'controller.local',
             }
         })
+        api_trust = web_portal.render_certificate_route('/api-client-trust', 'csrf')
 
         self.assertIn('name="portal_session_timeout_minutes"', portal)
         self.assertIn('Inactive session timeout (minutes)', portal)
@@ -111,8 +112,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('portalRequire(importPassword', backup)
         self.assertNotIn('Protected content', backup)
         self.assertIn('name="directory_url"', certificates)
-        self.assertIn('multiple', certificates)
-        self.assertIn('Math.round(p.loaded*100/p.total)+"%"', certificates)
+        self.assertIn('multiple', api_trust)
+        self.assertIn('/certificate-upload', api_trust)
         self.assertNotIn('href="/portal-settings">Portal settings</a>', certificates)
         self.assertNotIn('href="/device-api">Device API settings</a>', certificates)
 
@@ -128,18 +129,16 @@ class WebPortalTests(unittest.TestCase):
 
     def test_portal_marks_required_and_custom_invalid_fields(self):
         backup = web_portal.render_configuration_backup_page('csrf')
-        certificates = web_portal.render_certificate_page('csrf')
+        certificates = web_portal.render_certificate_route('/device-certificates', 'csrf')
         update = web_portal.render_updates_page('csrf', {})
 
         self.assertIn('id="configuration-import-file" type="file"', backup)
         self.assertIn('accept="application/json,.json" required', backup)
         self.assertIn('portalInvalid(confirmField', backup)
-        self.assertIn('portalRequire(primary', certificates)
+        self.assertIn('portalRequire(identityCert', certificates)
         self.assertIn('value="api-server"', certificates)
-        self.assertIn('api-server-cert', certificates)
-        self.assertIn('api-server-key', certificates)
-        self.assertIn('secondary.disabled=!d[1]', certificates)
-        self.assertIn('if(!d[1])secondary.value=""', certificates)
+        self.assertIn('kind+"-cert"', certificates)
+        self.assertIn('kind+"-key"', certificates)
         self.assertIn('.field[hidden],.conditional-fields[hidden]{display:none}', portal_ui.PORTAL_CSS)
         self.assertIn('portalRequire(input', update)
         self.assertIn('input[aria-invalid="true"]', portal_ui.PORTAL_CSS)
@@ -677,7 +676,10 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('aria-label="Maintenance submenu"', html)
         self.assertIn('href="/updates">Upgrades</a>', maintenance_menu)
         self.assertNotIn('/updates?check=1', maintenance_menu)
-        self.assertIn('href="/certificates">Certificates</a>', maintenance_menu)
+        self.assertIn('href="/certificates">Certificate enrollment</a>', maintenance_menu)
+        self.assertIn('href="/certificate-authorities">CA &amp; signing trust</a>', maintenance_menu)
+        self.assertIn('href="/api-client-trust">API client trust</a>', maintenance_menu)
+        self.assertIn('href="/device-certificates">Device certificates</a>', maintenance_menu)
         self.assertIn('href="/logging" aria-current="page">Device log</a>', maintenance_menu)
         self.assertIn('<h1>Device log</h1>', html)
         self.assertIn('href="/audit-log">Audit log</a>', maintenance_menu)

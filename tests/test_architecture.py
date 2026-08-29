@@ -29,6 +29,10 @@ class ArchitectureBoundaryTests(unittest.TestCase):
     def test_portal_view_models_do_not_emit_html(self):
         metrics = overview_metrics({'device_name': 'kitchen'})
         self.assertEqual(metrics[0]['value'], 'kitchen')
+        self.assertEqual(
+            next(item['label'] for item in metrics if item['key'] == 'syslog'),
+            'Remote syslog'
+        )
         summary = update_check_summary({
             'release_automatic_check_status': 'Up to date',
             'release_automatic_last_checked': '08:15',
