@@ -14,6 +14,14 @@ try:
     import gc
 except ImportError:
     gc = None
+if gc is not None:
+    gc.collect()
+
+# Load the largest remaining startup module while the heap is still
+# contiguous. Importing it after dozens of small modules fragmented the heap
+# and made a 17 KiB persistent-code allocation fail during a v2.3.5 trial.
+from web_portal import start_web_portal
+
 from binascii import hexlify
 import json
 import credential_security
@@ -96,7 +104,6 @@ from device_modules.base import (
 )
 from device_modules.validation import validate_device_config
 from device_modules.logging import set_log_output
-from web_portal import start_web_portal
 from display import LocalDisplayService
 
 try:

@@ -107,6 +107,16 @@ def module_imported_roots(path):
 def architecture_errors(root=ROOT):
     root = Path(root)
     errors = []
+    runtime_source = (root / 'iotmd_runtime.py').read_text()
+    portal_import = runtime_source.find('from web_portal import start_web_portal')
+    credential_import = runtime_source.find('import credential_security')
+    if (
+        portal_import < 0 or credential_import < 0 or
+        portal_import > credential_import
+    ):
+        errors.append(
+            'iotmd_runtime.py must load web_portal before fragmented startup imports'
+        )
     for relative, forbidden_imports in LAZY_IMPORT_BOUNDARIES.items():
         eager = module_imported_roots(root / relative) & forbidden_imports
         if eager:

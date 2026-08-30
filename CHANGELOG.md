@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.3.6 - 2026-08-30
+
+- Load the remaining large web-portal bytecode module immediately after a
+  startup garbage collection, before smaller imports fragment the heap.
+- Add an import-order regression gate for the 17 KiB contiguous allocation
+  failure observed during the v2.3.5 hardware trial.
+
 ## 2.3.5 - 2026-08-30
 
 - Replace the 126 KiB source application entry with a compact,
