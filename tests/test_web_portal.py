@@ -2127,7 +2127,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('name="release_check_time" type="time"', idle)
         self.assertIn('name="release_check_weekday"', idle)
         self.assertIn('name="release_base_url" type="url"', idle)
-        self.assertIn('https://iotmd-update.home.arpa:8443', idle)
+        self.assertIn('https://iot-upgrade.home.arpa:8443', idle)
         self.assertIn('catalog path is added automatically', idle)
         self.assertIn('id="release-check-fields" class="conditional-fields"', idle)
         self.assertIn(

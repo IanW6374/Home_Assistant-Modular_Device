@@ -419,7 +419,7 @@ def build_configuration(values, portal_password, recovery_password):
             ),
             'release_check_time': str(values.get('release_check_time', '03:00')),
             'release_check_weekday': int(values.get('release_check_weekday', 0)),
-            'release_base_url': str(values.get('release_base_url', 'https://iotmd-update.home.arpa:8443')).strip(),
+            'release_base_url': str(values.get('release_base_url', 'https://iot-upgrade.home.arpa:8443')).strip(),
         },
         'api': {
             'enabled': bool(values.get('api_enabled', False)),
@@ -537,7 +537,7 @@ def public_settings():
         'release_check_schedule': config['preferences'].get('release_check_schedule', 'disabled'),
         'release_check_time': config['preferences'].get('release_check_time', '03:00'),
         'release_check_weekday': config['preferences'].get('release_check_weekday', 0),
-        'release_base_url': config['preferences'].get('release_base_url', 'https://iotmd-update.home.arpa:8443'),
+        'release_base_url': config['preferences'].get('release_base_url', 'https://iot-upgrade.home.arpa:8443'),
         'api_enabled': config.get('api', {}).get('enabled', False),
         'api_port': config.get('api', {}).get('port', 8444),
         'api_auth': config.get('api', {}).get('auth', 'mtls'),

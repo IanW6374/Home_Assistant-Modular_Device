@@ -10,7 +10,7 @@
     "log_line_max_chars": 500,
     "updates_enabled": true,
     "firmware_updates_enabled": true,
-    "release_manifest_url": "https://iotmd-update.home.arpa:8443/{channel}/latest.json",
+    "release_manifest_url": "https://iot-upgrade.home.arpa:8443/{channel}/latest.json",
     "session_timeout_s": 3600
   },
   "local_display": {

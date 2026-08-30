@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.3.2 - 2026-08-30
+
+- Correct the automatic-upgrade server default to
+  `https://iot-upgrade.home.arpa:8443`.
+
 ## 2.3.1 - 2026-08-30
 
 - Make the automatic-upgrade release server visible and editable under

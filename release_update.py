@@ -92,7 +92,7 @@ def update_preferences(params, current):
         raise ValueError('automatic update check weekday is invalid')
     base_url = normalize_release_base_url(params.get(
         'release_base_url', current.get(
-            'release_base_url', 'https://iotmd-update.home.arpa:8443'
+            'release_base_url', 'https://iot-upgrade.home.arpa:8443'
         )
     ))
     return {

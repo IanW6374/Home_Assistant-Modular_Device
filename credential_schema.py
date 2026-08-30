@@ -249,7 +249,7 @@ def validate(config, require_provisioned=False):
     ):
         raise ValueError('automatic update check weekday is invalid')
     release_base_url = str(preferences.get(
-        'release_base_url', 'https://iotmd-update.home.arpa:8443'
+        'release_base_url', 'https://iot-upgrade.home.arpa:8443'
     )).strip().rstrip('/')
     if not release_base_url.startswith('https://'):
         raise ValueError('release server URL must use HTTPS')

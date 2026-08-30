@@ -649,7 +649,7 @@ def render_update_preferences(csrf, settings):
     schedule = str(settings.get('release_check_schedule', 'disabled'))
     check_time = str(settings.get('release_check_time', '03:00'))
     release_base_url = str(settings.get(
-        'release_base_url', 'https://iotmd-update.home.arpa:8443'
+        'release_base_url', 'https://iot-upgrade.home.arpa:8443'
     ))
     weekday = int(settings.get('release_check_weekday', 0))
     weekdays = ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
@@ -683,7 +683,7 @@ def render_update_preferences(csrf, settings):
         weekday_options + '</select></label></div></fieldset></div>'
         '<label class="field">Release server URL<input name="release_base_url" type="url" '
         'required value="' + html_escape(release_base_url) + '" '
-        'placeholder="https://iotmd-update.home.arpa:8443">'
+        'placeholder="https://iot-upgrade.home.arpa:8443">'
         '<span class="field-hint">HTTPS server origin only. The Stable or Beta catalog path is '
         'added automatically; its certificate must cover this hostname.</span></label>'
         '<p class="muted">Scheduled checks use the device time zone configured under Time / Date. '

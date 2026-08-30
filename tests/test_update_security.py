@@ -38,21 +38,21 @@ class UpdateSecurityTests(unittest.TestCase):
     def test_release_server_origin_builds_channel_catalog(self):
         self.assertEqual(
             release_update.normalize_release_base_url(
-                ' https://iotmd-update.home.arpa:8443/ '
+                ' https://iot-upgrade.home.arpa:8443/ '
             ),
-            'https://iotmd-update.home.arpa:8443',
+            'https://iot-upgrade.home.arpa:8443',
         )
         self.assertEqual(
             release_update.release_manifest_url(
-                'https://iotmd-update.home.arpa:8443'
+                'https://iot-upgrade.home.arpa:8443'
             ),
-            'https://iotmd-update.home.arpa:8443/{channel}/latest.json',
+            'https://iot-upgrade.home.arpa:8443/{channel}/latest.json',
         )
         self.assertEqual(
             release_update.release_base_url(
-                'https://iotmd-update.home.arpa:8443/{channel}/latest.json'
+                'https://iot-upgrade.home.arpa:8443/{channel}/latest.json'
             ),
-            'https://iotmd-update.home.arpa:8443',
+            'https://iot-upgrade.home.arpa:8443',
         )
         for invalid in (
             'http://updates.home.arpa:8443',
