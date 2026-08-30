@@ -19,6 +19,7 @@ from update_security import SIGNATURE_SCHEME, sign_manifest
 MAGIC = b'IOTA1\n'
 CORE_FILES = (
     'iotmd.py',
+    'iotmd_runtime.py',
     'application_upload.py',
     'app_settings.json',
     'component_versions.py',

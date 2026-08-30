@@ -28,6 +28,9 @@ If the device already reports application v2.0.15 and core v2.0.16, begin at
 step 4. The transition application copies and byte-verifies the encrypted
 configuration while retaining the v2.0 namespace for rollback. v2.0.16 allows
 the frozen recovery supervisor to validate and boot the `iotmd.py` entry point.
+Current production bundles retain that small source bootstrap for compatibility
+and precompile the substantial runtime as `iotmd_runtime.mpy`, avoiding a large
+contiguous source-compilation allocation during trial boot.
 
 1. Back up the current configuration.
 2. Open **Maintenance > Upgrades**.
@@ -80,33 +83,34 @@ of the automatic check schedule.
 ## Production build
 
 Build only from a clean, tested commit. This example uses production version
-`2.3.4` and release sequence `2504`:
+`2.3.5` and release sequence `2505`:
 
 ```sh
-python3 tools/build_update.py releases/v2.3.4/application-2.3.4.iotapp \
-  --version 2.3.4 --release-sequence 2504 \
+python3 tools/build_update.py releases/v2.3.5/application-2.3.5.iotapp \
+  --version 2.3.5 --release-sequence 2505 \
   --signing-key /secure/update.signing-key \
   --mpy-cross /path/to/micropython/mpy-cross/build/mpy-cross
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.3.4 --release-sequence 2504 \
-  --output releases/v2.3.4/iotmd-core-2.3.4.iotcore \
-  --factory-output /secure-output/iotmd-core-2.3.4.factory.bin \
+  --version 2.3.5 --release-sequence 2505 \
+  --output releases/v2.3.5/iotmd-core-2.3.5.iotcore \
+  --factory-output /secure-output/iotmd-core-2.3.5.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
   --factory-setup-password-output /secure-output/device-v2.1.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.3.4/universal-2.3.4.iotuni \
-  --application releases/v2.3.4/application-2.3.4.iotapp \
-  --firmware releases/v2.3.4/iotmd-core-2.3.4.iotcore \
-  --version 2.3.4 --release-sequence 2504 \
+  releases/v2.3.5/universal-2.3.5.iotuni \
+  --application releases/v2.3.5/application-2.3.5.iotapp \
+  --firmware releases/v2.3.5/iotmd-core-2.3.5.iotcore \
+  --version 2.3.5 --release-sequence 2505 \
   --signing-key /secure/update.signing-key
 ```
 
-Production application bundles compile importable modules to `.mpy` bytecode.
-The entry point and source-provenance module remain readable Python. The
+Production application bundles compile importable modules, including the full
+`iotmd_runtime` module, to `.mpy` bytecode. Only the compact recovery-compatible
+entry point and source-provenance module remain readable Python. The
 universal builder enforces a 1.5 MiB limit on each sequential component rather
 than claiming that an arbitrary combined size is safe on a populated filesystem.
 

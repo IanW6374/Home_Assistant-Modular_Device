@@ -457,7 +457,7 @@ class AppUpdateTests(unittest.TestCase):
         )
         Path('component_versions.py').write_text('RUNTIME_VERSION=1\n')
         for name in (
-            'settings_loader.py', 'hardware_platform.py', 'display.py',
+            'iotmd_runtime.py', 'settings_loader.py', 'hardware_platform.py', 'display.py',
             'application_upload.py',
             'web_portal_ui.py', 'web_portal.py',
             'release_update.py', 'certificate_manager.py', 'certificate_lifecycle.py',
@@ -498,6 +498,7 @@ class AppUpdateTests(unittest.TestCase):
         ]
 
         self.assertIn('iotmd.py', default_names)
+        self.assertIn('iotmd_runtime.py', default_names)
         self.assertIn('app_settings.json', default_names)
         self.assertIn('web_portal_ui.py', default_names)
         for certificate_module in (
@@ -528,10 +529,12 @@ class AppUpdateTests(unittest.TestCase):
 
     def test_compact_builder_keeps_entry_and_provenance_as_source(self):
         entry = Path('iotmd.py')
+        runtime = Path('iotmd_runtime.py')
         provenance = Path('component_versions.py')
         module = Path('module.py')
         settings = Path('app_settings.json')
         entry.write_text('import module\n')
+        runtime.write_text('VALUE = 3\n')
         provenance.write_text('RUNTIME_VERSION = 1\n')
         module.write_text('VALUE = 1\n')
         settings.write_text('{}')
@@ -545,6 +548,7 @@ class AppUpdateTests(unittest.TestCase):
 
         files = [
             ('iotmd.py', entry), ('component_versions.py', provenance),
+            ('iotmd_runtime.py', runtime),
             ('module.py', module), ('app_settings.json', settings),
         ]
         with patch('tools.build_update.subprocess.run', side_effect=compile_module):
@@ -555,8 +559,12 @@ class AppUpdateTests(unittest.TestCase):
         names = [name for name, _path in compact]
         self.assertEqual(
             names,
-            ['iotmd.py', 'component_versions.py', 'module.mpy', 'app_settings.json']
+            [
+                'iotmd.py', 'component_versions.py', 'iotmd_runtime.mpy',
+                'module.mpy', 'app_settings.json'
+            ]
         )
+        self.assertEqual(overrides['iotmd_runtime.mpy'], b'MPYVALUE = 3\n')
         self.assertEqual(overrides['module.mpy'], b'MPYVALUE = 2\n')
         self.assertNotIn('module.py', overrides)
 

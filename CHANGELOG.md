@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.5 - 2026-08-30
+
+- Replace the 126 KiB source application entry with a compact,
+  recovery-compatible bootstrap and package the full runtime as precompiled
+  MicroPython bytecode.
+- Preserve the existing `iotmd.py` activation contract so devices running an
+  earlier recovery core can install the application safely.
+- Add entry-size and bundle-compaction regression gates to prevent the
+  trial-boot source-compilation memory failure from returning.
+
 ## 2.3.4 - 2026-08-30
 
 - Reduce normal startup heap pressure by loading certificate-administration

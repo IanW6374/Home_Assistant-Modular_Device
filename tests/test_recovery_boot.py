@@ -258,7 +258,7 @@ class RecoveryBootTests(unittest.TestCase):
         self.assertIsNone(recovery_boot._trial_timer)
 
     def test_application_confirms_updates_only_after_portal_startup(self):
-        source = (Path(self.previous_cwd) / 'iotmd.py').read_text()
+        source = (Path(self.previous_cwd) / 'iotmd_runtime.py').read_text()
         portal_start = source.index('portal_started = await start_admin_portal()')
         firmware_confirmation = source.index('if firmware_update.confirm_update():')
         application_confirmation = source.index('if app_update.confirm_update():')

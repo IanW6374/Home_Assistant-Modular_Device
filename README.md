@@ -141,7 +141,8 @@ Important entry points:
 
 | Path | Responsibility |
 | --- | --- |
-| `iotmd.py` | Runtime composition and supervision |
+| `iotmd.py` | Small recovery-compatible application bootstrap |
+| `iotmd_runtime.py` | Runtime composition and supervision; precompiled in production bundles |
 | `application/` | Transport-neutral state and service contracts |
 | `services/` | Application use cases |
 | `device_modules/` | Drivers, capabilities and resource allocation |

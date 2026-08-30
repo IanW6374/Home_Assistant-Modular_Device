@@ -26,6 +26,7 @@ FILES = (
     "wifi_recovery.py",
     "http_support.py",
     "iotmd.py",
+    "iotmd_runtime.py",
     "release_update.py",
     "settings_loader.py",
     "component_versions.py",

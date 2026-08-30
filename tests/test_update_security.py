@@ -445,12 +445,12 @@ class UpdateSecurityTests(unittest.TestCase):
             ),
             'https://updates.example/rc/latest.json'
         )
-        application_source = (Path(self.previous_cwd) / 'iotmd.py').read_text()
+        application_source = (Path(self.previous_cwd) / 'iotmd_runtime.py').read_text()
         self.assertIn("{'log': 'Checking ' + request_url, 'force': True}", application_source)
         self.assertIn("release_check_status + ' — ' + request_url", application_source)
 
     def test_portal_restarts_use_hardware_timer(self):
-        application_source = (Path(self.previous_cwd) / 'iotmd.py').read_text()
+        application_source = (Path(self.previous_cwd) / 'iotmd_runtime.py').read_text()
         self.assertIn('scheduled_control_timer = Timer(-1)', application_source)
         self.assertIn('mode=Timer.ONE_SHOT', application_source)
         self.assertIn("mark_restart_required('Module configuration changed')", application_source)

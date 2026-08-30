@@ -24,7 +24,8 @@ FORBIDDEN_TRANSPORT_IMPORTS = {
 # down as responsibilities are extracted; increasing one requires an explicit
 # architecture review.
 LINE_LIMITS = {
-    'iotmd.py': 3350,
+    'iotmd.py': 20,
+    'iotmd_runtime.py': 3360,
     'web_portal.py': 1320,
     'setup_wizard.py': 450,
     'certificate_manager.py': 700,
@@ -35,7 +36,12 @@ LINE_LIMITS = {
 FUNCTION_LIMITS = {
     ('web_portal.py', 'start_web_portal'): 1280,
     ('setup_wizard.py', 'serve'): 350,
-    ('iotmd.py', 'main'): 260,
+    ('iotmd_runtime.py', 'main'): 260,
+}
+BYTE_LIMITS = {
+    # v2.3.4 exhausted the trial heap compiling a 126 KiB source entry.
+    # Keep the recovery-compatible entry tiny and import the precompiled runtime.
+    'iotmd.py': 1024,
 }
 RETIRED_SOURCE_MARKERS = {
     'settings_loader.py': ('ha_discovery_cleanup_legacy',),
@@ -43,6 +49,7 @@ RETIRED_SOURCE_MARKERS = {
     'release_update.py': ('_release_manifest_request_url',),
 }
 REQUIRED_APPLICATION_MODULES = (
+    'iotmd_runtime.py',
     'certificate_status.py', 'portal_http.py', 'portal_live_views.py', 'portal_presenters.py',
     'portal_settings_views.py', 'services/home_assistant_service.py',
 )
@@ -113,6 +120,14 @@ def architecture_errors(root=ROOT):
         if count > maximum:
             errors.append(
                 relative + ' exceeds architecture line limit: ' +
+                str(count) + ' > ' + str(maximum)
+            )
+    for relative, maximum in BYTE_LIMITS.items():
+        path = root / relative
+        count = len(path.read_bytes())
+        if count > maximum:
+            errors.append(
+                relative + ' exceeds boot entry byte limit: ' +
                 str(count) + ' > ' + str(maximum)
             )
     for (relative, function_name), maximum in FUNCTION_LIMITS.items():
