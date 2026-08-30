@@ -171,6 +171,10 @@ def prepare(manifest):
         str(manifest.get('signature', ''))
     ):
         return status(identifier)
+    # A paired rollback may complete before the universal coordinator gets an
+    # opportunity to remove its state file.  Reconcile that terminal state so
+    # a remote administrator can immediately retry without USB intervention.
+    universal_update.reconcile_pending()
     universal_state = universal_update.update_status()
     if universal_state.get('status', 'idle') != 'idle':
         raise ValueError('another universal update is already pending')

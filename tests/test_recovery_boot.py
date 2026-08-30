@@ -129,6 +129,13 @@ class RecoveryBootTests(unittest.TestCase):
 
         self.assertEqual(values['app_rollbacks'], 1)
         reset.assert_called_once_with()
+        import update_support
+        failures = [
+            item for item in update_support.update_history()
+            if item.get('event') == 'startup_failed'
+        ]
+        self.assertEqual(failures[-1]['kind'], 'application')
+        self.assertIn('broken trial', failures[-1]['detail'])
 
     def test_confirmed_application_exception_requests_core_recovery(self):
         values, app, firmware = self.fake_modules(

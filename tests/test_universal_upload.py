@@ -82,6 +82,24 @@ class UniversalUploadTests(unittest.TestCase):
         self.assertEqual(stored['firmware']['upload_id'], 'upload-firmware')
         self.assertEqual(stored['application']['upload_id'], 'upload-application')
 
+    def test_prepare_reconciles_orphaned_transaction_before_remote_retry(self):
+        manifest = self.manifest()
+        with (
+            patch.object(
+                universal_update, 'reconcile_pending', return_value=True
+            ) as reconcile,
+            patch.object(app_update, 'running_release_sequence', return_value=2400),
+            patch.object(firmware_update, 'running_release_sequence', return_value=2400),
+            patch.object(app_update, 'update_status', return_value={'status': 'idle'}),
+            patch.object(firmware_update, 'update_status', return_value={'status': 'idle'}),
+            patch.object(universal_update, 'update_status', return_value={'status': 'idle'}),
+        ):
+            plan = universal_upload.prepare(manifest)
+
+        reconcile.assert_called_once_with()
+        self.assertEqual(plan['status'], 'uploading')
+        self.assertEqual(plan['version'], '2.2.1')
+
     def test_upload_must_match_signed_size_and_digest(self):
         manifest = self.manifest()
         with (

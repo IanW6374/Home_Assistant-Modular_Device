@@ -143,6 +143,86 @@ def update_status():
         return {'status': 'idle'}
 
 
+def reconcile_pending():
+    """Clear a universal transaction whose component updates have finished.
+
+    A paired rollback removes the application and firmware state files
+    independently.  Power loss or a bootloader rollback can therefore leave
+    the universal coordinator at ``activating`` even though neither component
+    has work left to resume.  Treat only terminal, fully-idle component states
+    as recoverable so a real staged or trial update is never discarded.
+    """
+    state = update_status()
+    status = str(state.get('status', 'idle'))
+    if status not in ('ready', 'activating'):
+        return False
+
+    application_required = bool(state.get('application_required', True))
+    firmware_required = bool(state.get('firmware_required', True))
+    application_status = str(
+        app_update.update_status().get('status', 'idle')
+    )
+    firmware_status = str(
+        firmware_update.update_status().get('status', 'idle')
+    )
+
+    if status == 'ready':
+        application_ready = (
+            not application_required or application_status == 'ready'
+        )
+        firmware_ready = (
+            not firmware_required or firmware_status == 'ready'
+        )
+        if application_ready and firmware_ready:
+            return False
+        # Do not interfere with an unexpected live component state.  This is
+        # deliberately narrower than "not ready" so future states fail safe.
+        if (
+            application_status not in ('idle', 'ready') or
+            firmware_status not in ('idle', 'ready')
+        ):
+            return False
+        if application_required and application_status == 'ready':
+            app_update.discard_pending_update()
+        if firmware_required and firmware_status == 'ready':
+            firmware_update.discard_pending_update()
+        _remove(STATE_PATH)
+        update_support.record_update_event(
+            'universal', 'discarded', state.get('version', ''),
+            detail='cleared incomplete staged universal transaction'
+        )
+        return True
+
+    # During activation any non-idle required component may still be resumed
+    # or confirmed.  Only a fully terminal pair is safe to reconcile.
+    if application_required and application_status != 'idle':
+        return False
+    if firmware_required and firmware_status != 'idle':
+        return False
+
+    application_installed = (
+        app_update.running_release_sequence() >=
+        int(state.get('application_sequence', 0))
+    )
+    firmware_installed = (
+        firmware_update.running_release_sequence() >=
+        int(state.get('firmware_sequence', 0))
+    )
+    outcome = (
+        'confirmed' if application_installed and firmware_installed
+        else 'rolled_back'
+    )
+    _remove(STATE_PATH)
+    update_support.record_update_event(
+        'universal', outcome, state.get('version', ''),
+        detail=(
+            'reconciled completed component states' if outcome == 'confirmed'
+            else 'cleared orphaned transaction after component rollback'
+        )
+    )
+    return True
+
+
 async def _read_exact(reader, size):
     result = bytearray()
     while len(result) < size:
@@ -460,6 +540,7 @@ def confirm_update():
             'universal', 'confirmed', state.get('version', '')
         )
         return True
+    reconcile_pending()
     return False
 
 
@@ -481,4 +562,7 @@ def discard_pending_update():
 
 
 def cleanup_interrupted():
-    return update_support.cleanup_interrupted_files((STATE_PATH + '.tmp',))
+    removed = update_support.cleanup_interrupted_files((STATE_PATH + '.tmp',))
+    if reconcile_pending():
+        removed.append(STATE_PATH)
+    return removed

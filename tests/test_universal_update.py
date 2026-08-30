@@ -393,6 +393,67 @@ class UniversalUpdateTests(unittest.TestCase):
         self.assertEqual(calls, ['firmware', 'application'])
         self.assertEqual(universal_update.trial_timeout_ms(), 420000)
 
+    def test_reconcile_clears_orphaned_activating_transaction_after_rollback(self):
+        Path(universal_update.STATE_PATH).write_text(json.dumps({
+            'status': 'activating', 'version': '2.0.0',
+            'application_sequence': 40, 'firmware_sequence': 40,
+            'application_required': True, 'firmware_required': True,
+        }))
+        with (
+            patch.object(app_update, 'update_status', return_value={'status': 'idle'}),
+            patch.object(firmware_update, 'update_status', return_value={'status': 'idle'}),
+            patch.object(app_update, 'running_release_sequence', return_value=39),
+            patch.object(firmware_update, 'running_release_sequence', return_value=39),
+            patch.object(update_support, 'record_update_event') as record,
+        ):
+            self.assertTrue(universal_update.reconcile_pending())
+
+        self.assertEqual(universal_update.update_status(), {'status': 'idle'})
+        record.assert_called_once_with(
+            'universal', 'rolled_back', '2.0.0',
+            detail='cleared orphaned transaction after component rollback'
+        )
+
+    def test_reconcile_preserves_live_universal_trial(self):
+        Path(universal_update.STATE_PATH).write_text(json.dumps({
+            'status': 'activating', 'version': '2.0.0',
+            'application_sequence': 40, 'firmware_sequence': 40,
+            'application_required': True, 'firmware_required': True,
+        }))
+        with (
+            patch.object(app_update, 'update_status', return_value={'status': 'trial'}),
+            patch.object(firmware_update, 'update_status', return_value={'status': 'trial'}),
+            patch.object(update_support, 'record_update_event') as record,
+        ):
+            self.assertFalse(universal_update.reconcile_pending())
+
+        self.assertEqual(
+            universal_update.update_status().get('status'), 'activating'
+        )
+        record.assert_not_called()
+
+    def test_reconcile_discards_incomplete_ready_transaction(self):
+        Path(universal_update.STATE_PATH).write_text(json.dumps({
+            'status': 'ready', 'version': '2.0.0',
+            'application_required': True, 'firmware_required': True,
+        }))
+        with (
+            patch.object(app_update, 'update_status', return_value={'status': 'ready'}),
+            patch.object(firmware_update, 'update_status', return_value={'status': 'idle'}),
+            patch.object(app_update, 'discard_pending_update', return_value=True) as discard_app,
+            patch.object(firmware_update, 'discard_pending_update') as discard_firmware,
+            patch.object(update_support, 'record_update_event') as record,
+        ):
+            self.assertTrue(universal_update.reconcile_pending())
+
+        discard_app.assert_called_once_with()
+        discard_firmware.assert_not_called()
+        self.assertEqual(universal_update.update_status(), {'status': 'idle'})
+        record.assert_called_once_with(
+            'universal', 'discarded', '2.0.0',
+            detail='cleared incomplete staged universal transaction'
+        )
+
     def test_matching_installed_core_is_verified_but_not_staged(self):
         payload = self.package()
         calls = []

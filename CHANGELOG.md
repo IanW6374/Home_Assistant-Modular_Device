@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.3 - 2026-08-30
+
+- Reconcile orphaned universal-update transactions after a paired component
+  rollback, allowing a remote portal upload to retry without USB intervention
+  while preserving legitimate staged and trial updates.
+- Preserve the underlying trial-application startup exception in update
+  history and print its traceback to USB before performing a paired rollback.
+
 ## 2.3.2 - 2026-08-30
 
 - Correct the automatic-upgrade server default to

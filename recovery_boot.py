@@ -292,6 +292,10 @@ def run():
     firmware_state = firmware_update.boot_status() or {}
     if firmware_state.get('status') == 'rolled_back':
         clear_recovery_request()
+    # boot_status() is what turns a bootloader-rejected firmware trial into an
+    # idle component.  Reconcile the paired coordinator immediately afterwards
+    # so the portal cannot remain blocked by an orphaned universal transaction.
+    universal_update.reconcile_pending()
 
     if not credential_store.is_provisioned():
         _run_initial_setup()
@@ -337,6 +341,25 @@ def run():
             source = stream.read()
         exec(source, namespace)
     except Exception as exc:
+        try:
+            import update_support
+            state = app_update.update_status()
+            update_support.record_update_event(
+                'application', 'startup_failed', state.get('version', ''),
+                detail=str(exc)
+            )
+        except Exception:
+            pass
+        # Keep a direct USB diagnostic even when the application fails before
+        # it has installed its normal logging handler.
+        try:
+            import sys
+            print('Trial application startup failed: ' + repr(exc))
+            print_exception = getattr(sys, 'print_exception', None)
+            if print_exception:
+                print_exception(exc)
+        except Exception:
+            pass
         try:
             handler = namespace.get('set_main_device_error')
             if handler:
