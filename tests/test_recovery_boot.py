@@ -137,6 +137,33 @@ class RecoveryBootTests(unittest.TestCase):
         self.assertEqual(failures[-1]['kind'], 'application')
         self.assertIn('broken trial', failures[-1]['detail'])
 
+    def test_application_exception_records_loader_heap_diagnostics(self):
+        values, app, firmware = self.fake_modules(
+            'raise MemoryError("import heap exhausted")\n'
+        )
+        snapshots = [
+            {'free': 131072, 'allocated': 524288},
+            {'free': 98304, 'allocated': 557056},
+        ]
+
+        with patch.dict(sys.modules, {
+            'app_update': app,
+            'firmware_update': firmware,
+        }), patch.object(
+            recovery_boot, '_heap_snapshot', side_effect=snapshots
+        ), patch.object(recovery_boot, '_reset'):
+            recovery_boot.run()
+
+        import update_support
+        failures = [
+            item for item in update_support.update_history()
+            if item.get('event') == 'startup_failed'
+        ]
+        detail = failures[-1]['detail']
+        self.assertIn('import heap exhausted', detail)
+        self.assertIn('heap before load free=131072 allocated=524288', detail)
+        self.assertIn('before execute free=98304 allocated=557056', detail)
+
     def test_confirmed_application_exception_requests_core_recovery(self):
         values, app, firmware = self.fake_modules(
             'raise RuntimeError("broken confirmed app")\n', app_status='idle'

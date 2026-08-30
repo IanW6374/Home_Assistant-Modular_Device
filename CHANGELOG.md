@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.4 - 2026-08-30
+
+- Reduce normal startup heap pressure by loading certificate-administration
+  actions, transport and views only when their portal routes are used.
+- Compile the application entry and release its source buffer before execution,
+  avoiding a second large live allocation while imports initialize.
+- Record free and allocated heap before application load and immediately before
+  execution when startup fails, preserving actionable diagnostics in update
+  history and on USB serial.
+- Add architecture and recovery regression coverage for the lazy certificate
+  boundary and loader heap diagnostics.
+
 ## 2.3.3 - 2026-08-30
 
 - Reconcile orphaned universal-update transactions after a paired component

@@ -50,6 +50,14 @@ REQUIRED_FROZEN_MODULES = (
     'application_storage.py', 'certificate_codec.py', 'credential_schema.py',
     'setup_workflow.py', 'setup_wizard_views.py',
 )
+LAZY_IMPORT_BOUNDARIES = {
+    'certificate_portal_actions.py': {
+        'certificate_enrollment_service', 'certificate_trust',
+    },
+    'certificate_portal_transport.py': {'certificate_portal_views'},
+    'portal_settings_views.py': {'certificate_portal_views'},
+    'web_portal.py': {'certificate_portal_transport'},
+}
 
 
 def imported_roots(path):
@@ -63,9 +71,42 @@ def imported_roots(path):
     return result
 
 
+def module_imported_roots(path):
+    """Return imports executed while the module itself is initialized."""
+    path = Path(path)
+    if not path.is_absolute():
+        path = ROOT / path
+    tree = ast.parse(path.read_text(), filename=str(path))
+    result = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            result.update(alias.name.split('.', 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            result.add(node.module.split('.', 1)[0])
+        elif isinstance(node, ast.Try):
+            # Compatibility imports commonly live in a module-level try block.
+            for child in node.body + node.handlers + node.orelse + node.finalbody:
+                candidates = child.body if isinstance(child, ast.ExceptHandler) else (child,)
+                for candidate in candidates:
+                    if isinstance(candidate, ast.Import):
+                        result.update(
+                            alias.name.split('.', 1)[0] for alias in candidate.names
+                        )
+                    elif isinstance(candidate, ast.ImportFrom) and candidate.module:
+                        result.add(candidate.module.split('.', 1)[0])
+    return result
+
+
 def architecture_errors(root=ROOT):
     root = Path(root)
     errors = []
+    for relative, forbidden_imports in LAZY_IMPORT_BOUNDARIES.items():
+        eager = module_imported_roots(root / relative) & forbidden_imports
+        if eager:
+            errors.append(
+                relative + ' eagerly imports memory-heavy administration: ' +
+                ', '.join(sorted(eager))
+            )
     for relative, maximum in LINE_LIMITS.items():
         path = root / relative
         count = len(path.read_text().splitlines())

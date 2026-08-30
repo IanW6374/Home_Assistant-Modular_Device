@@ -31,7 +31,6 @@ import web_portal_ui as portal_ui
 import http_support
 import timezone_rules
 import portal_auth
-import certificate_portal_transport
 from portal_view_models import overview_metrics, update_check_summary
 from portal_sessions import PortalSessions
 from device_modules.base import module_diagnostics_need_attention
@@ -39,6 +38,28 @@ from portal_http import *
 from portal_settings_views import *
 from portal_live_views import *
 from portal_presenters import *
+
+
+_CERTIFICATE_ROUTES = (
+    '/certificates', '/certificate-authorities',
+    '/api-client-trust', '/device-certificates'
+)
+
+
+def _is_certificate_request(method, route, path):
+    return bool(
+        (method == 'GET' and route in _CERTIFICATE_ROUTES) or
+        (method == 'POST' and route in (
+            '/remove-certificate-trust', '/certificate-method',
+            '/validate-certificates'
+        )) or
+        (method == 'POST' and str(path).startswith('/certificate-upload'))
+    )
+
+
+async def _handle_certificate_request(*args):
+    import certificate_portal_transport
+    return await certificate_portal_transport.handle(*args)
 
 async def start_web_portal(portal):
     """Start the portal transport from one explicit application contract."""
@@ -289,6 +310,9 @@ async def start_web_portal(portal):
             is_factory_default = route == '/factory-default'
             is_configuration_backup = route == '/configuration-backup'
             is_health_history = route == '/health-history'
+            is_certificate_request = _is_certificate_request(
+                method, route, action_path
+            )
             is_configuration_import = route in (
                 '/configuration-import-preview', '/configuration-import-apply',
                 '/secure-configuration-import-preview',
@@ -745,7 +769,7 @@ async def start_web_portal(portal):
                             message
                         )
                     )
-            elif await certificate_portal_transport.handle(
+            elif is_certificate_request and await _handle_certificate_request(
                 method, route, action_path, writer, reader, headers, form_params,
                 csrf_token, action_handler, log_output, certificate_upload_handler,
                 certificate_validate_handler, certificate_info_getter,

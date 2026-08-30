@@ -11,12 +11,25 @@ from portal_routes import ROUTES
 from portal_view_models import overview_metrics, update_check_summary
 from resumable_upload import ResumableUploadStore
 from services.update_service import UpdateService
-from tools.check_architecture import architecture_errors
+from tools.check_architecture import architecture_errors, module_imported_roots
 
 
 class ArchitectureBoundaryTests(unittest.TestCase):
     def test_repository_architecture_gates_pass(self):
         self.assertEqual(architecture_errors(), [])
+
+    def test_certificate_administration_is_lazy_during_normal_boot(self):
+        expectations = {
+            'certificate_portal_actions.py': {
+                'certificate_enrollment_service', 'certificate_trust',
+            },
+            'certificate_portal_transport.py': {'certificate_portal_views'},
+            'portal_settings_views.py': {'certificate_portal_views'},
+            'web_portal.py': {'certificate_portal_transport'},
+        }
+        for relative, forbidden in expectations.items():
+            with self.subTest(relative=relative):
+                self.assertFalse(module_imported_roots(relative) & forbidden)
 
     def test_every_authenticated_portal_route_has_explicit_policy(self):
         for route in (

@@ -1123,7 +1123,14 @@ def render_shutdown_complete_page(message):
 
 
 # Certificate pages are separated from general settings so enrollment, trust,
-# API callers, and presented identities can evolve independently.
-from certificate_portal_views import (
-    render_certificate_page, render_certificate_route,
-)
+# API callers, and presented identities can evolve independently.  Retain these
+# compatibility exports as lazy wrappers: importing all general settings during
+# boot must not also allocate the certificate-administration view module.
+def render_certificate_page(*args, **kwargs):
+    from certificate_portal_views import render_certificate_page as render
+    return render(*args, **kwargs)
+
+
+def render_certificate_route(*args, **kwargs):
+    from certificate_portal_views import render_certificate_route as render
+    return render(*args, **kwargs)

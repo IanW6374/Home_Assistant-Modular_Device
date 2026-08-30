@@ -42,6 +42,20 @@ from web_portal import (
 
 
 class WebPortalTests(unittest.TestCase):
+    def test_certificate_routes_are_dispatched_to_lazy_adapter(self):
+        self.assertTrue(web_portal._is_certificate_request(
+            'GET', '/certificates', '/certificates'
+        ))
+        self.assertTrue(web_portal._is_certificate_request(
+            'POST', '/certificate-method', '/certificate-method'
+        ))
+        self.assertTrue(web_portal._is_certificate_request(
+            'POST', '/certificate-upload', '/certificate-upload/api-server-cert'
+        ))
+        self.assertFalse(web_portal._is_certificate_request(
+            'GET', '/updates', '/updates'
+        ))
+
     def test_new_operations_pages_expose_runtime_controls(self):
         settings = {
             'portal_transport': 'auto',

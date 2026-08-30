@@ -1,7 +1,13 @@
 """HTTP adapter for certificate portal routes."""
 
 from portal_http import apply_portal_action
-from certificate_portal_views import render_certificate_route
+
+
+def _render_certificate_route(*args, **kwargs):
+    # These pages are comparatively large and are used only by administrators.
+    # Import them on demand rather than during every device boot.
+    from certificate_portal_views import render_certificate_route
+    return render_certificate_route(*args, **kwargs)
 
 
 async def handle(method, route, path, writer, reader, headers, form, csrf,
@@ -12,7 +18,7 @@ async def handle(method, route, path, writer, reader, headers, form, csrf,
         '/api-client-trust', '/device-certificates'
     )
     if method == 'GET' and route in certificate_routes:
-        await send_response(writer, '200 OK', render_certificate_route(
+        await send_response(writer, '200 OK', _render_certificate_route(
             route, csrf, certificates=inventory() if inventory else {}
         ))
         return True
@@ -28,7 +34,7 @@ async def handle(method, route, path, writer, reader, headers, form, csrf,
             'certificate-method', path, actions, log_output, form
         )
         message = result.get('message', '') if isinstance(result, dict) else result
-        await send_response(writer, '202 Accepted', render_certificate_route(
+        await send_response(writer, '202 Accepted', _render_certificate_route(
             '/certificates', csrf, message, inventory() if inventory else {}
         ))
         return True
@@ -52,7 +58,7 @@ async def handle(method, route, path, writer, reader, headers, form, csrf,
         else:
             message = result.get('message', '') if isinstance(result, dict) else str(result)
             target = form.get('return_to', '/device-certificates')
-            await send_response(writer, '200 OK', render_certificate_route(
+            await send_response(writer, '200 OK', _render_certificate_route(
                 target, csrf, message, inventory() if inventory else {}
             ))
         return True

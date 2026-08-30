@@ -38,6 +38,33 @@ def _replace(source, target):
     os.rename(source, target)
 
 
+def _heap_snapshot(collect=False):
+    """Return bounded loader diagnostics without requiring GC extensions."""
+    try:
+        import gc
+        if collect:
+            gc.collect()
+        result = {}
+        if hasattr(gc, 'mem_free'):
+            result['free'] = int(gc.mem_free())
+        if hasattr(gc, 'mem_alloc'):
+            result['allocated'] = int(gc.mem_alloc())
+        return result
+    except Exception:
+        return {}
+
+
+def _heap_detail(before, ready):
+    def value(snapshot, name):
+        return str(snapshot.get(name, 'unavailable'))
+    return (
+        'heap before load free=' + value(before, 'free') +
+        ' allocated=' + value(before, 'allocated') +
+        '; before execute free=' + value(ready, 'free') +
+        ' allocated=' + value(ready, 'allocated')
+    )
+
+
 def _read_recovery_state():
     try:
         with open(RECOVERY_STATE_PATH, 'r') as stream:
@@ -336,17 +363,29 @@ def run():
     app_update.prepare_application_path()
     entry = app_update.application_entry()
     namespace = {'__name__': '__main__', '__file__': entry}
+    heap_before = _heap_snapshot(True)
+    heap_ready = {}
     try:
         with open(entry, 'r') as stream:
             source = stream.read()
-        exec(source, namespace)
+        # Compiling explicitly lets us release the large application entry
+        # source before its imports allocate modules.  exec(source, ...) keeps
+        # both the source string and compiled code alive during execution.
+        application_code = compile(source, entry, 'exec')
+        del source
+        heap_ready = _heap_snapshot(True)
+        exec(application_code, namespace)
     except Exception as exc:
+        failure_detail = (
+            (str(exc) or exc.__class__.__name__) + '; ' +
+            _heap_detail(heap_before, heap_ready)
+        )
         try:
             import update_support
             state = app_update.update_status()
             update_support.record_update_event(
                 'application', 'startup_failed', state.get('version', ''),
-                detail=str(exc)
+                detail=failure_detail
             )
         except Exception:
             pass
@@ -354,7 +393,10 @@ def run():
         # it has installed its normal logging handler.
         try:
             import sys
-            print('Trial application startup failed: ' + repr(exc))
+            print(
+                'Trial application startup failed: ' + repr(exc) + '; ' +
+                _heap_detail(heap_before, heap_ready)
+            )
             print_exception = getattr(sys, 'print_exception', None)
             if print_exception:
                 print_exception(exc)
@@ -376,7 +418,7 @@ def run():
             clear_recovery_request()
             _reset()
             return
-        request_recovery('Application exception: ' + str(exc))
+        request_recovery('Application exception: ' + failure_detail)
         _reset()
         return
 

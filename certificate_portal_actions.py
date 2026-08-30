@@ -1,7 +1,5 @@
 """Certificate portal actions kept outside the runtime composition root."""
 
-import certificate_enrollment_service
-import certificate_trust
 import device_config
 import fleet_management
 
@@ -28,6 +26,10 @@ def apply(action, params):
         raise RuntimeError('certificate portal actions are not configured')
     api_ca_store, reload_portal, reload_identities, reload_api, mark_restart = _dependencies
     if action == 'remove-certificate-trust':
+        # Certificate administration is not part of the normal startup path.
+        # Keep its implementation out of the heap until an administrator uses
+        # the corresponding portal action.
+        import certificate_trust
         message, api_changed = certificate_trust.remove(
             params.get('kind'), params.get('fingerprint'), api_ca_store, {
                 'mqtt-ca': device_config.MQTT_CA_PATH,
@@ -41,6 +43,7 @@ def apply(action, params):
         mark_restart('Certificate trust removed')
         return message + '; restart the device to reload client connections'
     if action == 'certificate-method':
+        import certificate_enrollment_service
         return certificate_enrollment_service.change(
             params.get('method'), params, _paths(), reload_portal,
             reload_identities
