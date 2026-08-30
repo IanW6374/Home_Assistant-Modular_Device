@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.7 - 2026-08-30
+
+- Split portal access control, settings, update upload and live routes into
+  bounded MicroPython coroutines, reducing the largest portal bytecode
+  allocation from 8,687 bytes to 2,471 bytes during trial startup.
+- Add architecture ceilings for each portal request-handler boundary so the
+  hardware-observed contiguous-allocation failure cannot silently return.
+
 ## 2.3.6 - 2026-08-30
 
 - Load the remaining large web-portal bytecode module immediately after a

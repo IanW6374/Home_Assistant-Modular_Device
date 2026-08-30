@@ -241,141 +241,10 @@ async def start_web_portal(portal):
         async def close_writer():
             await http_support.close_writer(writer)
 
-        try:
-            line, headers = await http_support.read_request(reader)
-            if not line:
-                await close_writer()
-                return
-
-            try:
-                request_line = line.decode().strip()
-            except Exception:
-                request_line = ''
-
-            method, path = parse_request_line(request_line)
-            if method == 'POST':
-                status_snapshot.invalidate()
-                module_snapshot.invalidate()
-            request_parts = request_line.split()
-            request_version = request_parts[2] if len(request_parts) == 3 else ''
-            request_keep_alive = (
-                remaining_requests > 1 and
-                headers.get('connection', '').lower() != 'close' and
-                (request_version == 'HTTP/1.1' or
-                 headers.get('connection', '').lower() == 'keep-alive')
-            )
-
-            progress_id = headers.get('x-update-id', '')[:64]
-            if progress_id:
-                progress_record = upload_progress_by_id.setdefault(
-                    progress_id, {'phase': 'idle', 'percent': 0}
-                )
-                if len(upload_progress_by_id) > 8:
-                    for old_id in list(upload_progress_by_id)[:-8]:
-                        upload_progress_by_id.pop(old_id, None)
-
-            action_path = path or ''
-            route = action_path.split('?', 1)[0]
-            cookie_session_id = parse_cookies(headers).get('iotmd_session', '')
-            session = sessions.get(cookie_session_id)
-            session_id = cookie_session_id
-            csrf_token = session.get('csrf', '') if session else ''
-            session_role = session.get('role', '') if session else ''
-            session_username = session.get('username', '') if session else ''
-            is_login = route == '/login'
-            is_password_change = (
-                route == '/user' and
-                parse_query(action_path).get('action', '') == 'password'
-            )
-            is_settings = route == '/settings'
-            is_portal_settings = route == '/portal-settings'
-            is_wifi_settings = route == '/wifi-settings'
-            is_ntp_settings = route == '/ntp-settings'
-            is_messaging = route == '/messaging'
-            is_device_api = route == '/device-api'
-            is_logging_settings = route == '/logging-settings'
-            is_user_settings = route == '/user'
-            is_user_management = route in ('/user/add', '/user/update', '/user/remove')
-            is_operational_settings = (
-                is_settings or is_portal_settings or is_wifi_settings or
-                is_ntp_settings or is_messaging or is_device_api or
-                is_logging_settings or is_user_settings
-            )
-            is_module_settings = route == '/module-settings'
-            is_updates = route == '/updates'
-            is_diagnostics = route == '/diagnostics'
-            is_logging = route == '/logging'
-            is_audit_logging = route == '/audit-log'
-            is_device_control = route in ('/device-control', '/factory-default')
-            is_factory_default = route == '/factory-default'
-            is_configuration_backup = route == '/configuration-backup'
-            is_health_history = route == '/health-history'
-            is_certificate_request = _is_certificate_request(
-                method, route, action_path
-            )
-            is_configuration_import = route in (
-                '/configuration-import-preview', '/configuration-import-apply',
-                '/secure-configuration-import-preview',
-                '/secure-configuration-import-apply'
-            )
-            is_asset = route in ('/assets/portal.css', '/assets/portal.js')
-            csrf_error = False
-            form_params = {}
-            is_upload = bool(
-                path and (
-                    path.startswith('/resumable-upload-chunk') or
-                    path.startswith('/certificate-upload')
-                )
-            )
-            if is_upload:
-                request_keep_alive = False
-            if method == 'POST' and not is_upload:
-                length = int(headers.get('content-length', '0') or 0)
-                is_json_validation = (
-                    route == '/validate-configuration' and
-                    headers.get('content-type', '').split(';', 1)[0].strip() == 'application/json'
-                )
-                max_form_size = 393216 if is_configuration_import else (65536 if is_module_settings else (8192 if is_operational_settings else (
-                    2048 if (is_login or is_password_change or is_factory_default or is_user_management) else 65536
-                )))
-                if length > max_form_size:
-                    raise ValueError('portal form is too large')
-                body = (
-                    await http_support.read_exact_body(
-                        reader, length, max_form_size
-                    )
-                    if length else b''
-                )
-                form_params = parse_portal_body(route, headers, body)
-                form_csrf = form_params.get('csrf', '')
-                header_csrf = headers.get('x-csrf-token', '')
-                csrf_error = False if is_login else (
-                    form_csrf != csrf_token and header_csrf != csrf_token
-                )
-            elif method == 'POST' and is_upload:
-                csrf_error = headers.get('x-csrf-token', '') != csrf_token
-
-            quiet_audit_routes = (
-                '/assets/portal.css', '/assets/portal.js', '/logs', '/partials',
-                '/api/status', '/api/overview', '/api/module-diagnostics',
-                '/update-progress', '/task-status', '/resumable-upload-status',
-                '/audit-logs',
-                '/api/restart-required'
-            )
-            session_valid = session is not None
-            if (
-                route not in quiet_audit_routes and not is_login and
-                session_valid
-            ):
-                log_output(
-                    'Local', 'Web portal request',
-                    {'log': (
-                        session_username + ' (' + session_role + ') from ' +
-                        peer_address + ' ' + str(method) + ' ' + str(route)
-                    )},
-                    'DEBUG'
-                )
-
+        async def handle_access_routes():
+            nonlocal login_failures, password_verifier
+            nonlocal password_change_required, session, session_id
+            nonlocal csrf_token, session_role, session_username
             if is_asset and method == 'GET':
                 asset = (
                     portal_ui.PORTAL_CSS
@@ -657,7 +526,12 @@ async def start_web_portal(portal):
                                 'Set-Cookie', session_cookie('', secure_cookie, True)
                             ),)
                         )
-            elif method == 'GET' and is_operational_settings:
+            else:
+                return False
+            return True
+
+        async def handle_settings_routes():
+            if method == 'GET' and is_operational_settings:
                 if settings_getter is None:
                     await send_response(writer, '404 Not Found', 'Settings are unavailable', 'text/plain')
                 else:
@@ -932,7 +806,13 @@ async def start_web_portal(portal):
                         certificate_info_getter() if certificate_info_getter else {}
                     )
                 )
-            elif method == 'POST' and route == '/resumable-upload-begin':
+            else:
+                return False
+            return True
+
+        async def handle_upload_routes():
+            nonlocal progress_id, progress_record
+            if method == 'POST' and route == '/resumable-upload-begin':
                 if resumable_begin is None:
                     await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
                 else:
@@ -1008,7 +888,12 @@ async def start_web_portal(portal):
                     else:
                         if not await finish_progress_response('complete', result):
                             await send_response(writer, '200 OK', str(result), 'text/plain')
-            elif method == 'POST' and path.startswith('/set-loglevel'):
+            else:
+                return False
+            return True
+
+        async def handle_live_routes():
+            if method == 'POST' and path.startswith('/set-loglevel'):
                 try:
                     apply_logging_change(
                         form_params.get('level', ''),
@@ -1261,6 +1146,150 @@ async def start_web_portal(portal):
                     value_refresh_ms or 5000
                 )
                 await send_response(writer, '200 OK', body)
+        try:
+            line, headers = await http_support.read_request(reader)
+            if not line:
+                await close_writer()
+                return
+
+            try:
+                request_line = line.decode().strip()
+            except Exception:
+                request_line = ''
+
+            method, path = parse_request_line(request_line)
+            if method == 'POST':
+                status_snapshot.invalidate()
+                module_snapshot.invalidate()
+            request_parts = request_line.split()
+            request_version = request_parts[2] if len(request_parts) == 3 else ''
+            request_keep_alive = (
+                remaining_requests > 1 and
+                headers.get('connection', '').lower() != 'close' and
+                (request_version == 'HTTP/1.1' or
+                 headers.get('connection', '').lower() == 'keep-alive')
+            )
+
+            progress_id = headers.get('x-update-id', '')[:64]
+            if progress_id:
+                progress_record = upload_progress_by_id.setdefault(
+                    progress_id, {'phase': 'idle', 'percent': 0}
+                )
+                if len(upload_progress_by_id) > 8:
+                    for old_id in list(upload_progress_by_id)[:-8]:
+                        upload_progress_by_id.pop(old_id, None)
+
+            action_path = path or ''
+            route = action_path.split('?', 1)[0]
+            cookie_session_id = parse_cookies(headers).get('iotmd_session', '')
+            session = sessions.get(cookie_session_id)
+            session_id = cookie_session_id
+            csrf_token = session.get('csrf', '') if session else ''
+            session_role = session.get('role', '') if session else ''
+            session_username = session.get('username', '') if session else ''
+            is_login = route == '/login'
+            is_password_change = (
+                route == '/user' and
+                parse_query(action_path).get('action', '') == 'password'
+            )
+            is_settings = route == '/settings'
+            is_portal_settings = route == '/portal-settings'
+            is_wifi_settings = route == '/wifi-settings'
+            is_ntp_settings = route == '/ntp-settings'
+            is_messaging = route == '/messaging'
+            is_device_api = route == '/device-api'
+            is_logging_settings = route == '/logging-settings'
+            is_user_settings = route == '/user'
+            is_user_management = route in ('/user/add', '/user/update', '/user/remove')
+            is_operational_settings = (
+                is_settings or is_portal_settings or is_wifi_settings or
+                is_ntp_settings or is_messaging or is_device_api or
+                is_logging_settings or is_user_settings
+            )
+            is_module_settings = route == '/module-settings'
+            is_updates = route == '/updates'
+            is_diagnostics = route == '/diagnostics'
+            is_logging = route == '/logging'
+            is_audit_logging = route == '/audit-log'
+            is_device_control = route in ('/device-control', '/factory-default')
+            is_factory_default = route == '/factory-default'
+            is_configuration_backup = route == '/configuration-backup'
+            is_health_history = route == '/health-history'
+            is_certificate_request = _is_certificate_request(
+                method, route, action_path
+            )
+            is_configuration_import = route in (
+                '/configuration-import-preview', '/configuration-import-apply',
+                '/secure-configuration-import-preview',
+                '/secure-configuration-import-apply'
+            )
+            is_asset = route in ('/assets/portal.css', '/assets/portal.js')
+            csrf_error = False
+            form_params = {}
+            is_upload = bool(
+                path and (
+                    path.startswith('/resumable-upload-chunk') or
+                    path.startswith('/certificate-upload')
+                )
+            )
+            if is_upload:
+                request_keep_alive = False
+            if method == 'POST' and not is_upload:
+                length = int(headers.get('content-length', '0') or 0)
+                is_json_validation = (
+                    route == '/validate-configuration' and
+                    headers.get('content-type', '').split(';', 1)[0].strip() == 'application/json'
+                )
+                max_form_size = 393216 if is_configuration_import else (65536 if is_module_settings else (8192 if is_operational_settings else (
+                    2048 if (is_login or is_password_change or is_factory_default or is_user_management) else 65536
+                )))
+                if length > max_form_size:
+                    raise ValueError('portal form is too large')
+                body = (
+                    await http_support.read_exact_body(
+                        reader, length, max_form_size
+                    )
+                    if length else b''
+                )
+                form_params = parse_portal_body(route, headers, body)
+                form_csrf = form_params.get('csrf', '')
+                header_csrf = headers.get('x-csrf-token', '')
+                csrf_error = False if is_login else (
+                    form_csrf != csrf_token and header_csrf != csrf_token
+                )
+            elif method == 'POST' and is_upload:
+                csrf_error = headers.get('x-csrf-token', '') != csrf_token
+
+            quiet_audit_routes = (
+                '/assets/portal.css', '/assets/portal.js', '/logs', '/partials',
+                '/api/status', '/api/overview', '/api/module-diagnostics',
+                '/update-progress', '/task-status', '/resumable-upload-status',
+                '/audit-logs',
+                '/api/restart-required'
+            )
+            session_valid = session is not None
+            if (
+                route not in quiet_audit_routes and not is_login and
+                session_valid
+            ):
+                log_output(
+                    'Local', 'Web portal request',
+                    {'log': (
+                        session_username + ' (' + session_role + ') from ' +
+                        peer_address + ' ' + str(method) + ' ' + str(route)
+                    )},
+                    'DEBUG'
+                )
+
+            route_handled = await handle_access_routes()
+            if route_handled:
+                pass
+            elif await handle_settings_routes():
+                pass
+            elif await handle_upload_routes():
+                pass
+            else:
+                await handle_live_routes()
 
             if response_keep_alive and remaining_requests > 1:
                 handed_off = True

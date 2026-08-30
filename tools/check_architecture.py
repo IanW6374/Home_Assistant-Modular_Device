@@ -26,7 +26,10 @@ FORBIDDEN_TRANSPORT_IMPORTS = {
 LINE_LIMITS = {
     'iotmd.py': 20,
     'iotmd_runtime.py': 3360,
-    'web_portal.py': 1320,
+    # Route handling is split into bounded child coroutines below.  The small
+    # wrapper overhead adds source lines without restoring one large bytecode
+    # allocation during MicroPython import.
+    'web_portal.py': 1340,
     'setup_wizard.py': 450,
     'certificate_manager.py': 700,
     'credential_store.py': 800,
@@ -35,6 +38,10 @@ LINE_LIMITS = {
 }
 FUNCTION_LIMITS = {
     ('web_portal.py', 'start_web_portal'): 1280,
+    ('web_portal.py', 'handle_access_routes'): 300,
+    ('web_portal.py', 'handle_settings_routes'): 300,
+    ('web_portal.py', 'handle_upload_routes'): 100,
+    ('web_portal.py', 'handle_live_routes'): 275,
     ('setup_wizard.py', 'serve'): 350,
     ('iotmd_runtime.py', 'main'): 260,
 }
