@@ -32,6 +32,7 @@ import firmware_update
 import universal_update
 import universal_upload
 import hardware_platform
+import boot_state
 import recovery_boot
 import update_security
 import update_support
@@ -62,8 +63,9 @@ from services.messaging_service import MessagingService
 from services.home_assistant_service import HomeAssistantService
 from services.portal_service import PortalService
 from services.update_service import UpdateService
+from services.startup_service import StartupService
 from portal_contracts import PortalDependencies
-from portal_view_models import module_summaries as build_module_summaries
+from portal_view_models import enrich_runtime_status, module_summaries as build_module_summaries
 from application import ApplicationContext, RuntimeState
 import settings_loader as device_settings
 try:
@@ -163,6 +165,7 @@ ha_system_diagnostics = device_settings.ha_system_diagnostics
 loglevels = ['ERROR', 'INFO', 'DEBUG']
 loglevel = device_settings.loglevel
 watchdog_timeout_ms = device_settings.watchdog_timeout_ms
+minimum_activation_heap_bytes = getattr(device_config, 'MINIMUM_ACTIVATION_HEAP_BYTES', 0)
 watchdog = None
 ntp_synced = False
 web_portal_server = None
@@ -366,6 +369,8 @@ outputDevices = [
 
 inputDevices = []
 runtime_health = HealthHistory()
+boot_tracker = boot_state.store()
+boot_tracker.stage('configuration', device_state='initialising', durable=True)
 fleet_service = fleet_management.FleetService(
     hardware_deviceid, 'default',
     now=lambda: int(time.time()),
@@ -939,7 +944,10 @@ def start_local_display():
 
 
 def portal_status():
-    status = local_display_status()
+    status = enrich_runtime_status(
+        local_display_status(), application_context.inventory(),
+        boot_tracker.snapshot(), hardware_platform.capabilities()
+    )
     update = app_update.update_status()
     status['running_version'] = app_update.running_version(
         device_settings.ha_device_info.get('sw', '')
@@ -1752,6 +1760,8 @@ def device_api_info():
         'drivers': module_runtime.inventory()['drivers'],
         'resources': driver_loader.resource_catalog(),
         'runtime': application_context.inventory(),
+        'boot': boot_tracker.snapshot(),
+        'capabilities': hardware_platform.capabilities(),
         'release_sequence': app_update.running_release_sequence(),
         'firmware_release_sequence': firmware_update.running_release_sequence(),
     }
@@ -2924,6 +2934,9 @@ application_context.seal((
 async def main(client):
     global watchdog, release_available, release_check_status
 
+    startup = StartupService(hardware_platform, boot_tracker,
+                             application_context.lifecycle, runtime_health, logOutput)
+
     application_context.lifecycle.transition('starting')
     application_context.state.set('phase', 'starting')
     start_local_display()
@@ -2937,6 +2950,7 @@ async def main(client):
         await client.wifi_connect(quick=True)
         application_context.lifecycle.transition('network-ready')
         application_context.state.set('network', 'online')
+        boot_tracker.stage('network', device_state='initialising', durable=True)
         try:
             runtime_health.observe_wifi(network.WLAN(network.STA_IF).status('rssi'))
         except Exception:
@@ -2992,43 +3006,54 @@ async def main(client):
     application_context.state.set(
         'portal', 'listening' if portal_started is not None else 'disabled'
     )
+    boot_tracker.stage('portal', device_state='initialising', durable=True,
+                       reason='listening' if portal_started is not None else 'disabled')
     if portal_started is not None:
         hardware_platform.set_status_led_state(status_led, 'ok')
     if credential_store.network_trial_pending():
         start_task('network_trial_guard', network_trial_guard())
 
-    # Wi-Fi and the authenticated local portal (when enabled) are the startup
-    # health boundary. MQTT remains an external, portal-repairable service.
-    mark_application_healthy = getattr(
-        recovery_boot, 'mark_application_healthy', None
+    watchdog, watchdog_ready = startup.start_watchdog(
+        WDT, watchdog_timeout_ms, service_password_calculation,
+        credential_security.set_progress_callback
     )
-    if mark_application_healthy:
-        mark_application_healthy()
-    firmware_confirmed = False
-    application_confirmed = False
-    try:
-        if firmware_update.confirm_update():
-            firmware_confirmed = True
-            logOutput(
-                'Local', 'Base firmware',
-                {'log': 'OTA partition confirmed after portal health check'}, 'INFO'
-            )
-    except Exception as exc:
-        logOutput('Local', 'Base firmware', {'log': 'Could not confirm OTA partition - ' + str(exc)}, 'ERROR')
-    if app_update.confirm_update():
-        application_confirmed = True
-        logOutput('Local', 'Application update', {'log': 'Update confirmed healthy'}, 'INFO')
-    if universal_update.confirm_update():
-        logOutput(
-            'Local', 'Universal update',
-            {'log': 'Core and application update confirmed healthy'}, 'INFO'
-        )
+    application_context.state.set(
+        'watchdog', 'ready' if watchdog_ready else 'unavailable'
+    )
+
+    free_heap = None
+    if gc and hasattr(gc, 'mem_free'):
+        free_heap = int(gc.mem_free())
+    required_services = ['network']
+    if web_portal_enabled:
+        required_services.append('portal')
+    activation_health = startup.check(
+        free_heap, minimum_activation_heap_bytes,
+        required_services,
+        {
+            'network': application_context.state.get('network', 'offline'),
+            'portal': application_context.state.get('portal', 'stopped'),
+        },
+        watchdog_required=bool(watchdog_timeout_ms),
+        watchdog_ready=watchdog_ready,
+    )
+    if not activation_health['healthy']:
+        return
+
+    firmware_confirmed, application_confirmed = startup.confirm_updates(
+        firmware_update, app_update, universal_update, recovery_boot
+    )
     cancel_recovery_trial_deadline_if_healthy()
 
-    await sync_ntp_time()
-    await start_module_api()
+    ntp_ready = await sync_ntp_time()
+    application_context.state.set('ntp', 'ready' if ntp_ready else 'degraded')
+    api_server = await start_module_api()
+    application_context.state.set(
+        'api', 'disabled' if not device_api_enabled else (
+            'ready' if api_server is not None else 'degraded'
+        )
+    )
     application_context.lifecycle.transition('services-ready')
-    application_context.state.set('api', 'ready')
     start_task('fleet_policy_monitor', fleet_policy_monitor())
     if remote_syslog.active:
         start_task('remote_syslog', remote_syslog.run())
@@ -3113,21 +3138,8 @@ async def main(client):
     if release_manifest_url:
         start_task('release_monitor', release_monitor())
 
-    if watchdog_timeout_ms and WDT:
-        watchdog_timeout = hardware_platform.watchdog_timeout(watchdog_timeout_ms)
-        if watchdog_timeout != watchdog_timeout_ms:
-            logOutput(
-                'Local',
-                'Watchdog',
-                {'log': 'Requested ' + str(watchdog_timeout_ms) + ' ms, using max ' + str(watchdog_timeout) + ' ms'},
-                'INFO'
-            )
-        watchdog = WDT(timeout=watchdog_timeout)
-        credential_security.set_progress_callback(service_password_calculation)
-        logOutput('Local', 'Watchdog', {'log': 'Enabled: ' + str(watchdog_timeout) + ' ms'}, 'INFO')
-
-    application_context.lifecycle.transition('running')
-    application_context.state.set('phase', 'running')
+    startup.finalise(application_context.state, ntp_ready, device_api_enabled,
+                     api_server, mqtt_configured, mqtt_started)
     while True:
         if watchdog:
             watchdog.feed()
@@ -3161,6 +3173,7 @@ async def main(client):
             watchdog.feed()
 
 
+boot_tracker.stage('certificates', device_state='initialising', durable=True)
 mqtt_tls_ready = not mqtt_configured
 cacert = None
 if mqtt_configured:
@@ -3325,7 +3338,9 @@ for device in moduleSettings['devices']:
                 device_char['driver'].start(publish_wrapper, deviceid, logOutput)
             except Exception as exc:
                 logOutput('Local', 'Start device', {'log': device['name'] + ' - ' + str(exc)}, 'ERROR')
-                    
+
+boot_tracker.stage('hardware', device_state='initialising', durable=True)
+
 
 def run_application():
     """Run the application after the compact source bootstrap imports us."""

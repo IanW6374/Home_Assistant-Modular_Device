@@ -459,8 +459,8 @@ class UpdateSecurityTests(unittest.TestCase):
         self.assertNotIn('async def reboot_with_new_modules', application_source)
 
     def test_core_shutdown_release_advances_core_api(self):
-        self.assertEqual(recovery_boot.CORE_API_VERSION, 9)
-        self.assertEqual(update_security.CORE_API_VERSION, 9)
+        self.assertEqual(recovery_boot.CORE_API_VERSION, 10)
+        self.assertEqual(update_security.CORE_API_VERSION, 10)
 
     def test_signed_release_descriptor_detects_metadata_tampering(self):
         descriptor = {

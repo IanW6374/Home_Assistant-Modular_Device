@@ -16,6 +16,11 @@ encryption, credential storage, TLS primitives, update verification, OTA
 partitions and first-run setup. It can recover a device when the replaceable
 application is absent or unhealthy.
 
+The v2.4 boot coordinator records forward-only startup stages in a compact,
+CRC-protected record. Optional RTC no-init memory preserves the latest stage
+across software and watchdog resets; an atomic flash checkpoint remains the
+authoritative fallback. See [Boot lifecycle and activation health](BOOT_LIFECYCLE.md).
+
 The production build is Wi-Fi-only and CI rejects excessive core-slot use.
 
 ## Application and services
@@ -56,6 +61,12 @@ upload -> verify -> stage -> activate -> trial -> confirm
 Application, core and universal installers are bounded adapters. Structured
 events feed logs, audit, health, update progress, syslog and fleet telemetry.
 Persistent records are versioned, transactional and bounded.
+
+Trial confirmation is a local health decision. Required platform memory,
+configuration, local network, repair portal and watchdog facilities must be
+ready. External dependencies such as MQTT, NTP, Home Assistant and remote
+syslog may place the device in `degraded` state but cannot by themselves roll
+back a repairable device.
 
 ## Verification
 

@@ -489,8 +489,10 @@ class AppUpdateTests(unittest.TestCase):
             'services/home_assistant_service.py',
             'services/update_service.py', 'services/event_service.py',
             'services/event_sinks.py', 'services/module_runtime.py',
+            'services/startup_service.py',
             'application/__init__.py',
-            'application/context.py', 'application/lifecycle.py'
+            'application/context.py', 'application/lifecycle.py',
+            'application/boot_health.py'
         ):
             path = Path(name)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -840,7 +842,7 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIn('include("$(PORT_DIR)/boards/manifest.py")', manifest)
         for path in (
             'main.py', 'core_metadata.py', 'recovery_boot.py', 'app_update.py', 'firmware_update.py',
-            'hardware_platform.py', 'credential_store.py', 'setup_wizard.py',
+            'hardware_platform.py', 'boot_state.py', 'credential_store.py', 'setup_wizard.py',
             'factory_config.py', 'release_update.py', 'device_config.py'
         ):
             self.assertIn('module("' + path + '"', manifest)

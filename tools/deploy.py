@@ -12,6 +12,7 @@ FILES = (
     "app_update.py",
     "firmware_update.py",
     "hardware_platform.py",
+    "boot_state.py",
     "update_security.py",
     "credential_security.py",
     "credential_store.py",

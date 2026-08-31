@@ -48,7 +48,7 @@ DEFAULT_MAX_BUNDLE_BYTES = 2 * 1024 * 1024
 RECOVERY_FILES = (
     'main.py', 'recovery_boot.py', 'app_update.py', 'firmware_update.py',
     'universal_update.py',
-    'hardware_platform.py', 'update_security.py', 'update_support.py',
+    'hardware_platform.py', 'boot_state.py', 'update_security.py', 'update_support.py',
     'wifi_recovery.py',
     'credential_security.py',
     'credential_store.py', 'credential_schema.py',

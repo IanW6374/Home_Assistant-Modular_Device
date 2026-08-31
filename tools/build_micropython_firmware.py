@@ -353,11 +353,18 @@ def main():
         run(configure_command, port, env=build_env)
         run(command, port, env=build_env)
         compile_commands = port / build_dir / 'compile_commands.json'
-        if (
-            not compile_commands.is_file()
-            or 'iotmd_crypto.c' not in compile_commands.read_text()
-        ):
-            raise SystemExit('refusing to package firmware without the native IoT-MD crypto module')
+        compiled_sources = (
+            compile_commands.read_text() if compile_commands.is_file() else ''
+        )
+        missing_native_sources = [
+            source for source in ('iotmd_crypto.c', 'iotmd_platform.c')
+            if source not in compiled_sources
+        ]
+        if missing_native_sources:
+            raise SystemExit(
+                'refusing to package firmware without native IoT-MD modules: ' +
+                ', '.join(missing_native_sources)
+            )
         sdkconfig = (port / build_dir / 'sdkconfig').read_text()
         try:
             validate_production_sdkconfig(sdkconfig)

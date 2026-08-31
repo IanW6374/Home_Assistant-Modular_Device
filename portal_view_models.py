@@ -3,6 +3,7 @@
 
 OVERVIEW_FIELDS = (
     ('device_name', 'Device'),
+    ('device_state', 'Device state'),
     ('wifi_ip', 'Wi-Fi address'),
     ('mqtt', 'MQTT'),
     ('api', 'Device API'),
@@ -20,6 +21,26 @@ def overview_metrics(status):
         {'key': key, 'label': label, 'value': status.get(key, 'unknown')}
         for key, label in OVERVIEW_FIELDS
     ]
+
+
+def enrich_runtime_status(status, runtime_inventory, boot_snapshot,
+                          capabilities):
+    """Attach lifecycle and platform diagnostics without transport coupling."""
+    status = dict(status or {})
+    lifecycle = (runtime_inventory or {}).get('lifecycle', {})
+    boot_snapshot = boot_snapshot or {}
+    status.update({
+        'device_state': lifecycle.get(
+            'device_state', boot_snapshot.get('device_state', 'booting')
+        ),
+        'device_state_reason': lifecycle.get(
+            'device_state_reason', boot_snapshot.get('reason', '')
+        ),
+        'boot_stage': boot_snapshot.get('stage', 'unknown'),
+        'boot_health': boot_snapshot,
+        'platform_capabilities': capabilities or {},
+    })
+    return status
 
 
 def update_check_summary(status):

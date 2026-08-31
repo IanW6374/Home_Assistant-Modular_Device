@@ -11,6 +11,8 @@ requirement.
 - Secure Boot v2, flash encryption and encrypted credential storage.
 - Signed application, core and universal upgrades with anti-rollback, trial
   activation, health confirmation and recovery.
+- Deterministic staged boot with capability, PSRAM, heap and watchdog gates;
+  reset-persistent diagnostics identify the last completed startup stage.
 - Responsive HTTPS portal with administrator, operator and viewer roles.
 - Platform-neutral MQTT topics, optional Home Assistant discovery and
   mandatory-mTLS `/api/v2` access.
@@ -155,6 +157,7 @@ Important entry points:
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Boot lifecycle and activation health](docs/BOOT_LIFECYCLE.md)
 - [MicroPython and firmware baseline](docs/MICROPYTHON.md)
 - [Certificate identities and initial provisioning](docs/CERTIFICATES.md)
 - [MQTT messaging and Home Assistant](docs/MESSAGING.md)

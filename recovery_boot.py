@@ -15,10 +15,11 @@ import device_config
 
 
 RECOVERY_API_VERSION = 6
-CORE_API_VERSION = 9
+CORE_API_VERSION = 10
 TRIAL_DEADLINE_MS = 180000
 RECOVERY_STATE_PATH = '.recovery-state.json'
-MAX_UNHEALTHY_BOOTS = 2
+MAX_TRIAL_UNHEALTHY_BOOTS = 2
+MAX_NORMAL_UNHEALTHY_BOOTS = 3
 _trial_timer = None
 
 
@@ -97,6 +98,11 @@ def request_recovery(reason='Application startup failed'):
         'failures': int(current.get('failures', 0) or 0),
         'pending': False,
     })
+    try:
+        import boot_state
+        boot_state.store().fail(reason, safe=True)
+    except Exception:
+        pass
     return True
 
 
@@ -131,23 +137,36 @@ def _complete_factory_reset(app_update, certificate_manager, credential_store,
     ):
         _remove_user_file(path)
     clear_recovery_request()
+    try:
+        import boot_state
+        boot_state.store().clear()
+    except Exception:
+        pass
     credential_store.complete_factory_reset()
     return True
 
 
 def mark_application_healthy():
+    try:
+        import boot_state
+        boot_state.store().confirm_health()
+    except Exception:
+        pass
     clear_recovery_request()
     return cancel_trial_deadline_if_healthy()
 
 
-def _prepare_boot_attempt():
+def _prepare_boot_attempt(trial=False):
     state = _read_recovery_state()
     if state.get('mode') == 'recovery':
         return str(state.get('reason', 'Application startup failed'))
     failures = int(state.get('failures', 0) or 0)
     if state.get('pending'):
         failures += 1
-    if failures >= MAX_UNHEALTHY_BOOTS:
+    maximum = (
+        MAX_TRIAL_UNHEALTHY_BOOTS if trial else MAX_NORMAL_UNHEALTHY_BOOTS
+    )
+    if failures >= maximum:
         reason = 'Application did not reach its startup health check after ' + str(failures) + ' boots'
         request_recovery(reason)
         return reason
@@ -288,7 +307,17 @@ def run():
     import credential_store
     import firmware_update
     import hardware_platform
+    import boot_state
     import universal_update
+
+    boot = boot_state.store()
+    update_states = (
+        str(firmware_update.update_status().get('status', 'idle')) + '/' +
+        str(app_update.update_status().get('status', 'idle')) + '/' +
+        str(universal_update.update_status().get('status', 'idle'))
+    )
+    boot.begin(hardware_platform.reset_cause(), update_states)
+    boot.stage('platform', durable=True)
 
     status_led = hardware_platform.status_output(38, 'neopixel')
     hardware_platform.set_status_led_state(status_led, 'boot')
@@ -298,6 +327,22 @@ def run():
     ):
         _run_initial_setup()
         return
+
+    capability_failures = hardware_platform.required_capability_failures(
+        getattr(device_config, 'MINIMUM_BOOT_HEAP_BYTES', 0),
+        getattr(device_config, 'MINIMUM_PSRAM_BYTES', 0),
+    )
+    if capability_failures:
+        reason = 'Platform capability check failed: ' + '; '.join(capability_failures)
+        request_recovery(reason)
+        if credential_store.is_provisioned():
+            _run_core_recovery(reason)
+        else:
+            print(reason)
+            _run_initial_setup()
+        return
+
+    boot.stage('persistent-state')
 
     cleanup = getattr(app_update, 'cleanup_interrupted', None)
     if cleanup:
@@ -323,8 +368,14 @@ def run():
     # idle component.  Reconcile the paired coordinator immediately afterwards
     # so the portal cannot remain blocked by an orphaned universal transaction.
     universal_update.reconcile_pending()
+    boot.stage('update-reconcile', update_state=(
+        str(firmware_update.update_status().get('status', 'idle')) + '/' +
+        str(app_update.update_status().get('status', 'idle')) + '/' +
+        str(universal_update.update_status().get('status', 'idle'))
+    ), durable=True)
 
     if not credential_store.is_provisioned():
+        boot.stage('configuration', reason='first-boot setup required')
         _run_initial_setup()
         return
 
@@ -334,7 +385,11 @@ def run():
         _reset()
         return
 
-    recovery_reason = _prepare_boot_attempt()
+    trial_pending = (
+        app_update.update_status().get('status') in ('ready', 'trial', 'committing', 'activating') or
+        firmware_update.update_status().get('status') in ('ready', 'trial')
+    )
+    recovery_reason = _prepare_boot_attempt(trial=trial_pending)
     if recovery_reason:
         _run_core_recovery(recovery_reason)
         return
@@ -343,7 +398,7 @@ def run():
         activation_result = app_update.activate_pending()
         if 'rolled back' in str(activation_result):
             clear_recovery_request()
-            _prepare_boot_attempt()
+            _prepare_boot_attempt(trial=False)
     except Exception as exc:
         try:
             import update_support
@@ -361,6 +416,7 @@ def run():
     _start_trial_deadline()
 
     app_update.prepare_application_path()
+    boot.stage('filesystem', device_state='initialising', durable=True)
     entry = app_update.application_entry()
     namespace = {'__name__': '__main__', '__file__': entry}
     heap_before = _heap_snapshot(True)
@@ -387,6 +443,10 @@ def run():
                 'application', 'startup_failed', state.get('version', ''),
                 detail=failure_detail
             )
+        except Exception:
+            pass
+        try:
+            boot.fail(failure_detail)
         except Exception:
             pass
         # Keep a direct USB diagnostic even when the application fails before

@@ -9,6 +9,13 @@ NETWORK_TRIAL_TIMEOUT_S = 180
 STATUS_LED_PIN = 38
 STATUS_LED_TYPE = 'neopixel'
 
+# Production ESP32-S3-N8R8 boot gates.  These deliberately distinguish the
+# known-bad internal-only ~233 KiB heap from the correctly configured PSRAM
+# runtime while retaining generous headroom for later application imports.
+MINIMUM_PSRAM_BYTES = 4 * 1024 * 1024
+MINIMUM_BOOT_HEAP_BYTES = 1024 * 1024
+MINIMUM_ACTIVATION_HEAP_BYTES = 512 * 1024
+
 WEB_PORTAL_HOST = '0.0.0.0'
 WEB_PORTAL_PORT = None
 WEB_PORTAL_CERT_PATH = '/certs/web.crt.der'

@@ -65,9 +65,11 @@ CORE_FILES = (
     'services/event_service.py',
     'services/event_sinks.py',
     'services/module_runtime.py',
+    'services/startup_service.py',
     'application/__init__.py',
     'application/context.py',
     'application/lifecycle.py',
+    'application/boot_health.py',
 )
 CORE_DEVICE_MODULES = (
     'device_modules/__init__.py',

@@ -4,6 +4,7 @@ import tempfile
 import unittest
 
 from application import ApplicationContext, RuntimeState, TaskSupervisor
+from application import evaluate_boot_health
 from application.lifecycle import ApplicationLifecycle, LifecycleError
 from device_modules.resources import ResourceConflict, ResourceManager, validate_resources
 from portal_contracts import PortalDependencies
@@ -59,8 +60,31 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         lifecycle.transition('starting')
         lifecycle.transition('network-ready')
         self.assertEqual(lifecycle.snapshot()['state'], 'network-ready')
+        self.assertEqual(lifecycle.snapshot()['device_state'], 'initialising')
         with self.assertRaises(LifecycleError):
             lifecycle.transition('services-ready')
+
+    def test_activation_health_separates_local_gates_from_external_degradation(self):
+        result = evaluate_boot_health(
+            {'platform': 'esp32-s3', 'features': {'psram': True}},
+            2 * 1024 * 1024, 512 * 1024,
+            ('network', 'portal'), {
+                'network': 'online', 'portal': 'listening',
+                'mqtt': 'degraded', 'syslog': 'degraded',
+            }, watchdog_required=True, watchdog_ready=True,
+        )
+        self.assertTrue(result['healthy'])
+        self.assertEqual(len(result['degraded']), 2)
+
+    def test_activation_health_blocks_low_heap_or_failed_local_portal(self):
+        result = evaluate_boot_health(
+            {'platform': 'esp32-s3', 'features': {'psram': True}},
+            200000, 512 * 1024, ('network', 'portal'), {
+                'network': 'online', 'portal': 'failed',
+            }, watchdog_required=True, watchdog_ready=False,
+        )
+        self.assertFalse(result['healthy'])
+        self.assertEqual(len(result['failures']), 3)
 
     def test_application_context_is_explicit_and_sealed(self):
         state = RuntimeState({'phase': 'starting'})

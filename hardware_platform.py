@@ -15,11 +15,17 @@ try:
 except ImportError:
     esp32 = None
 
+try:
+    import gc
+except ImportError:
+    gc = None
+
 
 PLATFORM = getattr(sys, 'platform', '') if sys else ''
 MACHINE_NAME = str(getattr(getattr(sys, 'implementation', None), '_machine', ''))
 IS_ESP32 = PLATFORM == 'esp32'
 IS_ESP32_S3 = IS_ESP32 and 'ESP32S3' in MACHINE_NAME.upper().replace('-', '')
+SPIRAM_HEAP_CAPABILITY = 1 << 10
 
 
 class NullOutput:
@@ -162,6 +168,153 @@ def watchdog_timeout(requested_ms):
     return requested_ms if requested_ms > 0 else 0
 
 
+def heap_capability():
+    """Describe the MicroPython and ESP-IDF heaps without version guessing."""
+    result = {
+        'gc_free_bytes': None,
+        'gc_allocated_bytes': None,
+        'psram_detected': False,
+        'psram_total_bytes': 0,
+        'psram_free_bytes': 0,
+        'psram_largest_free_block': 0,
+        'psram_minimum_free_bytes': 0,
+    }
+    if gc is not None:
+        try:
+            if hasattr(gc, 'mem_free'):
+                result['gc_free_bytes'] = int(gc.mem_free())
+            if hasattr(gc, 'mem_alloc'):
+                result['gc_allocated_bytes'] = int(gc.mem_alloc())
+        except Exception:
+            pass
+    if esp32 is None or not hasattr(esp32, 'idf_heap_info'):
+        return result
+    try:
+        heaps = esp32.idf_heap_info(SPIRAM_HEAP_CAPABILITY)
+        for heap in heaps or ():
+            if not isinstance(heap, (tuple, list)) or len(heap) < 4:
+                continue
+            result['psram_total_bytes'] += int(heap[0])
+            result['psram_free_bytes'] += int(heap[1])
+            result['psram_largest_free_block'] = max(
+                result['psram_largest_free_block'], int(heap[2])
+            )
+            result['psram_minimum_free_bytes'] += int(heap[3])
+        result['psram_detected'] = result['psram_total_bytes'] > 0
+    except Exception:
+        pass
+    return result
+
+
+def _backup_provider():
+    """Return the reset-persistent memory provider supported by this build."""
+    if machine is None:
+        return None, 'backup memory is unavailable outside the device runtime'
+    direct = getattr(machine, 'mem_backup', None)
+    if callable(direct):
+        return ('mem_backup', direct), 'machine.mem_backup'
+    rtc_factory = getattr(machine, 'RTC', None)
+    if callable(rtc_factory):
+        try:
+            rtc = rtc_factory()
+            memory = getattr(rtc, 'memory', None)
+            if callable(memory):
+                return ('rtc_memory', memory), 'machine.RTC().memory'
+        except Exception:
+            pass
+    try:
+        import _iotmd_platform
+        memory = getattr(_iotmd_platform, 'backup_memory', None)
+        if callable(memory):
+            return ('native_rtc_memory', memory), '_iotmd_platform.backup_memory'
+    except ImportError:
+        pass
+    return None, 'no reset-persistent memory API is exposed by this firmware'
+
+
+def backup_memory_capability():
+    provider, detail = _backup_provider()
+    return {'supported': provider is not None, 'provider': detail}
+
+
+def backup_memory_read():
+    """Read the optional reset-persistent byte record.
+
+    MicroPython ports expose this facility either as ``mem_backup([data])`` or
+    ``RTC().memory([data])``.  The adapter deliberately returns an empty byte
+    string when neither API exists so boot can fall back to atomic flash state.
+    """
+    provider, _detail = _backup_provider()
+    if provider is None:
+        return b''
+    try:
+        value = provider[1]()
+        return bytes(value or b'')
+    except Exception:
+        return b''
+
+
+def backup_memory_write(data):
+    provider, _detail = _backup_provider()
+    if provider is None:
+        return False
+    try:
+        provider[1](bytes(data))
+        return True
+    except Exception:
+        return False
+
+
+def backup_memory_clear():
+    return backup_memory_write(b'')
+
+
+def capabilities():
+    """Return a serialisable feature matrix for boot policy and diagnostics."""
+    heap = heap_capability()
+    backup = backup_memory_capability()
+    ota = firmware_ota_capability()
+    return {
+        'platform': platform_id(),
+        'machine': MACHINE_NAME,
+        'runtime_version': runtime_version(),
+        'features': {
+            'firmware_ota': bool(ota.get('supported')),
+            'reset_persistent_memory': bool(backup.get('supported')),
+            'psram': bool(heap.get('psram_detected')),
+            'watchdog': bool(machine and hasattr(machine, 'WDT')),
+            'status_led': bool(machine and hasattr(machine, 'Pin')),
+        },
+        'heap': heap,
+        'backup_memory': backup,
+        'firmware_ota': ota,
+    }
+
+
+def required_capability_failures(minimum_heap_bytes=0,
+                                 minimum_psram_bytes=0):
+    """Return hard boot-gate failures for the supported production target."""
+    if not IS_ESP32_S3:
+        return []
+    values = capabilities()
+    heap = values['heap']
+    failures = []
+    if minimum_psram_bytes and int(heap.get('psram_total_bytes', 0) or 0) < int(minimum_psram_bytes):
+        failures.append(
+            'PSRAM unavailable or below the required ' +
+            str(int(minimum_psram_bytes)) + ' bytes'
+        )
+    free_heap = heap.get('gc_free_bytes')
+    if minimum_heap_bytes and (
+        free_heap is None or int(free_heap) < int(minimum_heap_bytes)
+    ):
+        failures.append(
+            'free MicroPython heap is below the required ' +
+            str(int(minimum_heap_bytes)) + ' bytes'
+        )
+    return failures
+
+
 def firmware_ota_capability():
     if not IS_ESP32_S3:
         return {
@@ -234,11 +387,8 @@ def runtime_version():
 
 
 def diagnostics():
-    ota = firmware_ota_capability()
-    return {
-        'platform': platform_id(),
-        'machine': MACHINE_NAME,
-        'firmware_ota': ota.get('supported', False),
-        'firmware_ota_reason': ota.get('reason', ''),
-        'runtime_version': runtime_version()
-    }
+    values = capabilities()
+    ota = values['firmware_ota']
+    values['firmware_ota_supported'] = ota.get('supported', False)
+    values['firmware_ota_reason'] = ota.get('reason', '')
+    return values

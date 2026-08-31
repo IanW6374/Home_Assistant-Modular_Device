@@ -4,6 +4,67 @@ import hardware_platform
 
 
 class HardwarePlatformTests(unittest.TestCase):
+    def test_heap_capability_reports_psram_heaps(self):
+        class Esp32:
+            @staticmethod
+            def idf_heap_info(capability):
+                self.assertEqual(capability, hardware_platform.SPIRAM_HEAP_CAPABILITY)
+                return [
+                    (4 * 1024 * 1024, 3 * 1024 * 1024, 2 * 1024 * 1024, 1024 * 1024),
+                    (4 * 1024 * 1024, 2 * 1024 * 1024, 1024 * 1024, 512 * 1024),
+                ]
+
+        original = hardware_platform.esp32
+        try:
+            hardware_platform.esp32 = Esp32
+            result = hardware_platform.heap_capability()
+        finally:
+            hardware_platform.esp32 = original
+
+        self.assertTrue(result['psram_detected'])
+        self.assertEqual(result['psram_total_bytes'], 8 * 1024 * 1024)
+        self.assertEqual(result['psram_free_bytes'], 5 * 1024 * 1024)
+
+    def test_backup_memory_adapter_uses_detected_runtime_api(self):
+        class Machine:
+            value = b''
+
+            @classmethod
+            def mem_backup(cls, value=None):
+                if value is not None:
+                    cls.value = bytes(value)
+                return cls.value
+
+        original = hardware_platform.machine
+        try:
+            hardware_platform.machine = Machine
+            self.assertTrue(hardware_platform.backup_memory_capability()['supported'])
+            self.assertTrue(hardware_platform.backup_memory_write(b'boot'))
+            self.assertEqual(hardware_platform.backup_memory_read(), b'boot')
+            self.assertTrue(hardware_platform.backup_memory_clear())
+            self.assertEqual(hardware_platform.backup_memory_read(), b'')
+        finally:
+            hardware_platform.machine = original
+
+    def test_required_capabilities_reject_missing_psram_and_low_heap(self):
+        original_target = hardware_platform.IS_ESP32_S3
+        original_capabilities = hardware_platform.capabilities
+        try:
+            hardware_platform.IS_ESP32_S3 = True
+            hardware_platform.capabilities = lambda: {
+                'heap': {'psram_total_bytes': 0, 'gc_free_bytes': 233000}
+            }
+            failures = hardware_platform.required_capability_failures(
+                1024 * 1024, 4 * 1024 * 1024
+            )
+        finally:
+            hardware_platform.IS_ESP32_S3 = original_target
+            hardware_platform.capabilities = original_capabilities
+
+        self.assertEqual(len(failures), 2)
+        self.assertIn('PSRAM', failures[0])
+        self.assertIn('free MicroPython heap', failures[1])
+
     def test_shutdown_enters_deep_sleep(self):
         calls = []
 

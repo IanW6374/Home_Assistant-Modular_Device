@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.4.0-beta.1 - 2026-08-31
+
+- Add a staged boot supervisor record covering platform, persistent state,
+  update reconciliation, filesystem, configuration, certificates, hardware,
+  network, portal, essential services, activation health and running state.
+- Retain the compact boot record across resets in CRC-protected RTC no-init
+  memory provided by the native IoT-MD platform module, with an atomic flash
+  fallback and no secret material.
+- Detect runtime capabilities rather than inferring them from the MicroPython
+  version, including PSRAM heap, OTA partitions, watchdog and reset-persistent
+  memory support.
+- Refuse trial confirmation when required PSRAM, activation heap, local portal,
+  network or a configured watchdog is unavailable; classify NTP, Device API,
+  MQTT and other external-service failures as degraded operation.
+- Expose the unified device state, boot stage, boot record and capability
+  matrix through portal status, Device API inventory and support bundles.
+- Preserve the proven MicroPython 1.29.0 and ESP-IDF 5.5.1 toolchain while the
+  boot architecture is qualified independently of a future IDF major upgrade.
+
 ## 2.3.13 - 2026-08-31
 
 - Place the four certificate-management pages beneath a single Maintenance >

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import recovery_boot
 import credential_store
+import boot_state
 
 
 class RecoveryBootTests(unittest.TestCase):
@@ -20,7 +21,9 @@ class RecoveryBootTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         os.chdir(self.temp.name)
         recovery_boot._trial_timer = None
+        boot_state.reset_store()
         credential_store._reset_memory_backend()
+        boot_state.reset_store()
         config = credential_store.build_configuration({
             'device_name': 'Controller', 'wifi_ssid': 'network',
             'wifi_password': 'wifi-password', 'mqtt_server': 'mqtt.local',
@@ -243,10 +246,17 @@ class RecoveryBootTests(unittest.TestCase):
     def test_repeated_unhealthy_boots_request_recovery(self):
         self.assertEqual(recovery_boot._prepare_boot_attempt(), '')
         self.assertEqual(recovery_boot._prepare_boot_attempt(), '')
+        self.assertEqual(recovery_boot._prepare_boot_attempt(), '')
         reason = recovery_boot._prepare_boot_attempt()
 
-        self.assertIn('after 2 boots', reason)
+        self.assertIn('after 3 boots', reason)
         self.assertEqual(recovery_boot._read_recovery_state()['mode'], 'recovery')
+
+    def test_trial_boots_keep_aggressive_rollback_threshold(self):
+        self.assertEqual(recovery_boot._prepare_boot_attempt(trial=True), '')
+        self.assertEqual(recovery_boot._prepare_boot_attempt(trial=True), '')
+        reason = recovery_boot._prepare_boot_attempt(trial=True)
+        self.assertIn('after 2 boots', reason)
 
     def test_trial_deadline_is_cancelled_after_both_layers_are_healthy(self):
         timer = SimpleNamespace(deinit=lambda: None)
@@ -260,10 +270,15 @@ class RecoveryBootTests(unittest.TestCase):
     def test_application_confirms_updates_only_after_portal_startup(self):
         source = (Path(self.previous_cwd) / 'iotmd_runtime.py').read_text()
         portal_start = source.index('portal_started = await start_admin_portal()')
-        firmware_confirmation = source.index('if firmware_update.confirm_update():')
-        application_confirmation = source.index('if app_update.confirm_update():')
-        self.assertLess(portal_start, firmware_confirmation)
-        self.assertLess(portal_start, application_confirmation)
+        health_check = source.index('activation_health = startup.check(')
+        confirmation = source.index('startup.confirm_updates(')
+        self.assertLess(portal_start, health_check)
+        self.assertLess(health_check, confirmation)
+        service = (
+            Path(self.previous_cwd) / 'services' / 'startup_service.py'
+        ).read_text()
+        self.assertIn('if firmware_update.confirm_update():', service)
+        self.assertIn('if app_update.confirm_update():', service)
 
     def test_activation_exception_is_recorded_before_rollback(self):
         values, app, firmware = self.fake_modules('VALUE = 1\n', app_status='ready')
