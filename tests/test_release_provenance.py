@@ -89,6 +89,14 @@ class ReleaseProvenanceTests(unittest.TestCase):
     def test_production_core_policy_accepts_size_optimised_minimal_config(self):
         validate_production_sdkconfig('\n'.join(REQUIRED_PRODUCTION_SDKCONFIG))
 
+    def test_production_core_policy_rejects_internal_ram_only_build(self):
+        config = '\n'.join(
+            value for value in REQUIRED_PRODUCTION_SDKCONFIG
+            if value != 'CONFIG_SPIRAM=y'
+        )
+        with self.assertRaisesRegex(ValueError, 'CONFIG_SPIRAM=y'):
+            validate_production_sdkconfig(config)
+
     def test_production_core_policy_rejects_unused_transports(self):
         config = '\n'.join(REQUIRED_PRODUCTION_SDKCONFIG + (
             'CONFIG_BT_ENABLED=y',

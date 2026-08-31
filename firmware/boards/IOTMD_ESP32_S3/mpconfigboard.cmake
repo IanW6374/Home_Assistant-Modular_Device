@@ -2,7 +2,10 @@ set(IDF_TARGET esp32s3)
 
 set(SDKCONFIG_DEFAULTS
     boards/sdkconfig.base
-    boards/sdkconfig.spiram_oct
+    # The base fragment enables the SPIRAM allocator. The SPIRAM_OCT
+    # variant included below only changes the bus mode; using it alone leaves
+    # CONFIG_SPIRAM disabled and limits MicroPython to internal RAM.
+    boards/sdkconfig.spiram_quad
     ${MICROPY_BOARD_DIR}/sdkconfig.board
 )
 

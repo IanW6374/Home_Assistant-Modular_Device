@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.12 - 2026-08-31
+
+- Restore the ESP32-S3 PSRAM-backed MicroPython heap in the 1.29 firmware by
+  combining the S3 SPIRAM base settings with the octal-mode variant.
+- Reject production core builds when PSRAM, boot initialisation, malloc
+  integration, or octal mode is absent, preventing internal-RAM-only firmware
+  from being packaged again.
+
 ## 2.3.11 - 2026-08-31
 
 - Store large renderer-local HTML and JavaScript constants as bounded 2 KiB

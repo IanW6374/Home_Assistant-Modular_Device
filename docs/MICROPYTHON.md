@@ -14,8 +14,11 @@ ESP-IDF 5.5.2 and supports 5.5.1. Keeping the existing IDF patch release avoids
 changing two major runtime dependencies in the same device release. The exact
 MicroPython and ESP-IDF revisions are enforced by `firmware/build-lock.json`.
 
-The board now uses MicroPython's `SPIRAM_OCT` configuration fragment. The old
-`SPIRAM_SX` fragment was removed upstream in MicroPython 1.29.
+The board uses MicroPython's ESP32-S3 SPIRAM base configuration together with
+the `SPIRAM_OCT` variant. The base fragment enables PSRAM-backed allocation;
+the variant selects the octal bus mode. Production builds reject a generated
+configuration unless PSRAM boot initialisation, malloc integration, and octal
+mode are all enabled.
 
 ## Validation result
 
