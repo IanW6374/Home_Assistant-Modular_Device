@@ -126,6 +126,12 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('portalRequire(importPassword', backup)
         self.assertNotIn('Protected content', backup)
         self.assertIn('name="directory_url"', certificates)
+        self.assertIn('data-method="manual"', certificates)
+        self.assertIn('id="identity-type"', certificates)
+        self.assertIn('id="identity-cert"', certificates)
+        self.assertIn('id="identity-key"', certificates)
+        self.assertIn('"&return_to="+encodeURIComponent(\'/certificates\')', certificates)
+        self.assertNotIn('Open manual identity installation', certificates)
         self.assertIn('multiple', api_trust)
         self.assertIn('/certificate-upload', api_trust)
         self.assertNotIn('href="/portal-settings">Portal settings</a>', certificates)
@@ -581,6 +587,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('href="/device-api">Device API</a>', html)
         self.assertIn('href="/configuration-backup">Configuration backup</a>', html)
         self.assertIn('href="/health-history">Health history</a>', html)
+        self.assertNotIn('aria-label="Certificates submenu"', html)
         user_menu = html.split(
             'aria-label="User submenu"', 1
         )[1].split('</div>', 1)[0]
@@ -690,10 +697,10 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('aria-label="Maintenance submenu"', html)
         self.assertIn('href="/updates">Upgrades</a>', maintenance_menu)
         self.assertNotIn('/updates?check=1', maintenance_menu)
-        self.assertIn('href="/certificates">Certificate enrollment</a>', maintenance_menu)
-        self.assertIn('href="/certificate-authorities">CA &amp; signing trust</a>', maintenance_menu)
-        self.assertIn('href="/api-client-trust">API client trust</a>', maintenance_menu)
-        self.assertIn('href="/device-certificates">Device certificates</a>', maintenance_menu)
+        self.assertIn('href="/certificates">Certificates</a>', maintenance_menu)
+        self.assertNotIn('href="/certificate-authorities"', maintenance_menu)
+        self.assertNotIn('href="/api-client-trust"', maintenance_menu)
+        self.assertNotIn('href="/device-certificates"', maintenance_menu)
         self.assertIn('href="/logging" aria-current="page">Device log</a>', maintenance_menu)
         self.assertIn('<h1>Device log</h1>', html)
         self.assertIn('href="/audit-log">Audit log</a>', maintenance_menu)
@@ -707,6 +714,21 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('href="/logging-settings"', html)
         self.assertIn('name="log_buffer_lines"', html)
         self.assertIn('>Stored lines <input', html)
+
+        certificates = web_portal.render_certificate_route(
+            '/certificate-authorities', 'csrf'
+        )
+        certificate_menu = certificates.split(
+            'aria-label="Certificates submenu"', 1
+        )[1].split('</nav>', 1)[0]
+        self.assertIn('href="/certificates">Certificate enrollment</a>', certificate_menu)
+        self.assertIn(
+            'href="/certificate-authorities" aria-current="page">CA &amp; signing trust</a>',
+            certificate_menu
+        )
+        self.assertIn('href="/api-client-trust">API client trust</a>', certificate_menu)
+        self.assertIn('href="/device-certificates">Device certificates</a>', certificate_menu)
+        self.assertIn('<a href="/certificates">Certificates</a>', certificates)
 
         audit = web_portal.render_audit_logging_page(
             'csrf', ['portal login', 'API connection']

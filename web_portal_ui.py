@@ -58,6 +58,11 @@ PORTAL_CSS = (
     '.restart-required form{margin:0}.restart-required button{padding:6px 9px;font-size:.78rem}'
     '.nav-group:hover>.nav-dropdown,.nav-group:focus-within>.nav-dropdown,'
     '.nav-group.open>.nav-dropdown{display:grid;gap:2px}'
+    '.section-menu-wrap{border-bottom:1px solid var(--line);background:var(--surface)}'
+    '.section-menu{display:flex;align-items:center;gap:5px;margin:0 clamp(16px,4vw,38px);'
+    'padding:8px 0;overflow-x:auto}.section-menu-title{padding:6px 10px 6px 0;'
+    'color:var(--muted);font-size:.78rem;font-weight:750;text-transform:uppercase;'
+    'letter-spacing:.06em;white-space:nowrap}.section-menu .nav-link{white-space:nowrap}'
     '.breadcrumb{display:flex;align-items:center;justify-content:flex-end;gap:7px;white-space:nowrap;'
     'margin:0 0 18px;color:var(--muted);font-size:.78rem}.breadcrumb a{color:var(--muted)}'
     '.breadcrumb-separator{color:#91a0a6}'
@@ -306,10 +311,7 @@ NAVIGATION = (
     )),
     ('maintenance', '/updates', 'Maintenance', (
         ('updates', '/updates', 'Upgrades'),
-        ('certificates', '/certificates', 'Certificate enrollment'),
-        ('certificate_authorities', '/certificate-authorities', 'CA & signing trust'),
-        ('api_client_trust', '/api-client-trust', 'API client trust'),
-        ('device_certificates', '/device-certificates', 'Device certificates'),
+        ('certificates', '/certificates', 'Certificates'),
         ('configuration_backup', '/configuration-backup', 'Configuration backup'),
         ('health_history', '/health-history', 'Health history'),
         ('logging', '/logging', 'Device log'),
@@ -317,6 +319,17 @@ NAVIGATION = (
         ('device_control', '/device-control', 'Device control'),
     )),
 )
+
+
+CERTIFICATE_NAVIGATION = (
+    ('certificates', '/certificates', 'Certificate enrollment'),
+    ('certificate_authorities', '/certificate-authorities', 'CA & signing trust'),
+    ('api_client_trust', '/api-client-trust', 'API client trust'),
+    ('device_certificates', '/device-certificates', 'Device certificates'),
+)
+
+
+CERTIFICATE_ACTIVE_KEYS = tuple(item[0] for item in CERTIFICATE_NAVIGATION)
 
 
 def escape(value):
@@ -507,10 +520,19 @@ def navigation(active, csrf):
     links = []
     for key, path, label, children in NAVIGATION:
         child_keys = tuple(item[0] for item in children)
-        current = ' aria-current="page"' if key == active or active in child_keys else ''
+        section_active = (
+            key == 'maintenance' and active in CERTIFICATE_ACTIVE_KEYS
+        )
+        current = ' aria-current="page"' if (
+            key == active or active in child_keys or section_active
+        ) else ''
         child_links = []
         for child_key, child_path, child_label in children:
-            child_current = ' aria-current="page"' if child_key == active else ''
+            child_current = ' aria-current="page"' if (
+                child_key == active or (
+                    child_key == 'certificates' and active in CERTIFICATE_ACTIVE_KEYS
+                )
+            ) else ''
             child_links.append(
                 '<a class="nav-link" role="menuitem" href="' +
                 escape(child_path) + '"' + child_current + '>' +
@@ -538,7 +560,41 @@ def navigation(active, csrf):
     )
 
 
+def section_navigation(active):
+    if active not in CERTIFICATE_ACTIVE_KEYS:
+        return ''
+    links = []
+    for key, path, label in CERTIFICATE_NAVIGATION:
+        current = ' aria-current="page"' if key == active else ''
+        links.append(
+            '<a class="nav-link" href="' + escape(path) + '"' + current + '>' +
+            escape(label) + '</a>'
+        )
+    return (
+        '<div class="section-menu-wrap"><nav class="section-menu" '
+        'aria-label="Certificates submenu"><span class="section-menu-title">'
+        'Certificates</span>' + ''.join(links) + '</nav></div>'
+    )
+
+
 def breadcrumb(active):
+    if active in CERTIFICATE_ACTIVE_KEYS:
+        current = next(
+            item for item in CERTIFICATE_NAVIGATION if item[0] == active
+        )
+        base = (
+            '<div class="breadcrumb" role="navigation" aria-label="Breadcrumb">'
+            '<a href="/updates">Maintenance</a>'
+            '<span class="breadcrumb-separator" aria-hidden="true">\\</span>'
+        )
+        if active == 'certificates':
+            return base + '<a href="/certificates" aria-current="page">Certificates</a></div>'
+        return (
+            base + '<a href="/certificates">Certificates</a>'
+            '<span class="breadcrumb-separator" aria-hidden="true">\\</span>'
+            '<a href="' + escape(current[1]) + '" aria-current="page">' +
+            escape(current[2]) + '</a></div>'
+        )
     for _key, path, label, children in NAVIGATION:
         for child_key, child_path, child_label in children:
             if child_key != active:
@@ -571,7 +627,9 @@ def shell(title, active, body, csrf='', script='', extra_css='', authenticated=T
         '<title>' + escape(title) + '</title><link rel="stylesheet" href="/assets/portal.css?v=' +
         escape(ASSET_VERSION) + '">'
         + ('<style>' + extra_css + '</style>' if extra_css else '') +
-        '</head><body>' + header + '<main' +
+        '</head><body>' + header + (
+            section_navigation(active) if authenticated else ''
+        ) + '<main' +
         (' class="' + escape(main_class) + '"' if main_class else '') +
         '>' + (breadcrumb(active) if authenticated else '') + body +
         '</main><script src="/assets/portal.js?v=' +

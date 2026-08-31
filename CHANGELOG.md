@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.13 - 2026-08-31
+
+- Place the four certificate-management pages beneath a single Maintenance >
+  Certificates entry with a persistent certificate submenu and hierarchical
+  breadcrumbs.
+- Show the manual portal or Device API certificate-and-key upload controls
+  directly when Manual certificate package is selected, retaining the
+  Certificate enrollment page after validation.
+
 ## 2.3.12 - 2026-08-31
 
 - Restore the ESP32-S3 PSRAM-backed MicroPython heap in the 1.29 firmware by

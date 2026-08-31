@@ -111,7 +111,7 @@ def _upload_widget(csrf, choices, return_label):
     return body, script
 
 
-def _identity_upload_widget(csrf):
+def _identity_upload_widget(csrf, return_to='/device-certificates'):
     body = ('<label class="field">Device identity<select id="identity-type">'
             '<option value="portal">Portal HTTPS identity</option>'
             '<option value="api-server">Device API server identity</option></select></label>'
@@ -136,7 +136,7 @@ def _identity_upload_widget(csrf):
               'var second=await uploadIdentity(identityKey.files[0],kind+"-key");if(!second.ok)throw new Error(await second.text());'
               'label.textContent="Validating identity…";var done=await fetch("/validate-certificates",{method:"POST",credentials:"same-origin",'
               'headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"csrf="+encodeURIComponent(identityCsrf)+'
-              '"&return_to=%2Fdevice-certificates"});if(!done.ok)throw new Error(await done.text());document.open();document.write('
+              '"&return_to="+encodeURIComponent(' + repr(str(return_to)) + ')});if(!done.ok)throw new Error(await done.text());document.open();document.write('
               'await done.text());document.close();}catch(error){portalStatus(out,"error",error.message);box.classList.add("failed");'
               'label.textContent="Installation failed";this.disabled=false;}};')
     return body, script
@@ -154,6 +154,7 @@ def render_certificate_page(csrf, message='', certificates=None):
         operation_notice = '<section class="portal-status ' + tone + '"><strong>' + html_escape(operation.get('message', '')) + '</strong></section>'
     options = ''.join('<option value="' + key + '"' + (' selected' if key == method else '') + '>' + value[0] + '</option>'
                       for key, value in METHODS.items())
+    manual_upload, manual_script = _identity_upload_widget(csrf, '/certificates')
     body = (portal_ui.page_heading('Maintenance', 'Certificate enrollment',
             'Review the active enrollment method and change how device identities are issued and renewed.') +
             _notice(message) + operation_notice +
@@ -180,7 +181,8 @@ def render_certificate_page(csrf, message='', certificates=None):
             '<label class="field">Certificate hostname<input name="hostname" required value="' + html_escape(settings.get('hostname', '')) + '"></label></div>'
             '<button type="submit">Enable Private CA ACME enrollment</button></form></div>'
             '<div class="certificate-option-panel" data-method="manual"><p>' + html_escape(METHODS['manual'][1]) + '</p>'
-            '<a class="button" href="/device-certificates">Open manual identity installation</a></div></section>')
+            '<p class="warning-text">Manual identities are not automatically renewed. The portal and Device log warn before expiry.</p>' +
+            manual_upload + '</div></section>')
     script = ('var chooser=document.getElementById("enrollment-method"),csrf=' + repr(str(csrf)) + ';function showMethod(){'
               'document.querySelectorAll("[data-method]").forEach(function(p){p.hidden=p.dataset.method!==chooser.value;});}'
               'chooser.onchange=showMethod;showMethod();document.getElementById("iotenroll-start").onclick=async function(){'
@@ -190,7 +192,10 @@ def render_certificate_page(csrf, message='', certificates=None):
               'if(!uploaded.ok)throw new Error(await uploaded.text());var done=await fetch("/certificate-method",{method:"POST",credentials:'
               '"same-origin",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:"csrf="+encodeURIComponent(csrf)+'
               '"&method=iot_ca_file"});document.open();document.write(await done.text());document.close();}catch(error){alert(error.message);this.disabled=false;}};')
-    return portal_ui.shell('IoT-MD certificate enrollment', 'certificates', body, csrf, script)
+    return portal_ui.shell(
+        'IoT-MD certificate enrollment', 'certificates', body, csrf,
+        script + manual_script
+    )
 
 
 def render_certificate_authorities_page(csrf, message='', certificates=None):
