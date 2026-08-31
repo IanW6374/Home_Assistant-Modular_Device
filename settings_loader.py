@@ -115,6 +115,9 @@ except Exception:
 
 module_settings_file = device_config.MODULE_SETTINGS_FILE
 watchdog_timeout_ms = device_config.WATCHDOG_TIMEOUT_MS
+minimum_activation_heap_bytes = getattr(
+    device_config, 'MINIMUM_ACTIVATION_HEAP_BYTES', 0
+)
 wifi_recovery_enabled = device_config.WIFI_RECOVERY_ENABLED
 wifi_recovery_timeout_s = device_config.WIFI_RECOVERY_TIMEOUT_S
 network_trial_timeout_s = device_config.NETWORK_TRIAL_TIMEOUT_S

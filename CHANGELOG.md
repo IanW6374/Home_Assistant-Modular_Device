@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.4.0-beta.2 - 2026-08-31
+
+- Load the activation-heap policy through the signed application settings
+  boundary, fixing the beta.1 startup `NameError` observed on hardware.
+- Guard the compact application entry against an older recovery core after a
+  paired firmware rollback, restoring the confirmed application without
+  importing modules available only in the newer frozen core.
+
 ## 2.4.0-beta.1 - 2026-08-31
 
 - Add a staged boot supervisor record covering platform, persistent state,

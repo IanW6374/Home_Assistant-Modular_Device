@@ -47,6 +47,10 @@ class SettingsLoaderTests(unittest.TestCase):
             device_config.WATCHDOG_TIMEOUT_MS
         )
         self.assertEqual(
+            settings_loader.minimum_activation_heap_bytes,
+            device_config.MINIMUM_ACTIVATION_HEAP_BYTES
+        )
+        self.assertEqual(
             settings_loader.status_led_pin,
             device_config.STATUS_LED_PIN
         )

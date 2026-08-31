@@ -1,7 +1,9 @@
 import asyncio
+import ast
 import hashlib
 import tempfile
 import unittest
+from pathlib import Path
 
 from application import ApplicationContext, RuntimeState, TaskSupervisor
 from application import evaluate_boot_health
@@ -18,6 +20,31 @@ from tools.check_architecture import architecture_errors, module_imported_roots
 class ArchitectureBoundaryTests(unittest.TestCase):
     def test_repository_architecture_gates_pass(self):
         self.assertEqual(architecture_errors(), [])
+
+    def test_compact_entry_rejects_an_old_core_before_runtime_import(self):
+        tree = ast.parse(Path('iotmd.py').read_text(), filename='iotmd.py')
+        runtime_import = next(
+            node.lineno for node in tree.body
+            if isinstance(node, ast.Import) and
+            any(alias.name == 'iotmd_runtime' for alias in node.names)
+        )
+        guard = next(
+            node.lineno for node in tree.body
+            if isinstance(node, ast.If) and
+            'core_api' in ast.unparse(node.test)
+        )
+        self.assertLess(guard, runtime_import)
+
+    def test_activation_heap_policy_is_loaded_through_settings_boundary(self):
+        source = Path('iotmd_runtime.py').read_text()
+        self.assertIn(
+            'minimum_activation_heap_bytes = '
+            'device_settings.minimum_activation_heap_bytes',
+            source
+        )
+        self.assertNotIn(
+            "getattr(device_config, 'MINIMUM_ACTIVATION_HEAP_BYTES'", source
+        )
 
     def test_certificate_administration_is_lazy_during_normal_boot(self):
         expectations = {
