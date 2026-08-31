@@ -20,6 +20,7 @@ from tools.build_update import compact_application_files
 from tools.build_update import generated_driver_index
 from tools.build_update import is_ignored
 from tools.build_update import load_ignore_patterns
+from tools.build_update import split_portal_route_modules
 
 
 class AppUpdateTests(unittest.TestCase):
@@ -577,6 +578,43 @@ class AppUpdateTests(unittest.TestCase):
         )
         self.assertEqual(overrides['module.mpy'], b'MPYVALUE = 2\n')
         self.assertNotIn('module.py', overrides)
+
+    def test_portal_route_split_removes_large_nested_dispatchers(self):
+        source = (
+            'from portal_presenters import *\n\n'
+            'async def start_web_portal():\n'
+            '    async def handle_client():\n'
+            '        async def handle_settings_routes():\n'
+            '            return settings_getter()\n\n'
+            '        async def handle_upload_routes():\n'
+            '            return False\n\n'
+            '        async def handle_live_routes():\n'
+            '            return status_snapshot.get()\n'
+            '        try:\n'
+            '            return await handle_live_routes()\n'
+            '        except Exception:\n'
+            '            return False\n'
+        ).encode()
+
+        compact_source, routes = split_portal_route_modules(source)
+        compact_text = compact_source.decode()
+
+        self.assertIn('import portal_route_settings', compact_text)
+        self.assertIn('import portal_route_live', compact_text)
+        self.assertIn(
+            'return await portal_route_settings.handle_settings_routes(',
+            compact_text
+        )
+        self.assertNotIn('return settings_getter()', compact_text)
+        self.assertNotIn('return status_snapshot.get()', compact_text)
+        self.assertIn(
+            'async def handle_settings_routes(',
+            routes['portal_route_settings.py'].decode()
+        )
+        self.assertIn(
+            'async def handle_live_routes(',
+            routes['portal_route_live.py'].decode()
+        )
 
     def test_certificate_target_can_use_trust_store_subdirectory(self):
         source = Path('home-iot-root.der')

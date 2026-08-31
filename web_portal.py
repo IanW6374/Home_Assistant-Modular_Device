@@ -163,6 +163,8 @@ async def start_web_portal(portal):
         nonlocal password_verifier, password_change_required
         reader = compatible_http_reader(reader)
         path = ''
+        body = b''
+        is_json_validation = False
         upload_state = ''
         progress_response_started = False
         progress_percent = -1

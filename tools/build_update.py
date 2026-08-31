@@ -97,15 +97,144 @@ MPY_SOURCE_ALIASES = {
     'portal_server.py': 'web_portal.py',
 }
 
+# MicroPython loads the complete raw-code child tree for a nested coroutine as
+# one allocation.  Keeping these large dispatchers nested under handle_client
+# therefore recreates the portal import failure even when the source itself is
+# precompiled.  The application builder promotes them to independent modules
+# and leaves small closure-preserving wrappers in portal_server.mpy.
+PORTAL_ROUTE_SPLITS = (
+    (
+        'handle_settings_routes', 'portal_route_settings',
+        (
+            'action_handler', 'action_path', 'audit_log_getter', 'body',
+            'cached_page', 'certificate_info_getter',
+            'certificate_upload_handler', 'certificate_validate_handler',
+            'config_import_apply_handler', 'config_import_preview_handler',
+            'csrf_token', 'form_params', 'headers', 'is_audit_logging',
+            'is_certificate_request', 'is_configuration_backup',
+            'is_diagnostics', 'is_health_history', 'is_logging',
+            'is_module_settings', 'is_operational_settings', 'is_updates',
+            'is_user_management', 'levels', 'log_getter', 'log_output',
+            'log_refresh_ms', 'loglevel_getter', 'method',
+            'module_settings_getter', 'module_settings_setter',
+            'module_snapshot', 'portal_user_add', 'portal_user_getter',
+            'portal_user_remove', 'portal_user_update', 'reader', 'route',
+            'secure_config_backup_getter',
+            'secure_config_import_apply_handler',
+            'secure_config_import_preview_handler', 'secure_cookie',
+            'send_redirect', 'send_response', 'session_role',
+            'session_username', 'settings_getter', 'settings_setter',
+            'status_snapshot', 'update_preferences_setter',
+            'value_refresh_ms', 'writer', '_handle_certificate_request',
+        ),
+    ),
+    (
+        'handle_live_routes', 'portal_route_live',
+        (
+            'action_handler', 'action_path', 'audit_log_getter',
+            'config_backup_getter', 'csrf_token', 'form_params',
+            'is_json_validation', 'levels', 'log_buffer_lines_setter',
+            'log_getter', 'log_output', 'login_url', 'loglevel_setter',
+            'method', 'module_snapshot', 'path', 'secure_cookie',
+            'send_log_download', 'send_redirect', 'send_response',
+            'session_id', 'session_role', 'sessions', 'status_snapshot',
+            'task_status_getter', 'upload_progress_by_id',
+            'value_refresh_ms', 'wifi_scan_getter', 'writer',
+        ),
+    ),
+)
+
+PORTAL_ROUTE_IMPORTS = (
+    "try:\n    import ujson as json\nexcept ImportError:\n    import json\n\n"
+    "import web_portal_ui as portal_ui\n"
+    "from portal_http import *\n"
+    "from portal_settings_views import *\n"
+    "from portal_live_views import *\n"
+    "from portal_presenters import *\n\n"
+)
+
+COMPACT_MPY_SIZE_LIMITS = {
+    # The 2.3.7/2.3.8 hardware trials proved that aggregate nested route code
+    # can exceed the largest contiguous block even with ample total free heap.
+    # Bound both the transport and each independently loaded dispatcher.
+    'portal_server.mpy': 14500,
+    'portal_route_settings.mpy': 6000,
+    'portal_route_live.mpy': 5500,
+}
+
+
+def split_portal_route_modules(source):
+    """Return a compact portal source plus independently compiled routes."""
+    if isinstance(source, bytes):
+        source = source.decode('utf-8')
+    generated = {}
+    imports = []
+    for function_name, module_name, arguments in PORTAL_ROUTE_SPLITS:
+        marker = '        async def ' + function_name + '():\n'
+        start = source.find(marker)
+        if start < 0:
+            continue
+        next_function = source.find('\n        async def ', start + len(marker))
+        next_try = source.find('\n        try:\n', start + len(marker))
+        candidates = tuple(value for value in (next_function, next_try) if value >= 0)
+        if not candidates:
+            raise ValueError('portal route has no boundary: ' + function_name)
+        end = min(candidates) + 1
+        block = source[start:end]
+        top_level = ''.join(
+            line[8:] if line.startswith('        ') else line
+            for line in block.splitlines(True)
+        )
+        signature = (
+            'async def ' + function_name + '(\n    ' +
+            ',\n    '.join(arguments) + '\n):\n'
+        )
+        top_level = top_level.replace(
+            'async def ' + function_name + '():\n', signature, 1
+        )
+        generated[module_name + '.py'] = (
+            PORTAL_ROUTE_IMPORTS + top_level
+        ).encode('utf-8')
+        wrapper = (
+            '        async def ' + function_name + '():\n'
+            '            return await ' + module_name + '.' + function_name + '(\n'
+            '                ' + ',\n                '.join(arguments) + '\n'
+            '            )\n'
+        )
+        source = source[:start] + wrapper + source[end:]
+        imports.append('import ' + module_name + '\n')
+    if generated:
+        anchor = 'from portal_presenters import *\n'
+        if anchor not in source:
+            raise ValueError('portal route import anchor is missing')
+        source = source.replace(anchor, anchor + ''.join(imports), 1)
+    return source.encode('utf-8'), generated
+
 
 def compact_application_files(files, content_overrides, compiler):
     """Compile importable Python modules while retaining boot/provenance sources."""
     compiler = Path(compiler).resolve()
     if not compiler.is_file():
         raise ValueError('mpy-cross compiler not found: ' + str(compiler))
+    files = list(files)
     compact_files = []
     compact_overrides = dict(content_overrides or {})
     targets = set()
+    portal_source = None
+    portal_path = None
+    for relative, path in files:
+        if relative == 'portal_server.py':
+            portal_path = path
+            portal_source = path.with_name(
+                MPY_SOURCE_ALIASES['portal_server.py']
+            ).read_bytes()
+            break
+    if portal_source is not None:
+        portal_source, route_sources = split_portal_route_modules(portal_source)
+        compact_overrides['portal_server.py'] = portal_source
+        for relative, source in route_sources.items():
+            files.append((relative, portal_path))
+            compact_overrides[relative] = source
     with tempfile.TemporaryDirectory(prefix='iotmd-mpy-') as temporary:
         temporary = Path(temporary)
         for index, (relative, path) in enumerate(files):
@@ -139,6 +268,13 @@ def compact_application_files(files, content_overrides, compiler):
             if result.returncode or not output_path.is_file():
                 detail = (result.stderr or result.stdout or 'unknown compiler error').strip()
                 raise ValueError('mpy-cross failed for ' + relative + ': ' + detail)
+            maximum = COMPACT_MPY_SIZE_LIMITS.get(target)
+            compiled_size = output_path.stat().st_size
+            if maximum is not None and compiled_size > maximum:
+                raise ValueError(
+                    target + ' exceeds compact bytecode limit: ' +
+                    str(compiled_size) + ' > ' + str(maximum)
+                )
             compact_files.append((target, path))
             compact_overrides[target] = output_path.read_bytes()
             targets.add(target)

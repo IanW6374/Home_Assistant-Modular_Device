@@ -26,9 +26,8 @@ FORBIDDEN_TRANSPORT_IMPORTS = {
 LINE_LIMITS = {
     'iotmd.py': 20,
     'iotmd_runtime.py': 3360,
-    # Route handling is split into bounded child coroutines below.  The small
-    # wrapper overhead adds source lines without restoring one large bytecode
-    # allocation during MicroPython import.
+    # Source route handling remains readable here; the production builder
+    # promotes the two largest dispatchers to independently loaded modules.
     'web_portal.py': 1340,
     'setup_wizard.py': 450,
     'certificate_manager.py': 700,
@@ -173,6 +172,13 @@ def architecture_errors(root=ROOT):
     for relative in REQUIRED_APPLICATION_MODULES:
         if repr(relative) not in application_builder:
             errors.append('application builder omits extracted module: ' + relative)
+    for route_module in ('portal_route_settings', 'portal_route_live'):
+        if repr(route_module) not in application_builder:
+            errors.append(
+                'application builder omits independent portal route: ' + route_module
+            )
+    if 'COMPACT_MPY_SIZE_LIMITS' not in application_builder:
+        errors.append('application builder omits compact portal bytecode gates')
     frozen_manifest = (root / 'firmware/manifest.py').read_text()
     for relative in REQUIRED_FROZEN_MODULES:
         if 'module("' + relative + '"' not in frozen_manifest:

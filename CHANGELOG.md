@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.9 - 2026-08-31
+
+- Compile the settings and live portal route dispatchers as independent
+  MicroPython modules, eliminating the aggregate 8,850-byte allocation that
+  caused the v2.3.8 A/B trial to roll back despite ample total free heap.
+- Add compact-bytecode size gates for the portal transport and extracted route
+  modules so future portal growth cannot silently restore the trial-boot fault.
+
 ## 2.3.8 - 2026-08-31
 
 - Load the split portal transport through a release-specific application
