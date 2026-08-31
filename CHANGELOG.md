@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.8 - 2026-08-31
+
+- Load the split portal transport through a release-specific application
+  module identity during A/B trial startup, preventing the active v2.2.9
+  generation from satisfying the import with its 8,960-byte handler.
+- Compile the canonical portal implementation into that new module name while
+  retaining the existing development and test import surface.
+
 ## 2.3.7 - 2026-08-30
 
 - Split portal access control, settings, update upload and live routes into

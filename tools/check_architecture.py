@@ -56,7 +56,7 @@ RETIRED_SOURCE_MARKERS = {
     'release_update.py': ('_release_manifest_request_url',),
 }
 REQUIRED_APPLICATION_MODULES = (
-    'iotmd_runtime.py',
+    'iotmd_runtime.py', 'portal_server.py',
     'certificate_status.py', 'portal_http.py', 'portal_live_views.py', 'portal_presenters.py',
     'portal_settings_views.py', 'services/home_assistant_service.py',
 )
@@ -115,14 +115,14 @@ def architecture_errors(root=ROOT):
     root = Path(root)
     errors = []
     runtime_source = (root / 'iotmd_runtime.py').read_text()
-    portal_import = runtime_source.find('from web_portal import start_web_portal')
+    portal_import = runtime_source.find('from portal_server import start_web_portal')
     credential_import = runtime_source.find('import credential_security')
     if (
         portal_import < 0 or credential_import < 0 or
         portal_import > credential_import
     ):
         errors.append(
-            'iotmd_runtime.py must load web_portal before fragmented startup imports'
+            'iotmd_runtime.py must load portal_server before fragmented startup imports'
         )
     for relative, forbidden_imports in LAZY_IMPORT_BOUNDARIES.items():
         eager = module_imported_roots(root / relative) & forbidden_imports

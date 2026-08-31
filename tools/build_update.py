@@ -32,6 +32,7 @@ CORE_FILES = (
     'certificate_trust.py',
     'settings_loader.py',
     'display.py',
+    'portal_server.py',
     'web_portal_ui.py',
     'web_portal.py',
     'portal_http.py',
@@ -89,6 +90,12 @@ LOADER_EXCLUDED_MODULES = {
 }
 IGNORE_FILE = '.build_update_ignore'
 MPY_SOURCE_FILES = frozenset(('iotmd.py', 'component_versions.py'))
+MPY_SOURCE_ALIASES = {
+    # A new module identity prevents an older active A/B generation from
+    # satisfying the portal import during a trial boot.  The source-tree file
+    # remains a lightweight CPython/development adapter.
+    'portal_server.py': 'web_portal.py',
+}
 
 
 def compact_application_files(files, content_overrides, compiler):
@@ -111,7 +118,11 @@ def compact_application_files(files, content_overrides, compiler):
                 raise ValueError('compact application has duplicate path: ' + target)
             source = compact_overrides.pop(relative, None)
             if source is None:
-                source = path.read_bytes()
+                alias = MPY_SOURCE_ALIASES.get(relative)
+                source = (
+                    path.with_name(alias).read_bytes()
+                    if alias else path.read_bytes()
+                )
             source_path = temporary / ('source-' + str(index) + '.py')
             output_path = temporary / ('module-' + str(index) + '.mpy')
             source_path.write_bytes(source)

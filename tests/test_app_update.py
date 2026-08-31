@@ -459,7 +459,7 @@ class AppUpdateTests(unittest.TestCase):
         for name in (
             'iotmd_runtime.py', 'settings_loader.py', 'hardware_platform.py', 'display.py',
             'application_upload.py',
-            'web_portal_ui.py', 'web_portal.py',
+            'portal_server.py', 'web_portal_ui.py', 'web_portal.py',
             'release_update.py', 'certificate_manager.py', 'certificate_lifecycle.py',
             'certificate_status.py',
             'certificate_enrollment_service.py', 'certificate_portal_actions.py',
@@ -500,6 +500,7 @@ class AppUpdateTests(unittest.TestCase):
         self.assertIn('iotmd.py', default_names)
         self.assertIn('iotmd_runtime.py', default_names)
         self.assertIn('app_settings.json', default_names)
+        self.assertIn('portal_server.py', default_names)
         self.assertIn('web_portal_ui.py', default_names)
         for certificate_module in (
             'certificate_enrollment_service.py', 'certificate_portal_actions.py',
@@ -530,11 +531,15 @@ class AppUpdateTests(unittest.TestCase):
     def test_compact_builder_keeps_entry_and_provenance_as_source(self):
         entry = Path('iotmd.py')
         runtime = Path('iotmd_runtime.py')
+        portal_server = Path('portal_server.py')
+        web_portal = Path('web_portal.py')
         provenance = Path('component_versions.py')
         module = Path('module.py')
         settings = Path('app_settings.json')
         entry.write_text('import module\n')
         runtime.write_text('VALUE = 3\n')
+        portal_server.write_text('from web_portal import start_web_portal\n')
+        web_portal.write_text('PORTAL_IMPLEMENTATION = 1\n')
         provenance.write_text('RUNTIME_VERSION = 1\n')
         module.write_text('VALUE = 1\n')
         settings.write_text('{}')
@@ -549,6 +554,7 @@ class AppUpdateTests(unittest.TestCase):
         files = [
             ('iotmd.py', entry), ('component_versions.py', provenance),
             ('iotmd_runtime.py', runtime),
+            ('portal_server.py', portal_server),
             ('module.py', module), ('app_settings.json', settings),
         ]
         with patch('tools.build_update.subprocess.run', side_effect=compile_module):
@@ -561,10 +567,14 @@ class AppUpdateTests(unittest.TestCase):
             names,
             [
                 'iotmd.py', 'component_versions.py', 'iotmd_runtime.mpy',
-                'module.mpy', 'app_settings.json'
+                'portal_server.mpy', 'module.mpy', 'app_settings.json'
             ]
         )
         self.assertEqual(overrides['iotmd_runtime.mpy'], b'MPYVALUE = 3\n')
+        self.assertEqual(
+            overrides['portal_server.mpy'],
+            b'MPYPORTAL_IMPLEMENTATION = 1\n'
+        )
         self.assertEqual(overrides['module.mpy'], b'MPYVALUE = 2\n')
         self.assertNotIn('module.py', overrides)
 

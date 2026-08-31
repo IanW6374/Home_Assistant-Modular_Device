@@ -83,28 +83,28 @@ of the automatic check schedule.
 ## Production build
 
 Build only from a clean, tested commit. This example uses production version
-`2.3.7` and release sequence `2507`:
+`2.3.8` and release sequence `2508`:
 
 ```sh
-python3 tools/build_update.py releases/v2.3.7/application-2.3.7.iotapp \
-  --version 2.3.7 --release-sequence 2507 \
+python3 tools/build_update.py releases/v2.3.8/application-2.3.8.iotapp \
+  --version 2.3.8 --release-sequence 2508 \
   --signing-key /secure/update.signing-key \
   --mpy-cross /path/to/micropython/mpy-cross/build/mpy-cross
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.3.7 --release-sequence 2507 \
-  --output releases/v2.3.7/iotmd-core-2.3.7.iotcore \
-  --factory-output /secure-output/iotmd-core-2.3.7.factory.bin \
+  --version 2.3.8 --release-sequence 2508 \
+  --output releases/v2.3.8/iotmd-core-2.3.8.iotcore \
+  --factory-output /secure-output/iotmd-core-2.3.8.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
   --factory-setup-password-output /secure-output/device-v2.1.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.3.7/universal-2.3.7.iotuni \
-  --application releases/v2.3.7/application-2.3.7.iotapp \
-  --firmware releases/v2.3.7/iotmd-core-2.3.7.iotcore \
-  --version 2.3.7 --release-sequence 2507 \
+  releases/v2.3.8/universal-2.3.8.iotuni \
+  --application releases/v2.3.8/application-2.3.8.iotapp \
+  --firmware releases/v2.3.8/iotmd-core-2.3.8.iotcore \
+  --version 2.3.8 --release-sequence 2508 \
   --signing-key /secure/update.signing-key
 ```
 
