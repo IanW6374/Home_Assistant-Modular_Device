@@ -169,8 +169,7 @@ async def start_web_portal(portal):
         progress_response_started = False
         progress_percent = -1
         progress_phase = ''
-        progress_id = ''
-        progress_record = upload_progress
+        progress_state = {'id': '', 'record': upload_progress}
         peer_address = request_peer_address(reader, writer)
         session_role = ''
         session_username = ''
@@ -203,8 +202,8 @@ async def start_web_portal(portal):
             completed = int(completed or 0)
             percent = int(completed * 100 / total) if total > 0 else 0
             percent = max(0, min(100, percent))
-            progress_record['phase'] = phase
-            progress_record['percent'] = percent
+            progress_state['record']['phase'] = phase
+            progress_state['record']['percent'] = percent
             if phase == progress_phase and percent == progress_percent:
                 return
             progress_phase = phase
@@ -232,10 +231,10 @@ async def start_web_portal(portal):
                     await asyncio.sleep(0)
 
         async def finish_progress_response(phase, message):
-            progress_record['phase'] = phase
+            progress_state['record']['phase'] = phase
             if phase == 'complete':
-                progress_record['percent'] = 100
-            progress_record['message'] = str(message)
+                progress_state['record']['percent'] = 100
+            progress_state['record']['message'] = str(message)
             if not progress_response_started:
                 return False
             return True
@@ -813,7 +812,6 @@ async def start_web_portal(portal):
             return True
 
         async def handle_upload_routes():
-            nonlocal progress_id, progress_record
             if method == 'POST' and route == '/resumable-upload-begin':
                 if resumable_begin is None:
                     await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
@@ -875,13 +873,13 @@ async def start_web_portal(portal):
                     await send_response(writer, '503 Service Unavailable', 'Resumable uploads are unavailable', 'text/plain')
                 else:
                     request = json.loads(body.decode())
-                    progress_id = str(request.get('id', ''))[:64]
-                    progress_record = upload_progress_by_id.setdefault(
-                        progress_id, {'phase': 'receiving', 'percent': 100}
+                    progress_state['id'] = str(request.get('id', ''))[:64]
+                    progress_state['record'] = upload_progress_by_id.setdefault(
+                        progress_state['id'], {'phase': 'receiving', 'percent': 100}
                     )
                     try:
                         result = await resumable_complete(
-                            progress_id, report_upload_progress
+                            progress_state['id'], report_upload_progress
                         )
                     except Exception as exc:
                         message = 'Update rejected: ' + str(exc)
@@ -1172,10 +1170,10 @@ async def start_web_portal(portal):
                  headers.get('connection', '').lower() == 'keep-alive')
             )
 
-            progress_id = headers.get('x-update-id', '')[:64]
-            if progress_id:
-                progress_record = upload_progress_by_id.setdefault(
-                    progress_id, {'phase': 'idle', 'percent': 0}
+            progress_state['id'] = headers.get('x-update-id', '')[:64]
+            if progress_state['id']:
+                progress_state['record'] = upload_progress_by_id.setdefault(
+                    progress_state['id'], {'phase': 'idle', 'percent': 0}
                 )
                 if len(upload_progress_by_id) > 8:
                     for old_id in list(upload_progress_by_id)[:-8]:

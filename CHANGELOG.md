@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.10 - 2026-08-31
+
+- Extract the remaining access-control and update-upload dispatchers from the
+  portal transport after the v2.3.9 hardware trial showed its reduced module
+  still requested the same 8,850-byte aggregate import allocation.
+- Preserve login/session mutations across the access-route boundary and share
+  upload progress through an explicit request-state record.
+- Reduce the compiled portal transport from 13,286 to 8,550 bytes and tighten
+  its build-time growth ceiling to 10,000 bytes.
+
 ## 2.3.9 - 2026-08-31
 
 - Compile the settings and live portal route dispatchers as independent

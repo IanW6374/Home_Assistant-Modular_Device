@@ -172,7 +172,10 @@ def architecture_errors(root=ROOT):
     for relative in REQUIRED_APPLICATION_MODULES:
         if repr(relative) not in application_builder:
             errors.append('application builder omits extracted module: ' + relative)
-    for route_module in ('portal_route_settings', 'portal_route_live'):
+    for route_module in (
+        'portal_route_access', 'portal_route_settings',
+        'portal_route_upload', 'portal_route_live'
+    ):
         if repr(route_module) not in application_builder:
             errors.append(
                 'application builder omits independent portal route: ' + route_module

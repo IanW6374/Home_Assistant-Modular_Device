@@ -584,10 +584,14 @@ class AppUpdateTests(unittest.TestCase):
             'from portal_presenters import *\n\n'
             'async def start_web_portal():\n'
             '    async def handle_client():\n'
+            '        async def handle_access_routes():\n'
+            '            nonlocal login_failures\n'
+            '            login_failures += 1\n'
+            '            return True\n\n'
             '        async def handle_settings_routes():\n'
             '            return settings_getter()\n\n'
             '        async def handle_upload_routes():\n'
-            '            return False\n\n'
+            '            return upload_progress_by_id\n\n'
             '        async def handle_live_routes():\n'
             '            return status_snapshot.get()\n'
             '        try:\n'
@@ -601,6 +605,8 @@ class AppUpdateTests(unittest.TestCase):
 
         self.assertIn('import portal_route_settings', compact_text)
         self.assertIn('import portal_route_live', compact_text)
+        self.assertIn('import portal_route_access', compact_text)
+        self.assertIn('import portal_route_upload', compact_text)
         self.assertIn(
             'return await portal_route_settings.handle_settings_routes(',
             compact_text
@@ -608,12 +614,20 @@ class AppUpdateTests(unittest.TestCase):
         self.assertNotIn('return settings_getter()', compact_text)
         self.assertNotIn('return status_snapshot.get()', compact_text)
         self.assertIn(
+            'return (True, login_failures, password_verifier,',
+            routes['portal_route_access.py'].decode()
+        )
+        self.assertIn(
             'async def handle_settings_routes(',
             routes['portal_route_settings.py'].decode()
         )
         self.assertIn(
             'async def handle_live_routes(',
             routes['portal_route_live.py'].decode()
+        )
+        self.assertIn(
+            'async def handle_upload_routes(',
+            routes['portal_route_upload.py'].decode()
         )
 
     def test_certificate_target_can_use_trust_store_subdirectory(self):

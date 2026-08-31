@@ -104,6 +104,28 @@ MPY_SOURCE_ALIASES = {
 # and leaves small closure-preserving wrappers in portal_server.mpy.
 PORTAL_ROUTE_SPLITS = (
     (
+        'handle_access_routes', 'portal_route_access',
+        (
+            'authenticator', 'cached_page', 'credential_security', 'csrf_error',
+            'csrf_token', 'factory_reset_handler', 'form_params', 'is_asset',
+            'is_device_control', 'is_factory_default', 'is_login',
+            'is_password_change', 'is_user_settings', 'log_output',
+            'login_failures', 'login_url', 'method',
+            'network_trial_confirmer', 'password_change_required',
+            'password_setter', 'password_verifier', 'path', 'peer_address',
+            'restart_request_handler', 'restart_status_getter', 'route',
+            'secure_cookie', 'send_redirect', 'send_response', 'session',
+            'session_id', 'session_role', 'session_username', 'session_valid',
+            'sessions', 'settings_getter', 'shutdown_request_handler',
+            'user_password_setter', 'username', 'writer',
+        ),
+        (
+            'login_failures', 'password_verifier',
+            'password_change_required', 'session', 'session_id', 'csrf_token',
+            'session_role', 'session_username',
+        ),
+    ),
+    (
         'handle_settings_routes', 'portal_route_settings',
         (
             'action_handler', 'action_path', 'audit_log_getter', 'body',
@@ -127,6 +149,18 @@ PORTAL_ROUTE_SPLITS = (
             'status_snapshot', 'update_preferences_setter',
             'value_refresh_ms', 'writer', '_handle_certificate_request',
         ),
+        (),
+    ),
+    (
+        'handle_upload_routes', 'portal_route_upload',
+        (
+            'action_path', 'body', 'finish_progress_response', 'headers',
+            'log_output', 'method', 'portal', 'progress_state', 'reader',
+            'report_upload_progress', 'resumable_append', 'resumable_begin',
+            'resumable_complete', 'resumable_status', 'route', 'send_response',
+            'upload_progress_by_id', 'writer',
+        ),
+        (),
     ),
     (
         'handle_live_routes', 'portal_route_live',
@@ -141,12 +175,15 @@ PORTAL_ROUTE_SPLITS = (
             'task_status_getter', 'upload_progress_by_id',
             'value_refresh_ms', 'wifi_scan_getter', 'writer',
         ),
+        (),
     ),
 )
 
 PORTAL_ROUTE_IMPORTS = (
     "try:\n    import ujson as json\nexcept ImportError:\n    import json\n\n"
+    "try:\n    import uasyncio as asyncio\nexcept ImportError:\n    import asyncio\n\n"
     "import web_portal_ui as portal_ui\n"
+    "import portal_auth\n"
     "from portal_http import *\n"
     "from portal_settings_views import *\n"
     "from portal_live_views import *\n"
@@ -157,8 +194,10 @@ COMPACT_MPY_SIZE_LIMITS = {
     # The 2.3.7/2.3.8 hardware trials proved that aggregate nested route code
     # can exceed the largest contiguous block even with ample total free heap.
     # Bound both the transport and each independently loaded dispatcher.
-    'portal_server.mpy': 14500,
+    'portal_server.mpy': 10000,
+    'portal_route_access.mpy': 6500,
     'portal_route_settings.mpy': 6000,
+    'portal_route_upload.mpy': 3500,
     'portal_route_live.mpy': 5500,
 }
 
@@ -169,7 +208,7 @@ def split_portal_route_modules(source):
         source = source.decode('utf-8')
     generated = {}
     imports = []
-    for function_name, module_name, arguments in PORTAL_ROUTE_SPLITS:
+    for function_name, module_name, arguments, mutable_arguments in PORTAL_ROUTE_SPLITS:
         marker = '        async def ' + function_name + '():\n'
         start = source.find(marker)
         if start < 0:
@@ -185,6 +224,21 @@ def split_portal_route_modules(source):
             line[8:] if line.startswith('        ') else line
             for line in block.splitlines(True)
         )
+        if mutable_arguments:
+            transformed = []
+            for line in top_level.splitlines(True):
+                stripped = line.strip()
+                if stripped.startswith('nonlocal '):
+                    continue
+                if stripped in ('return False', 'return True'):
+                    indent = line[:len(line) - len(line.lstrip())]
+                    handled = 'False' if stripped.endswith('False') else 'True'
+                    line = (
+                        indent + 'return (' + handled + ', ' +
+                        ', '.join(mutable_arguments) + ')\n'
+                    )
+                transformed.append(line)
+            top_level = ''.join(transformed)
         signature = (
             'async def ' + function_name + '(\n    ' +
             ',\n    '.join(arguments) + '\n):\n'
@@ -195,12 +249,23 @@ def split_portal_route_modules(source):
         generated[module_name + '.py'] = (
             PORTAL_ROUTE_IMPORTS + top_level
         ).encode('utf-8')
-        wrapper = (
-            '        async def ' + function_name + '():\n'
-            '            return await ' + module_name + '.' + function_name + '(\n'
-            '                ' + ',\n                '.join(arguments) + '\n'
-            '            )\n'
-        )
+        if mutable_arguments:
+            wrapper = (
+                '        async def ' + function_name + '():\n'
+                '            nonlocal ' + ', '.join(mutable_arguments) + '\n'
+                '            result = await ' + module_name + '.' + function_name + '(\n'
+                '                ' + ',\n                '.join(arguments) + '\n'
+                '            )\n'
+                '            handled, ' + ', '.join(mutable_arguments) + ' = result\n'
+                '            return handled\n'
+            )
+        else:
+            wrapper = (
+                '        async def ' + function_name + '():\n'
+                '            return await ' + module_name + '.' + function_name + '(\n'
+                '                ' + ',\n                '.join(arguments) + '\n'
+                '            )\n'
+            )
         source = source[:start] + wrapper + source[end:]
         imports.append('import ' + module_name + '\n')
     if generated:
