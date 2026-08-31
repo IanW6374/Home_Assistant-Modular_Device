@@ -146,8 +146,47 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             await asyncio.sleep(0)
             await asyncio.sleep(0)
             self.assertEqual(supervisor.status('api')['status'], 'failed')
+            self.assertEqual(supervisor.status('api')['state'], 'failed')
+            self.assertEqual(supervisor.status('api')['failure_count'], 1)
+            self.assertEqual(supervisor.status('api')['start_count'], 1)
+            self.assertEqual(
+                supervisor.status('api')['last_error'], 'broken transport'
+            )
+            self.assertTrue(supervisor.status('api')['critical'])
             self.assertEqual(failures, [('api', 'broken transport')])
             self.assertTrue(any(value[0][0] == 'task_failed' for value in events.values))
+
+        asyncio.run(exercise())
+
+    def test_task_supervisor_exposes_heartbeat_and_degraded_health(self):
+        async def exercise():
+            ticks = iter((100, 125, 150, 175))
+            release = asyncio.Event()
+            supervisor = TaskSupervisor(clock=lambda: next(ticks))
+
+            async def worker():
+                await release.wait()
+
+            supervisor.start('worker', worker())
+            await asyncio.sleep(0)
+            self.assertTrue(supervisor.heartbeat('worker'))
+            health = supervisor.status('worker')
+            self.assertEqual(health['state'], 'running')
+            self.assertEqual(health['started_ms'], 100)
+            self.assertEqual(health['last_success_ms'], 125)
+
+            self.assertTrue(supervisor.degrade('worker', 'temporary timeout'))
+            health = supervisor.status('worker')
+            self.assertEqual(health['state'], 'degraded')
+            self.assertEqual(health['failure_count'], 1)
+            self.assertEqual(health['last_error'], 'temporary timeout')
+
+            release.set()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            health = supervisor.status('worker')
+            self.assertEqual(health['state'], 'complete')
+            self.assertEqual(health['last_success_ms'], 150)
 
         asyncio.run(exercise())
 

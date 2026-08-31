@@ -5,7 +5,27 @@ try:
 except ImportError:
     import asyncio
 
+try:
+    import time
+except ImportError:
+    time = None
+
 from .lifecycle import ApplicationLifecycle
+
+
+def _monotonic_ms():
+    if time is None:
+        return 0
+    try:
+        ticks = getattr(time, 'ticks_ms', None)
+        if ticks:
+            return int(ticks())
+        monotonic = getattr(time, 'monotonic', None)
+        if monotonic:
+            return int(monotonic() * 1000)
+        return int(time.time() * 1000)
+    except Exception:
+        return 0
 
 
 class RuntimeState:
@@ -35,12 +55,25 @@ class TaskSupervisor:
     """Own application tasks and report failures through one event boundary."""
 
     def __init__(self, event_service=None, critical_failure=None,
-                 task_factory=None):
+                 task_factory=None, clock=None):
         self.event_service = event_service
         self.critical_failure = critical_failure
         self.task_factory = task_factory or asyncio.create_task
+        self.clock = clock or _monotonic_ms
         self._tasks = {}
         self._states = {}
+
+    def _transition(self, name, status, **values):
+        previous = self._states.get(name, {})
+        state = dict(previous)
+        state.update({
+            'status': status,
+            'state': status,
+            'error': values.pop('error', ''),
+        })
+        state.update(values)
+        self._states[name] = state
+        return state
 
     def start(self, name, coroutine, critical=False):
         name = str(name)
@@ -50,25 +83,48 @@ class TaskSupervisor:
         if existing is not None and not getattr(existing, 'done', lambda: True)():
             raise RuntimeError('task is already running: ' + name)
 
-        self._states[name] = {'status': 'starting', 'error': ''}
+        previous = self._states.get(name, {})
+        self._states[name] = {
+            'status': 'starting',
+            'state': 'starting',
+            'error': '',
+            'last_error': previous.get('last_error', ''),
+            'failure_count': int(previous.get('failure_count', 0) or 0),
+            'start_count': int(previous.get('start_count', 0) or 0) + 1,
+            'started_ms': int(self.clock()),
+            'last_success_ms': int(previous.get('last_success_ms', 0) or 0),
+            'stopped_ms': 0,
+            'critical': bool(critical),
+        }
 
         async def runner():
-            self._states[name] = {'status': 'running', 'error': ''}
+            self._transition(name, 'running')
             self._emit('task_started', name, 'debug')
             try:
                 await coroutine
             except asyncio.CancelledError:
-                self._states[name] = {'status': 'cancelled', 'error': ''}
+                self._transition(
+                    name, 'cancelled', stopped_ms=int(self.clock())
+                )
                 self._emit('task_cancelled', name, 'debug')
                 raise
             except Exception as exc:
                 detail = str(exc) or exc.__class__.__name__
-                self._states[name] = {'status': 'failed', 'error': detail}
+                self._transition(
+                    name, 'failed', error=detail, last_error=detail,
+                    failure_count=int(
+                        self._states[name].get('failure_count', 0) or 0
+                    ) + 1,
+                    stopped_ms=int(self.clock())
+                )
                 self._emit('task_failed', name + ': ' + detail, 'error', True)
                 if critical and self.critical_failure:
                     self.critical_failure(name, exc)
             else:
-                self._states[name] = {'status': 'complete', 'error': ''}
+                now = int(self.clock())
+                self._transition(
+                    name, 'complete', last_success_ms=now, stopped_ms=now
+                )
                 self._emit('task_completed', name, 'debug')
             finally:
                 self._tasks.pop(name, None)
@@ -89,6 +145,29 @@ class TaskSupervisor:
         if task is None:
             return False
         task.cancel()
+        return True
+
+    def heartbeat(self, name):
+        """Record progress from a managed long-running task."""
+        name = str(name)
+        if name not in self._states:
+            return False
+        self._transition(name, 'running', last_success_ms=int(self.clock()))
+        return True
+
+    def degrade(self, name, error):
+        """Expose a recoverable service failure without ending its task."""
+        name = str(name)
+        if name not in self._states:
+            return False
+        detail = str(error) or 'degraded'
+        self._transition(
+            name, 'degraded', error=detail, last_error=detail,
+            failure_count=int(
+                self._states[name].get('failure_count', 0) or 0
+            ) + 1
+        )
+        self._emit('task_degraded', name + ': ' + detail, 'warning')
         return True
 
     def _emit(self, kind, detail, severity='info', durable=False):

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0-beta.3 - 2026-08-31
+
+- Expose all four certificate-management destinations directly in the
+  Maintenance menu and remove the redundant certificate-page tab bar.
+- Expand managed-task diagnostics with lifecycle state, criticality, start and
+  failure counts, last error, and successful heartbeat timing.
+- Record current free and allocated heap alongside the minimum free heap since
+  boot, without making point-in-time observations trigger flash checkpoints.
+- Route portal background operations through the central task supervisor so
+  their failures participate in the same runtime-health model.
+
 ## 2.4.0-beta.2 - 2026-08-31
 
 - Load the activation-heap policy through the signed application settings

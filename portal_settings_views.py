@@ -991,7 +991,8 @@ def render_health_history_page(csrf, status):
     data_groups = (
         ('System',
          ('boots', 'watchdog_resets'),
-         ('last_reset_cause', 'last_startup_exception', 'minimum_free_heap')),
+         ('last_reset_cause', 'last_startup_exception', 'current_free_heap',
+          'current_allocated_heap', 'minimum_free_heap')),
         ('Network',
          ('wifi_reconnects',),
          ('last_wifi_rssi', 'minimum_wifi_rssi')),

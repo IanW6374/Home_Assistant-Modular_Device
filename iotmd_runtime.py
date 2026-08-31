@@ -757,7 +757,7 @@ def start_portal_task(name, coroutine, message):
                 'message': str(result or 'Complete'),
             }
 
-    asyncio.create_task(runner())
+    start_task('portal_' + str(name), runner())
     return {
         'task_id': name,
         'message': str(message),
@@ -867,11 +867,11 @@ def local_display_status():
         'discovery_count': last_discovery_count,
         'alerts': alerts
     }
-    if gc and hasattr(gc, 'mem_free'):
-        status['heap_free_bytes'] = gc.mem_free()
-        runtime_health.observe_heap(status['heap_free_bytes'])
-    if gc and hasattr(gc, 'mem_alloc'):
-        status['heap_allocated_bytes'] = gc.mem_alloc()
+    heap_free = gc.mem_free() if gc and hasattr(gc, 'mem_free') else None
+    heap_allocated = gc.mem_alloc() if gc and hasattr(gc, 'mem_alloc') else None
+    if heap_free is not None: status['heap_free_bytes'] = heap_free
+    if heap_allocated is not None: status['heap_allocated_bytes'] = heap_allocated
+    runtime_health.observe_heap(heap_free, heap_allocated)
     return status
 
 
@@ -3144,7 +3144,8 @@ async def main(client):
         if watchdog:
             watchdog.feed()
         if gc and hasattr(gc, 'mem_free'):
-            runtime_health.observe_heap(gc.mem_free())
+            runtime_health.observe_heap(
+                gc.mem_free(), gc.mem_alloc() if hasattr(gc, 'mem_alloc') else None)
         try:
             runtime_health.observe_wifi(network.WLAN(network.STA_IF).status('rssi'))
         except Exception:

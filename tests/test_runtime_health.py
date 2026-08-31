@@ -25,17 +25,25 @@ class RuntimeHealthTests(unittest.TestCase):
 
     def test_tracks_minimum_heap_and_wifi_rssi(self):
         health = HealthHistory(self.path)
-        health.observe_heap(50000)
-        health.observe_heap(60000)
-        health.observe_heap(40000)
+        health.observe_heap(50000, 12000)
+        health.observe_heap(60000, 13000)
+        health.observe_heap(40000, 14000)
         health.observe_wifi(-55)
         health.observe_wifi(-72, reconnected=True)
 
         snapshot = health.snapshot()
+        self.assertEqual(snapshot['observations']['current_free_heap'], 40000)
+        self.assertEqual(snapshot['observations']['current_allocated_heap'], 14000)
         self.assertEqual(snapshot['observations']['minimum_free_heap'], 40000)
         self.assertEqual(snapshot['observations']['minimum_wifi_rssi'], -72)
         self.assertEqual(snapshot['observations']['last_wifi_rssi'], -72)
         self.assertEqual(snapshot['counters']['wifi_reconnects'], 1)
+
+        health.checkpoint(force=True)
+        restored = HealthHistory(self.path).snapshot()
+        self.assertIsNone(restored['observations']['current_free_heap'])
+        self.assertIsNone(restored['observations']['current_allocated_heap'])
+        self.assertEqual(restored['observations']['minimum_free_heap'], 40000)
 
     def test_update_result_is_forced_to_storage(self):
         health = HealthHistory(self.path, checkpoint_changes=100)

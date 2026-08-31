@@ -697,10 +697,11 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('aria-label="Maintenance submenu"', html)
         self.assertIn('href="/updates">Upgrades</a>', maintenance_menu)
         self.assertNotIn('/updates?check=1', maintenance_menu)
-        self.assertIn('href="/certificates">Certificates</a>', maintenance_menu)
-        self.assertNotIn('href="/certificate-authorities"', maintenance_menu)
-        self.assertNotIn('href="/api-client-trust"', maintenance_menu)
-        self.assertNotIn('href="/device-certificates"', maintenance_menu)
+        self.assertIn('class="nav-menu-section" role="presentation">Certificates</span>', maintenance_menu)
+        self.assertIn('href="/certificates">Certificate enrollment</a>', maintenance_menu)
+        self.assertIn('href="/certificate-authorities">CA &amp; signing trust</a>', maintenance_menu)
+        self.assertIn('href="/api-client-trust">API client trust</a>', maintenance_menu)
+        self.assertIn('href="/device-certificates">Device certificates</a>', maintenance_menu)
         self.assertIn('href="/logging" aria-current="page">Device log</a>', maintenance_menu)
         self.assertIn('<h1>Device log</h1>', html)
         self.assertIn('href="/audit-log">Audit log</a>', maintenance_menu)
@@ -719,8 +720,9 @@ class WebPortalTests(unittest.TestCase):
             '/certificate-authorities', 'csrf'
         )
         certificate_menu = certificates.split(
-            'aria-label="Certificates submenu"', 1
-        )[1].split('</nav>', 1)[0]
+            'aria-label="Maintenance submenu"', 1
+        )[1].split('</div>', 1)[0]
+        self.assertNotIn('aria-label="Certificates submenu"', certificates)
         self.assertIn('href="/certificates">Certificate enrollment</a>', certificate_menu)
         self.assertIn(
             'href="/certificate-authorities" aria-current="page">CA &amp; signing trust</a>',

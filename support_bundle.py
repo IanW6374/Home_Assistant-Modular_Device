@@ -43,9 +43,15 @@ def redact(value, depth=0):
 def build_support_bundle(device, health, modules=(), versions=None, fleet=None,
                          logs=()):
     free_heap = None
+    allocated_heap = None
     if gc and hasattr(gc, 'mem_free'):
         try:
             free_heap = int(gc.mem_free())
+        except Exception:
+            pass
+    if gc and hasattr(gc, 'mem_alloc'):
+        try:
+            allocated_heap = int(gc.mem_alloc())
         except Exception:
             pass
     return {
@@ -53,7 +59,10 @@ def build_support_bundle(device, health, modules=(), versions=None, fleet=None,
         'created_at': int(time.time()) if time else 0,
         'device': redact(device or {}),
         'versions': redact(versions or {}),
-        'runtime': {'free_heap': free_heap},
+        'runtime': {
+            'free_heap': free_heap,
+            'allocated_heap': allocated_heap,
+        },
         'health': redact(health.snapshot() if health else {}),
         'modules': redact(list(modules or ())[:MAX_MODULES]),
         'fleet': redact(fleet.snapshot() if fleet else {}),

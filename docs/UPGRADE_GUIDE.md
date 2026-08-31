@@ -83,28 +83,28 @@ of the automatic check schedule.
 ## Production build
 
 Build only from a clean, tested commit. This example uses beta version
-`2.4.0-beta.2` and release sequence `2601`:
+`2.4.0-beta.3` and release sequence `2602`:
 
 ```sh
-python3 tools/build_update.py releases/v2.4.0-beta.2/application-2.4.0-beta.2.iotapp \
-  --version 2.4.0-beta.2 --release-sequence 2601 \
+python3 tools/build_update.py releases/v2.4.0-beta.3/application-2.4.0-beta.3.iotapp \
+  --version 2.4.0-beta.3 --release-sequence 2602 \
   --signing-key /secure/update.signing-key \
   --mpy-cross /path/to/micropython/mpy-cross/build/mpy-cross
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.4.0-beta.2 --release-sequence 2601 \
-  --output releases/v2.4.0-beta.2/iotmd-core-2.4.0-beta.2.iotcore \
-  --factory-output /secure-output/iotmd-core-2.4.0-beta.2.factory.bin \
+  --version 2.4.0-beta.3 --release-sequence 2602 \
+  --output releases/v2.4.0-beta.3/iotmd-core-2.4.0-beta.3.iotcore \
+  --factory-output /secure-output/iotmd-core-2.4.0-beta.3.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
-  --factory-setup-password-output /secure-output/device-v2.4.0-beta.2.setup-password.txt
+  --factory-setup-password-output /secure-output/device-v2.4.0-beta.3.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.4.0-beta.2/universal-2.4.0-beta.2.iotuni \
-  --application releases/v2.4.0-beta.2/application-2.4.0-beta.2.iotapp \
-  --firmware releases/v2.4.0-beta.2/iotmd-core-2.4.0-beta.2.iotcore \
-  --version 2.4.0-beta.2 --release-sequence 2601 \
+  releases/v2.4.0-beta.3/universal-2.4.0-beta.3.iotuni \
+  --application releases/v2.4.0-beta.3/application-2.4.0-beta.3.iotapp \
+  --firmware releases/v2.4.0-beta.3/iotmd-core-2.4.0-beta.3.iotcore \
+  --version 2.4.0-beta.3 --release-sequence 2602 \
   --activation-order firmware-first \
   --signing-key /secure/update.signing-key
 ```

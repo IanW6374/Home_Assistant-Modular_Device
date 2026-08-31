@@ -45,6 +45,10 @@ PORTAL_CSS = (
     'display:none;min-width:13rem;padding:7px;border:1px solid var(--line);border-radius:11px;'
     'background:var(--surface);box-shadow:var(--shadow)}.nav-group:last-of-type .nav-dropdown{'
     'right:0;left:auto}.nav-dropdown .nav-link{display:flex;width:100%;white-space:nowrap}'
+    '.nav-menu-section{display:block;margin:5px 8px 2px;padding-top:7px;border-top:1px solid var(--line);'
+    'color:var(--muted);font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}'
+    '.nav-menu-section:first-child{margin-top:0;padding-top:2px;border-top:0}'
+    '.nav-menu-section+.nav-link{margin-top:1px}'
     '.nav-menu-trigger{border:0;background:transparent;color:var(--muted);font-weight:650}'
     '.nav-menu-trigger:hover,.nav-menu-trigger[aria-current="page"]{background:var(--bg);color:var(--ink)}'
     '.identity-menu{margin-left:6px}.identity-menu>.portal-identity{border:1px solid var(--accent);'
@@ -58,11 +62,6 @@ PORTAL_CSS = (
     '.restart-required form{margin:0}.restart-required button{padding:6px 9px;font-size:.78rem}'
     '.nav-group:hover>.nav-dropdown,.nav-group:focus-within>.nav-dropdown,'
     '.nav-group.open>.nav-dropdown{display:grid;gap:2px}'
-    '.section-menu-wrap{border-bottom:1px solid var(--line);background:var(--surface)}'
-    '.section-menu{display:flex;align-items:center;gap:5px;margin:0 clamp(16px,4vw,38px);'
-    'padding:8px 0;overflow-x:auto}.section-menu-title{padding:6px 10px 6px 0;'
-    'color:var(--muted);font-size:.78rem;font-weight:750;text-transform:uppercase;'
-    'letter-spacing:.06em;white-space:nowrap}.section-menu .nav-link{white-space:nowrap}'
     '.breadcrumb{display:flex;align-items:center;justify-content:flex-end;gap:7px;white-space:nowrap;'
     'margin:0 0 18px;color:var(--muted);font-size:.78rem}.breadcrumb a{color:var(--muted)}'
     '.breadcrumb-separator{color:#91a0a6}'
@@ -311,7 +310,10 @@ NAVIGATION = (
     )),
     ('maintenance', '/updates', 'Maintenance', (
         ('updates', '/updates', 'Upgrades'),
-        ('certificates', '/certificates', 'Certificates'),
+        ('certificates', '/certificates', 'Certificate enrollment'),
+        ('certificate_authorities', '/certificate-authorities', 'CA & signing trust'),
+        ('api_client_trust', '/api-client-trust', 'API client trust'),
+        ('device_certificates', '/device-certificates', 'Device certificates'),
         ('configuration_backup', '/configuration-backup', 'Configuration backup'),
         ('health_history', '/health-history', 'Health history'),
         ('logging', '/logging', 'Device log'),
@@ -520,19 +522,16 @@ def navigation(active, csrf):
     links = []
     for key, path, label, children in NAVIGATION:
         child_keys = tuple(item[0] for item in children)
-        section_active = (
-            key == 'maintenance' and active in CERTIFICATE_ACTIVE_KEYS
-        )
         current = ' aria-current="page"' if (
-            key == active or active in child_keys or section_active
+            key == active or active in child_keys
         ) else ''
         child_links = []
         for child_key, child_path, child_label in children:
-            child_current = ' aria-current="page"' if (
-                child_key == active or (
-                    child_key == 'certificates' and active in CERTIFICATE_ACTIVE_KEYS
+            if key == 'maintenance' and child_key == 'certificates':
+                child_links.append(
+                    '<span class="nav-menu-section" role="presentation">Certificates</span>'
                 )
-            ) else ''
+            child_current = ' aria-current="page"' if child_key == active else ''
             child_links.append(
                 '<a class="nav-link" role="menuitem" href="' +
                 escape(child_path) + '"' + child_current + '>' +
@@ -557,23 +556,6 @@ def navigation(active, csrf):
         '<!--portal-identity-details-->' + logout.replace(
             'class="secondary compact"', 'class="secondary compact identity-signout"'
         ) + '</div></div></nav>'
-    )
-
-
-def section_navigation(active):
-    if active not in CERTIFICATE_ACTIVE_KEYS:
-        return ''
-    links = []
-    for key, path, label in CERTIFICATE_NAVIGATION:
-        current = ' aria-current="page"' if key == active else ''
-        links.append(
-            '<a class="nav-link" href="' + escape(path) + '"' + current + '>' +
-            escape(label) + '</a>'
-        )
-    return (
-        '<div class="section-menu-wrap"><nav class="section-menu" '
-        'aria-label="Certificates submenu"><span class="section-menu-title">'
-        'Certificates</span>' + ''.join(links) + '</nav></div>'
     )
 
 
@@ -627,9 +609,7 @@ def shell(title, active, body, csrf='', script='', extra_css='', authenticated=T
         '<title>' + escape(title) + '</title><link rel="stylesheet" href="/assets/portal.css?v=' +
         escape(ASSET_VERSION) + '">'
         + ('<style>' + extra_css + '</style>' if extra_css else '') +
-        '</head><body>' + header + (
-            section_navigation(active) if authenticated else ''
-        ) + '<main' +
+        '</head><body>' + header + '<main' +
         (' class="' + escape(main_class) + '"' if main_class else '') +
         '>' + (breadcrumb(active) if authenticated else '') + body +
         '</main><script src="/assets/portal.js?v=' +

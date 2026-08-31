@@ -61,7 +61,10 @@ def _empty():
             'last_startup_exception': '',
             'last_wifi_rssi': None,
             'minimum_wifi_rssi': None,
+            'current_free_heap': None,
+            'current_allocated_heap': None,
             'minimum_free_heap': None,
+            'last_heap_observed_at': 0,
             'last_update_result': {},
         },
         'events': [],
@@ -94,6 +97,10 @@ class HealthHistory:
             base = _empty()
             base['counters'].update(value['counters'])
             base['observations'].update(value['observations'])
+            # Point-in-time heap values are runtime telemetry, not boot history.
+            base['observations']['current_free_heap'] = None
+            base['observations']['current_allocated_heap'] = None
+            base['observations']['last_heap_observed_at'] = 0
             base['events'] = value['events'][-self.max_events:]
             base['event_sequence'] = int(value.get('event_sequence', 0) or 0)
             base['updated_at'] = int(value.get('updated_at', 0) or 0)
@@ -126,7 +133,7 @@ class HealthHistory:
         self.checkpoint(force)
         return counters[str(name)]
 
-    def observe(self, name, value, minimum=False, force=False):
+    def observe(self, name, value, minimum=False, force=False, transient=False):
         name = str(name)
         observations = self.data['observations']
         if minimum:
@@ -134,6 +141,8 @@ class HealthHistory:
             if current is not None and value is not None and value >= current:
                 return current
         observations[name] = value
+        if transient:
+            return value
         self._dirty_changes += 1
         self.checkpoint(force)
         return value
@@ -210,9 +219,17 @@ class HealthHistory:
         if reconnected:
             self.increment('wifi_reconnects')
 
-    def observe_heap(self, free_bytes):
+    def observe_heap(self, free_bytes, allocated_bytes=None):
         if free_bytes is not None:
-            self.observe('minimum_free_heap', int(free_bytes), minimum=True)
+            free_bytes = int(free_bytes)
+            self.observe('current_free_heap', free_bytes, transient=True)
+            self.observe('minimum_free_heap', free_bytes, minimum=True)
+        if allocated_bytes is not None:
+            self.observe(
+                'current_allocated_heap', int(allocated_bytes), transient=True
+            )
+        if free_bytes is not None or allocated_bytes is not None:
+            self.observe('last_heap_observed_at', _now(), transient=True)
 
     def record_update_result(self, kind, result, version='', detail=''):
         value = {
