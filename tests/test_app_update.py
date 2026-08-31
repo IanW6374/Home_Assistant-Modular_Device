@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import json
 import os
@@ -20,7 +21,9 @@ from tools.build_update import compact_application_files
 from tools.build_update import generated_driver_index
 from tools.build_update import is_ignored
 from tools.build_update import load_ignore_patterns
-from tools.build_update import split_portal_route_modules
+from tools.build_update import (
+    chunk_runtime_string_literals, split_portal_route_modules,
+)
 
 
 class AppUpdateTests(unittest.TestCase):
@@ -629,6 +632,32 @@ class AppUpdateTests(unittest.TestCase):
             'async def handle_upload_routes(',
             routes['portal_route_upload.py'].decode()
         )
+
+    def test_large_renderer_strings_are_chunked_until_function_execution(self):
+        long_value = ('portal-status-' * 500) + '…'
+        source = (
+            'MODULE_VALUE = ' + repr(long_value) + '\n'
+            'def render():\n'
+            '    return ' + repr(long_value) + '\n'
+        )
+
+        transformed = chunk_runtime_string_literals(source, 256)
+        tree = ast.parse(transformed)
+        module_assignment = tree.body[0].value
+        renderer_return = tree.body[1].body[0].value
+
+        self.assertIsInstance(module_assignment, ast.Constant)
+        self.assertIsInstance(renderer_return, ast.Call)
+        renderer_chunks = renderer_return.args[0].elts
+        self.assertTrue(renderer_chunks)
+        self.assertLessEqual(
+            max(len(item.value.encode('utf-8')) for item in renderer_chunks),
+            256,
+        )
+        namespace = {}
+        exec(compile(tree, '<chunked>', 'exec'), namespace)
+        self.assertEqual(namespace['MODULE_VALUE'], long_value)
+        self.assertEqual(namespace['render'](), long_value)
 
     def test_certificate_target_can_use_trust_store_subdirectory(self):
         source = Path('home-iot-root.der')

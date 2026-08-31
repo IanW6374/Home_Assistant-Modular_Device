@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.3.11 - 2026-08-31
+
+- Store large renderer-local HTML and JavaScript constants as bounded 2 KiB
+  chunks in compact application bytecode, deferring their assembly until the
+  relevant page is requested.
+- Eliminate the hardware-observed 8,850-byte contiguous allocation during
+  `portal_live_views` import while preserving byte-for-byte renderer output.
+- Use core-firmware-first activation for the v2.2.9 to v2.3.11 universal
+  transition so MicroPython 1.29 and the compact v2.3 application start as one
+  paired, rollback-protected trial.
+
 ## 2.3.10 - 2026-08-31
 
 - Extract the remaining access-control and update-upload dispatchers from the

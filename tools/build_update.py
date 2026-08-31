@@ -201,6 +201,82 @@ COMPACT_MPY_SIZE_LIMITS = {
     'portal_route_live.mpy': 5500,
 }
 
+# A .mpy import materialises every string in its object table before executing
+# the module.  Large renderer-local HTML/JavaScript constants can therefore
+# require a large contiguous heap block during boot, even though the renderer
+# is not being called.  Keep the stored chunks small and join them only when
+# that renderer is used.  Module-level constants are intentionally left alone:
+# joining those during import would still need the same contiguous allocation.
+MAX_RUNTIME_STRING_CHUNK_BYTES = 2048
+
+
+def _string_chunks(value, maximum_bytes):
+    """Split text without breaking a UTF-8 code point or the byte limit."""
+    chunks = []
+    current = []
+    current_bytes = 0
+    for character in value:
+        encoded_bytes = len(character.encode('utf-8'))
+        if current and current_bytes + encoded_bytes > maximum_bytes:
+            chunks.append(''.join(current))
+            current = []
+            current_bytes = 0
+        current.append(character)
+        current_bytes += encoded_bytes
+    if current:
+        chunks.append(''.join(current))
+    return chunks
+
+
+class _RuntimeStringChunker(ast.NodeTransformer):
+    def __init__(self, maximum_bytes):
+        self.maximum_bytes = int(maximum_bytes)
+        self.function_depth = 0
+
+    def _visit_function(self, node):
+        self.function_depth += 1
+        try:
+            return self.generic_visit(node)
+        finally:
+            self.function_depth -= 1
+
+    def visit_FunctionDef(self, node):
+        return self._visit_function(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        return self._visit_function(node)
+
+    def visit_Constant(self, node):
+        value = node.value
+        if (
+            self.function_depth <= 0 or not isinstance(value, str) or
+            len(value.encode('utf-8')) <= self.maximum_bytes
+        ):
+            return node
+        chunks = _string_chunks(value, self.maximum_bytes)
+        replacement = ast.Call(
+            func=ast.Attribute(
+                value=ast.Constant(value=''), attr='join', ctx=ast.Load()
+            ),
+            args=[ast.Tuple(
+                elts=[ast.Constant(value=chunk) for chunk in chunks],
+                ctx=ast.Load(),
+            )],
+            keywords=[],
+        )
+        return ast.copy_location(replacement, node)
+
+
+def chunk_runtime_string_literals(source, maximum_bytes=MAX_RUNTIME_STRING_CHUNK_BYTES):
+    """Defer large renderer-local string assembly until the function runs."""
+    was_bytes = isinstance(source, bytes)
+    text = source.decode('utf-8') if was_bytes else str(source)
+    tree = ast.parse(text)
+    tree = _RuntimeStringChunker(maximum_bytes).visit(tree)
+    ast.fix_missing_locations(tree)
+    transformed = ast.unparse(tree) + '\n'
+    return transformed.encode('utf-8') if was_bytes else transformed
+
 
 def split_portal_route_modules(source):
     """Return a compact portal source plus independently compiled routes."""
@@ -317,6 +393,7 @@ def compact_application_files(files, content_overrides, compiler):
                     path.with_name(alias).read_bytes()
                     if alias else path.read_bytes()
                 )
+            source = chunk_runtime_string_literals(source)
             source_path = temporary / ('source-' + str(index) + '.py')
             output_path = temporary / ('module-' + str(index) + '.mpy')
             source_path.write_bytes(source)
