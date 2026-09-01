@@ -1,6 +1,6 @@
 # MicroPython and firmware baseline
 
-IoT-MD 2.5 beta uses MicroPython 1.29.0 at commit
+IoT-MD 2.5 uses MicroPython 1.29.0 at commit
 `0fd6c573ea815774668bbb16b8e197c8822368b2`. The complete ESP32-S3 core is
 built reproducibly with the project-owned board definition, frozen Python
 manifest, native cryptography module, signed OTA wrapper and secure factory
@@ -27,10 +27,10 @@ mode are all enabled.
 
 ## Validation result
 
-The v2.4 production-security build was validated with secure boot, flash
+The stable v2.5.0 production-security build was validated with secure boot, flash
 encryption, encrypted NVS, the IoT-MD native cryptography module and the frozen
 application manifest enabled. The resulting OTA application image is
-1,445,888 bytes, or 68.9% of the 2 MiB OTA partition. This is below both the
+1,511,424 bytes, or 72.1% of the 2 MiB OTA partition. This is below both the
 80% warning level and the 85% release failure threshold. A future ESP32 USB NCM
 core will require a fresh size/security and hardware qualification before
 promotion.
@@ -43,12 +43,13 @@ improvements. No administrator-visible feature is enabled solely because the
 runtime exposes a new API; new capabilities remain subject to the normal
 security, storage and hardware qualification process.
 
-## v2.4 capability adoption
+## Native backup-memory capability
 
-The v2.4 native `_iotmd_platform` module provides a bounded RTC no-init memory
-record because the qualified ESP32-S3 MicroPython build does not expose a
-standard backup-memory API. The Python platform layer will prefer a future
-standard runtime API when available. The record contains only boot counters,
+Introduced in v2.4 and retained in v2.5, the native `_iotmd_platform` module
+provides a bounded RTC no-init memory record because the qualified ESP32-S3
+MicroPython build does not expose a standard backup-memory API. The Python
+platform layer will prefer a future standard runtime API when available. The
+record contains only boot counters,
 stage, state, reset/update status and heap observations; CRC validation rejects
 undefined content after power loss, and atomic flash state remains available.
 
@@ -82,8 +83,9 @@ correctly reports session resumption unavailable.
 
 ## Opportunities retained for later qualification
 
-- USB NCM can provide an authenticated maintenance path after the beta firmware,
-  host compatibility and recovery interaction have completed qualification.
+- USB NCM can provide an authenticated maintenance path after a separately
+  qualified alpha firmware passes host compatibility, packet transfer and
+  recovery-interaction testing.
 - Native modules declared from manifests may simplify selected performance
   work, but the existing explicit native-module build remains easier to audit.
 
