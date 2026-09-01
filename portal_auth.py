@@ -61,7 +61,8 @@ def add_user(username, password, role='viewer'):
     return {'username': username, 'role': role, 'enabled': True}
 
 
-def update_user(username, role=None, enabled=None, password=None):
+def update_user(username, role=None, enabled=None, password=None,
+                new_username=None):
     config = credential_store.load(require_provisioned=True)
     user = _find(config, username)
     if not user:
@@ -83,6 +84,17 @@ def update_user(username, role=None, enabled=None, password=None):
         user['role'] = role
     if enabled is not None:
         user['enabled'] = bool(enabled)
+    if new_username is not None:
+        new_username = str(new_username).strip()
+        if not new_username or len(new_username) > 32:
+            raise ValueError('portal username must contain 1..32 characters')
+        existing = _find(config, new_username)
+        if existing is not None and existing is not user:
+            raise ValueError('portal username already exists')
+        old_username = str(user.get('username', ''))
+        user['username'] = new_username
+        if str(config['portal'].get('username', '')).lower() == old_username.lower():
+            config['portal']['username'] = new_username
     if password is not None:
         credential_security.validate_password_strength(password)
         user['password_verifier'] = credential_security.password_verifier(

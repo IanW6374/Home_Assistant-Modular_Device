@@ -5,6 +5,12 @@ commands, events, support data and fleet coordination. It listens on port 8444
 by default and always requires mutual TLS. The machine-readable contract is
 [`openapi.yaml`](openapi.yaml).
 
+From v2.5 the router consumes transport-neutral `APIRequest` objects and returns
+`APIResponse` objects. HTTPS/mTLS remains the supported external adapter; this
+internal separation does not create an unauthenticated API. A listener bound to
+`0.0.0.0` can serve any policy-enabled lwIP interface, including experimental
+USB NCM, using the same certificate registry and scopes.
+
 Its server certificate is stored independently from the web portal identity
 and is expected to chain to the private IoT CA. A public portal renewal never
 changes the Device API/fleet server identity.
@@ -28,8 +34,9 @@ use `-k` to bypass verification.
 
 ## Authentication and authorization
 
-Install one or more API client CAs under **Maintenance > Certificates**, then
-enable the listener under **System > Device API**. Each client certificate is
+Install one or more API client CAs under **Maintenance > Certificates > API
+client trust**, then
+enable the listener under **Device > Device API**. Each client certificate is
 registered by SHA-256 fingerprint with a label and scopes. Read requests require
 `read`, module commands require `write`, fleet reads require `fleet:read`, and
 fleet changes require `fleet:write`. Revocation is checked for every request,
@@ -43,7 +50,12 @@ handshake is substantially more expensive than a JSON request on ESP32-S3.
 
 | Method | Path | Scope | Result |
 | --- | --- | --- | --- |
-| GET | `/api/v2/device/inventory` | `read` | Device, module and fleet inventory |
+| GET | `/api/v2/device` | `read` | Identity, versions, uptime and release sequences |
+| GET | `/api/v2/interfaces` | `read` | Wi-Fi, MQTT, API, syslog and USB NCM state |
+| GET | `/api/v2/hardware` | `read` | Board, runtime capability, USB/NCM gates, drivers and resource bindings |
+| GET | `/api/v2/services` | `read` | Lifecycle, boot and effective feature-flag state |
+| GET | `/api/v2/configuration` | `read` | Bounded non-secret operating configuration |
+| GET | `/api/v2/device/inventory` | `read` | Compatibility combined device, module and fleet inventory |
 | GET | `/api/v2/health` | `read` | Bounded health counters and observations |
 | GET | `/api/v2/events?cursor=0&limit=32` | `read` | Cursor-based event page |
 | GET | `/api/v2/support` | `read` | Redacted support snapshot |
@@ -82,3 +94,11 @@ mutating calls create health and audit records. Responses are `no-store` JSON.
 Typical failures are `400` malformed input, `401` missing/invalid identity,
 `403` insufficient scope, `404` unknown endpoint/module/operation, `413`
 oversized input and `503` temporarily unavailable service.
+
+New clients should request only the smaller projection they need. The combined
+inventory endpoint is retained for existing management-suite clients but should
+not be used as a frequent polling endpoint. Configuration output contains no
+Wi-Fi/MQTT passwords, private keys, certificate payloads or password verifiers.
+USB diagnostics distinguish `usb_device`, `usb_ncm_hardware`,
+`usb_ncm_runtime` and `usb_ncm_available`; clients must use the last value for
+effective availability rather than inferring support from the runtime symbol.

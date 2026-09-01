@@ -40,6 +40,21 @@ class PortalAuthTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'administrator'):
             portal_auth.remove_user('admin')
 
+    def test_administrator_username_can_be_changed_from_user_management(self):
+        result = portal_auth.update_user('admin', new_username='portal-admin')
+        self.assertEqual(result['username'], 'portal-admin')
+        config = credential_store.load(require_provisioned=True)
+        self.assertEqual(config['portal']['username'], 'portal-admin')
+        self.assertIsNone(asyncio.run(portal_auth.authenticate(
+            'admin', 'Administrator-Cedar-47!River'
+        )))
+        self.assertEqual(
+            asyncio.run(portal_auth.authenticate(
+                'portal-admin', 'Administrator-Cedar-47!River'
+            ))['role'],
+            'administrator'
+        )
+
     def test_route_roles(self):
         self.assertEqual(portal_auth.required_role('GET', '/'), 'viewer')
         self.assertEqual(portal_auth.required_role('POST', '/activate-update'), 'operator')

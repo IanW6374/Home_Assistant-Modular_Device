@@ -1,9 +1,43 @@
 import unittest
+from unittest import mock
 
 import hardware_platform
 
 
 class HardwarePlatformTests(unittest.TestCase):
+    def test_optional_runtime_features_are_capability_detected(self):
+        original_target = hardware_platform.IS_ESP32_S3
+        try:
+            hardware_platform.IS_ESP32_S3 = False
+            self.assertFalse(hardware_platform.usb_ncm_capability()['supported'])
+            self.assertFalse(
+                hardware_platform.tls_session_capability()['supported']
+            )
+        finally:
+            hardware_platform.IS_ESP32_S3 = original_target
+
+    def test_usb_ncm_reports_hardware_separately_from_availability(self):
+        class Network:
+            class USBD_NCM:
+                pass
+
+        original_target = hardware_platform.IS_ESP32_S3
+        try:
+            hardware_platform.IS_ESP32_S3 = True
+            with mock.patch.dict('sys.modules', {'network': Network}):
+                result = hardware_platform.usb_ncm_capability()
+        finally:
+            hardware_platform.IS_ESP32_S3 = original_target
+
+        self.assertTrue(result['usb_device'])
+        self.assertTrue(result['usb_ncm_hardware'])
+        self.assertTrue(result['usb_ncm_runtime'])
+        self.assertFalse(result['usb_ncm_port_compatible'])
+        self.assertFalse(result['firmware_build_enabled'])
+        self.assertFalse(result['usb_ncm_available'])
+        self.assertFalse(result['supported'])
+        self.assertIn('not integrated', result['reason'])
+
     def test_heap_capability_reports_psram_heaps(self):
         class Esp32:
             @staticmethod

@@ -16,6 +16,7 @@ except ImportError:
     import ssl
 
 import http_support
+from api_contracts import APIRequest, APIResponse
 from portal_http import compatible_http_reader, is_http_timeout_error
 
 
@@ -48,7 +49,8 @@ def make_mtls_context(cert_path, key_path, client_ca_path):
 
 class DeviceAPI:
     def __init__(self, broker, health, registry, device_getter, log_output=None,
-                 fleet=None, support_getter=None):
+                 fleet=None, support_getter=None, feature_flags=None,
+                 configuration_getter=None):
         self.broker = broker
         self.health = health
         self.registry = registry
@@ -56,6 +58,8 @@ class DeviceAPI:
         self.log_output = log_output
         self.fleet = fleet
         self.support_getter = support_getter
+        self.feature_flags = feature_flags
+        self.configuration_getter = configuration_getter
 
     def connection_opened(self, identity, peer='unknown'):
         client = self.registry.identify(identity)
@@ -71,6 +75,20 @@ class DeviceAPI:
         return client
 
     def dispatch(self, method, path, body, identity, authenticated_client=None):
+        """Backward-compatible tuple interface for existing API callers."""
+        return self.handle(APIRequest(
+            method, path, body, identity, authenticated_client
+        )).as_tuple()
+
+    def handle(self, request):
+        """Handle an APIRequest without depending on its concrete transport."""
+        status, payload = self._dispatch(
+            request.method, request.path, request.body, request.identity,
+            request.client
+        )
+        return APIResponse(status, payload)
+
+    def _dispatch(self, method, path, body, identity, authenticated_client=None):
         route = str(path).split('?', 1)[0]
         is_fleet = route.startswith('/api/v2/fleet')
         scope = (
@@ -86,6 +104,30 @@ class DeviceAPI:
                 authenticated_client.get('fingerprint', ''), scope
             )
         self._record_request(client, method, route)
+
+        if method == 'GET' and route == '/api/v2/device':
+            return 200, {
+                'api_version': API_VERSION,
+                'device': self._device_section('device'),
+            }
+        if method == 'GET' and route == '/api/v2/interfaces':
+            return 200, {
+                'api_version': API_VERSION,
+                'interfaces': self._device_section('interfaces'),
+            }
+        if method == 'GET' and route == '/api/v2/hardware':
+            return 200, {
+                'api_version': API_VERSION,
+                'hardware': self._device_section('hardware'),
+            }
+        if method == 'GET' and route == '/api/v2/services':
+            return 200, {
+                'api_version': API_VERSION,
+                'services': self._device_section('services'),
+            }
+        if method == 'GET' and route == '/api/v2/configuration':
+            value = self.configuration_getter() if self.configuration_getter else {}
+            return 200, {'api_version': API_VERSION, 'configuration': value}
 
         if method == 'GET' and route == '/api/v2/device/inventory':
             return 200, {
@@ -180,6 +222,36 @@ class DeviceAPI:
                     self._audit(client, uuid, operation['id'])
                     return 202, operation
         return 404, {'error': 'endpoint not found'}
+
+    def _device_section(self, section):
+        value = self.device_getter()
+        if not isinstance(value, dict):
+            return {}
+        if section == 'device':
+            excluded = {
+                'drivers', 'resources', 'runtime', 'boot', 'capabilities',
+                'interfaces', 'features',
+            }
+            return {key: value[key] for key in value if key not in excluded}
+        if section == 'interfaces':
+            return dict(value.get('interfaces', {}))
+        if section == 'hardware':
+            return {
+                'board': value.get('board', ''),
+                'micropython_version': value.get('micropython_version', ''),
+                'drivers': value.get('drivers', []),
+                'resources': value.get('resources', []),
+                'capabilities': value.get('capabilities', {}),
+            }
+        if section == 'services':
+            result = {
+                'runtime': value.get('runtime', {}),
+                'boot': value.get('boot', {}),
+            }
+            if self.feature_flags is not None:
+                result['feature_flags'] = self.feature_flags.snapshot()
+            return result
+        return {}
 
     @staticmethod
     def _query_integer(path, name, default):
@@ -284,7 +356,7 @@ def _peer_address(reader, writer=None):
     return 'unknown'
 
 
-async def start_device_api(settings, api):
+async def _start_http_device_api(settings, api):
     if not settings.get('enabled'):
         return None
     maximum = int(settings.get('max_body_bytes', 8192))
@@ -316,9 +388,11 @@ async def start_device_api(settings, api):
                     return
                 length = int(headers.get('content-length', '0') or 0)
                 body = await http_support.read_exact_body(reader, length, maximum) if length else b''
-                status, payload = api.dispatch(
-                    method, path, body, identity, authenticated_client
-                )
+                response = api.handle(APIRequest(
+                    method, path, body, identity, authenticated_client,
+                    transport='https', peer=peer
+                ))
+                status, payload = response.as_tuple()
                 connection = str(headers.get('connection', '')).lower()
                 keep_alive = (
                     request_number < API_KEEP_ALIVE_REQUESTS - 1 and
@@ -364,3 +438,29 @@ async def start_device_api(settings, api):
         handle, settings.get('host', '0.0.0.0'), int(settings.get('port', 8444)),
         backlog=2, ssl=context
     )
+
+
+class DeviceAPIHTTPTransport:
+    """HTTPS/mTLS adapter for the transport-neutral DeviceAPI contract."""
+
+    def __init__(self, settings, api):
+        self.settings = settings
+        self.api = api
+        self.server = None
+
+    async def start(self):
+        self.server = await _start_http_device_api(self.settings, self.api)
+        return self.server
+
+    async def stop(self):
+        if self.server is not None and hasattr(self.server, 'close'):
+            self.server.close()
+            waiter = getattr(self.server, 'wait_closed', None)
+            if waiter:
+                await waiter()
+        self.server = None
+
+
+async def start_device_api(settings, api):
+    """Compatibility entry point returning the concrete listener object."""
+    return await DeviceAPIHTTPTransport(settings, api).start()

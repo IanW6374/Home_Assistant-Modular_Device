@@ -471,7 +471,9 @@ class AppUpdateTests(unittest.TestCase):
             'certificate_trust.py',
             'portal_http.py', 'portal_live_views.py',
             'portal_presenters.py', 'portal_settings_views.py',
-            'api_security.py', 'configuration_manager.py', 'device_api.py',
+            'api_security.py', 'configuration_manager.py', 'api_contracts.py',
+            'device_api.py', 'device_api_inventory.py', 'feature_flags.py',
+            'network_transports.py', 'tls_sessions.py',
             'fleet_management.py', 'portal_auth.py', 'portal_contracts.py',
             'portal_routes.py', 'portal_view_models.py', 'portal_sessions.py',
             'resumable_upload.py', 'support_bundle.py',
@@ -843,7 +845,7 @@ class AppUpdateTests(unittest.TestCase):
         for path in (
             'main.py', 'core_metadata.py', 'recovery_boot.py', 'app_update.py', 'firmware_update.py',
             'hardware_platform.py', 'boot_state.py', 'credential_store.py', 'setup_wizard.py',
-            'factory_config.py', 'release_update.py', 'device_config.py'
+            'factory_config.py', 'release_update.py', 'tls_sessions.py', 'device_config.py'
         ):
             self.assertIn('module("' + path + '"', manifest)
 

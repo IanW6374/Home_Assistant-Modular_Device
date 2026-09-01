@@ -36,6 +36,7 @@ class SettingsLoaderTests(unittest.TestCase):
             settings_loader.local_display,
             config['local_display']
         )
+        self.assertEqual(settings_loader.feature_policy, config['features'])
 
     def test_immutable_device_policy_comes_from_frozen_module(self):
         self.assertEqual(

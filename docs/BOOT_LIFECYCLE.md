@@ -1,6 +1,6 @@
 # Boot lifecycle and activation health
 
-IoT-MD v2.4 uses an explicit boot contract shared by the frozen recovery core
+IoT-MD v2.4 and later use an explicit boot contract shared by the frozen recovery core
 and replaceable application. The existing A/B application slots, dual OTA core
 partitions and universal-update coordinator remain authoritative for selection,
 confirmation and rollback.
@@ -85,9 +85,16 @@ recovery console. Application exceptions, capability failures and health-gate
 failures preserve the last stage, heap and bounded reason for USB, portal and
 support-bundle diagnosis.
 
+Universal activation is firmware-first, so the new recovery core must boot
+while the previous application generation is still mounted. Every
+project-local module imported by the frozen recovery layer is therefore part
+of the frozen-core dependency closure. The architecture check derives and
+validates this closure from `firmware/manifest.py`; recovery code must never
+depend on a helper supplied only by the matching application bundle.
+
 ## Toolchain boundary
 
-v2.4 remains pinned to MicroPython 1.29.0 and ESP-IDF 5.5.1. Changing the SDK
+v2.5 remains pinned to MicroPython 1.29.0 and ESP-IDF 5.5.1. Changing the SDK
 major version during boot qualification would combine independent sources of
 failure. ESP-IDF 6 evaluation is reserved for a future MicroPython alpha branch
 after upstream support and a separate hardware qualification campaign exist.

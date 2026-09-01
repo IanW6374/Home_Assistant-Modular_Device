@@ -11,9 +11,11 @@ IoT-MD deliberately separates browser-facing and service-facing trust.
 | Syslog server authentication | Dedicated Syslog trusted CA | Private CA used by IoT Syslog |
 | API/fleet clients | One or more API client CAs and enrolled client certificates | Private IoT CA |
 
-The public certificate is limited to the human-facing portal. MQTT, Device API,
-fleet, Syslog and release services do not become public merely because the
-portal has a browser-trusted certificate.
+The public certificate is limited to the human-facing portal. The private
+Device API/fleet identity is presented only by the inbound mutual-TLS Device API
+endpoint. MQTT, release/upgrade and Syslog are outbound TLS clients: they do not
+present the Device API/fleet identity and instead validate their remote servers
+using the corresponding installed CA trust anchors.
 
 ## TLS names and certificate chains
 
@@ -33,7 +35,7 @@ service and inspect the certificate actually presented on its network port.
 
 Public portal names such as `iot-md-001.iot.example.com` and private service names
 such as `iot-md-001.local` are intentionally separate. A public portal certificate
-does not replace the private Device API identity or any outbound service trust
+does not replace the private Device API/fleet identity or any outbound service trust
 anchor.
 
 ## Initial setup choices
@@ -42,14 +44,14 @@ The first-boot wizard starts with a certificate-route selector and displays
 only the fields for the selected route:
 
 1. **Automatic IoT CA enrollment** obtains a browser-trusted portal
-   certificate and a private-CA Device API identity through a short-lived,
+   certificate and a private-CA Device API/fleet identity through a short-lived,
    trusted-LAN enrollment window.
 2. **IoT CA enrollment authorization (`.iotenroll`)** obtains the same identity
    set from a one-time, host-bound authorization downloaded by the admin.
 3. **Private CA ACME enrollment** uses the device's `.local` name and HTTP-01 against
    the private IoT CA.
 4. **Manual certificate package** uploads an existing public portal chain/key
-   and private Device API certificate/key.
+   and private Device API/fleet certificate/key.
 5. **Self-signed device certificate** keeps the device-generated local fallback.
 
 No route is silently applied. Selecting **Self-signed device certificate** requires no
@@ -73,10 +75,11 @@ trust anchor is not mistaken for a device or client identity:
 - **API client trust** contains **Device API client issuer CA** anchors and
   enrolled **Device API caller certificates**. Removing an issuer CA reloads
   Device API trust; revoking a caller removes only that enrolled caller.
-- **Device certificates** contains the identities presented by the device:
-  **Portal HTTPS identity** and **Device API server identity**. Manual identity
-  installation is available here and is the only method without automatic
-  renewal.
+- **Device certificates** is a read-only inventory of identities currently
+  presented by the device: **Portal HTTPS identity** and **Device API and fleet
+  server identity**. Identities are installed or replaced from **Certificate
+  enrollment**. The **Manual certificate package** controls are shown there and
+  remain the only enrollment method without automatic renewal.
 
 The Management Suite verification key is a signing key rather than an X.509
 CA certificate. It verifies fleet policy and format-3 release catalogs; update
@@ -89,7 +92,7 @@ wizard:
 
 - **Private CA ACME enrollment** automatically renews its local portal certificate
   after two-thirds of its lifetime. It does not install or rotate a separate
-  Device API identity.
+  Device API/fleet identity.
 - **Automatic IoT CA enrollment** and **IoT CA enrollment authorization (`.iotenroll`)**
   install the public portal, private Device API and renewal identities together.
   The device uses the renewal identity to rotate the complete set automatically
@@ -130,7 +133,7 @@ the portal CSR and signs the API and renewal CSRs with its private authority.
 The returned response contains certificates and public trust only. It never
 contains a private key or Cloudflare token.
 
-The Device API server identity is installed as a leaf-plus-intermediate PEM
+The Device API and fleet server identity is installed as a leaf-plus-intermediate PEM
 chain (the filename remains the established API certificate path), allowing
 clients that trust the private root to validate the complete chain.
 
@@ -163,10 +166,10 @@ authority.
 
 ## Upgrades from 2.1.1
 
-When the independent Device API identity files are absent, the first boot after
+When the independent Device API/fleet identity files are absent, the first boot after
 upgrade copies the existing portal identity once so that the API remains
 reachable. The Certificates page marks this as an upgrade identity. Install a
-private-CA Device API server certificate and key to clear the warning. Future
+private-CA Device API and fleet server certificate and key to clear the warning. Future
 portal certificate changes never update the API identity.
 
 Complete encrypted backups include both identities. Restore validates each

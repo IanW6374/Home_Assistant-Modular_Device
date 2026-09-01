@@ -14,12 +14,17 @@ from portal_routes import ROUTES
 from portal_view_models import overview_metrics, update_check_summary
 from resumable_upload import ResumableUploadStore
 from services.update_service import UpdateService
-from tools.check_architecture import architecture_errors, module_imported_roots
+from tools.check_architecture import (
+    architecture_errors, frozen_dependency_errors, module_imported_roots,
+)
 
 
 class ArchitectureBoundaryTests(unittest.TestCase):
     def test_repository_architecture_gates_pass(self):
         self.assertEqual(architecture_errors(), [])
+
+    def test_frozen_recovery_contains_project_import_closure(self):
+        self.assertEqual(frozen_dependency_errors(), [])
 
     def test_compact_entry_rejects_an_old_core_before_runtime_import(self):
         tree = ast.parse(Path('iotmd.py').read_text(), filename='iotmd.py')
@@ -199,6 +204,23 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         manager.reserve('gpio', 10, 'sensor-a')
         with self.assertRaises(ResourceConflict):
             manager.reserve('gpio', 10, 'sensor-b')
+
+    def test_resource_manager_supports_logical_injected_resources(self):
+        created = []
+        manager = ResourceManager({'uart': lambda resource: created.append(resource) or object()})
+        manager.reserve(
+            'uart', 1, 'sensor-a', logical_name='sensor-a.rs485.uart'
+        )
+        scope = manager.scope('sensor-a')
+        first = scope.acquire('sensor-a.rs485.uart')
+        second = scope.acquire('sensor-a.rs485.uart')
+        self.assertIs(first, second)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(
+            scope.bindings()['sensor-a.rs485.uart'], 'uart:1'
+        )
+        with self.assertRaises(PermissionError):
+            manager.acquire('sensor-a.rs485.uart', 'sensor-b')
 
     def test_configured_uart_conflict_is_detected_before_driver_setup(self):
         errors, _manager = validate_resources([

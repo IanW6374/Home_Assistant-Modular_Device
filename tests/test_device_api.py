@@ -9,7 +9,9 @@ import api_security
 import certificate_manager
 import certificate_codec
 import device_api
+from api_contracts import APIRequest, APIResponse
 from device_api import DeviceAPI
+from feature_flags import FeatureFlags
 from runtime_health import HealthHistory
 
 
@@ -303,6 +305,39 @@ class DeviceAPITests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(support['redaction'], 'verified')
+
+    def test_transport_neutral_contract_and_split_device_endpoints(self):
+        self.registry.enrol(self.cert, 'dashboard', ('read',))
+        self.api.device_getter = lambda: {
+            'device_name': 'test', 'application_version': '2.5.0-beta.1',
+            'board': 'esp32-s3', 'micropython_version': '1.29.0',
+            'drivers': ['whes'], 'resources': [{'kind': 'uart', 'id': '1'}],
+            'capabilities': {'features': {'usb_ncm': False}},
+            'interfaces': {'wifi': {'state': 'online'}},
+            'runtime': {'lifecycle': {'state': 'running'}},
+            'boot': {'confirmed': True},
+        }
+        self.api.feature_flags = FeatureFlags()
+        self.api.configuration_getter = lambda: {'release_channel': 'beta'}
+
+        response = self.api.handle(APIRequest(
+            'GET', '/api/v2/device', identity=self.cert, transport='usb-ncm'
+        ))
+        self.assertIsInstance(response, APIResponse)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload['device']['device_name'], 'test')
+        self.assertNotIn('resources', response.payload['device'])
+
+        expected = {
+            '/api/v2/interfaces': 'interfaces',
+            '/api/v2/hardware': 'hardware',
+            '/api/v2/services': 'services',
+            '/api/v2/configuration': 'configuration',
+        }
+        for path, key in expected.items():
+            status, payload = self.api.dispatch('GET', path, b'', self.cert)
+            self.assertEqual(status, 200)
+            self.assertIn(key, payload)
 
     def test_restful_fleet_command_result_uses_path_identifier(self):
         class Fleet:

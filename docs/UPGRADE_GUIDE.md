@@ -70,7 +70,13 @@ reason.
 **Maintenance > Upgrades > Automatic upgrade** separates an immediate manual
 check from saved scheduling preferences. A schedule can be disabled, daily at
 the selected device-local time, or weekly at the selected weekday and local
-time. The device time zone is configured under **System > Time / Date**.
+time. The device time zone is configured under **Device > Time / Date**.
+
+User-facing terminology is deliberately consistent across IoT-MD and its
+management services: an **upgrade** installs a newer signed version, a
+**release** is a published artifact in the Management Suite, and a **rollout**
+applies a release to a fleet. Existing HTTP routes, configuration keys and
+source identifiers containing `update` remain stable for compatibility.
 
 **Automatically download applicable signed releases** and **Automatically
 activate verified releases** are independent settings. A check without
@@ -82,29 +88,29 @@ of the automatic check schedule.
 
 ## Production build
 
-Build only from a clean, tested commit. This example uses beta version
-`2.4.0-beta.3` and release sequence `2602`:
+Build only from a clean, tested commit. This example uses stable version
+`2.5.0` and release sequence `2705`:
 
 ```sh
-python3 tools/build_update.py releases/v2.4.0-beta.3/application-2.4.0-beta.3.iotapp \
-  --version 2.4.0-beta.3 --release-sequence 2602 \
+python3 tools/build_update.py releases/v2.5.0/application-2.5.0.iotapp \
+  --version 2.5.0 --release-sequence 2705 \
   --signing-key /secure/update.signing-key \
   --mpy-cross /path/to/micropython/mpy-cross/build/mpy-cross
 
 python3 tools/build_micropython_firmware.py \
   --micropython-root /path/to/micropython \
-  --version 2.4.0-beta.3 --release-sequence 2602 \
-  --output releases/v2.4.0-beta.3/iotmd-core-2.4.0-beta.3.iotcore \
-  --factory-output /secure-output/iotmd-core-2.4.0-beta.3.factory.bin \
+  --version 2.5.0 --release-sequence 2705 \
+  --output releases/v2.5.0/iotmd-core-2.5.0.iotcore \
+  --factory-output /secure-output/iotmd-core-2.5.0.factory.bin \
   --signing-key /secure/update.signing-key --production-security \
   --secure-boot-signing-key /secure/secure-boot-signing-key.pem \
-  --factory-setup-password-output /secure-output/device-v2.4.0-beta.3.setup-password.txt
+  --factory-setup-password-output /secure-output/device-v2.5.0.setup-password.txt
 
 python3 tools/build_universal_update.py \
-  releases/v2.4.0-beta.3/universal-2.4.0-beta.3.iotuni \
-  --application releases/v2.4.0-beta.3/application-2.4.0-beta.3.iotapp \
-  --firmware releases/v2.4.0-beta.3/iotmd-core-2.4.0-beta.3.iotcore \
-  --version 2.4.0-beta.3 --release-sequence 2602 \
+  releases/v2.5.0/universal-2.5.0.iotuni \
+  --application releases/v2.5.0/application-2.5.0.iotapp \
+  --firmware releases/v2.5.0/iotmd-core-2.5.0.iotcore \
+  --version 2.5.0 --release-sequence 2705 \
   --activation-order firmware-first \
   --signing-key /secure/update.signing-key
 ```

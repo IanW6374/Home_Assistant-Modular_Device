@@ -276,7 +276,7 @@ def render_update_summary_html(status):
                 (' — ' + html_escape(entry.get('detail', '')) if entry.get('detail') else '') +
                 '</li>'
             )
-        history_html = '<details class="update-history"><summary>Recent update history</summary><ul>' + ''.join(rows) + '</ul></details>'
+        history_html = '<details class="update-history"><summary>Recent upgrade history</summary><ul>' + ''.join(rows) + '</ul></details>'
     return (
         '<div id="update-summary" class="update-summary">' +
         '<div class="metric update-staged"><span>' + render_label('update_version') +
@@ -323,14 +323,14 @@ def render_update_activation_html(status, token):
     options = ''
     if option_html:
         options = (
-            '<span class="update-options"><span class="update-options-label">Application update options:</span>' +
+            '<span class="update-options"><span class="update-options-label">Application upgrade options:</span>' +
             ''.join(option_html) + '</span>'
         )
     return (
         '<form action="/activate-update" method="post" class="update-activate">' +
         '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
         options +
-        '<button class="secondary" type="submit" title="Apply the selected overwrite options and reboot into the staged update. The previous application is retained for rollback.">Activate and reboot</button>' +
+        '<button class="secondary" type="submit" title="Apply the selected overwrite options and reboot into the staged upgrade. The previous application is retained for rollback.">Activate and reboot</button>' +
         '</form>'
     )
 
@@ -355,7 +355,7 @@ def render_universal_update_html(status, token):
         '<form action="/activate-universal" method="post">'
         '<input type="hidden" name="csrf" value="' + html_escape(token) + '">'
         '<button class="secondary" type="submit" title="Boot the staged core and application '
-        'together and confirm both after the portal health check.">Activate universal update' +
+        'together and confirm both after the portal health check.">Activate universal upgrade' +
         ((' ' + html_escape(version)) if version else '') + ' and reboot</button></form>'
     )
 
@@ -395,7 +395,7 @@ def render_release_check_html(status, token):
         '<form action="/check-release" method="post">' +
         '<input type="hidden" name="csrf" value="' + html_escape(token) + '">' +
         '<button class="secondary" type="submit" title="Check the configured signed release channel now.">'
-        'Check for updates</button></form>'
+        'Check for upgrades</button></form>'
     )
     return check + download
 
@@ -421,6 +421,11 @@ def render_overview_status(status):
         if key == 'firmware_running_version':
             value = display_release_version(value)
         tone = ''
+        if key == 'device_state':
+            lowered = str(value).lower()
+            tone = ' good' if lowered in ('running', 'healthy') else (
+                ' bad' if lowered in ('failed', 'error') else ' warn'
+            )
         if key in ('mqtt', 'api', 'syslog'):
             lowered = str(value).lower()
             tone = ' good' if lowered in ('connected', 'up', 'online') else (
@@ -572,7 +577,7 @@ def render_logging_settings_page(token, settings, message='', error=False):
     )
     body = (
         portal_ui.page_heading(
-            'System', 'Logging',
+            'Device', 'Logging',
             'Configure Device log and Audit log retention and remote syslog forwarding.'
         ) + _notice(message, error) +
         '<section class="card"><div class="section-title"><h2>Retention and forwarding</h2></div>'
@@ -693,7 +698,7 @@ def render_update_preferences(csrf, settings):
         '<label class="check"><input type="checkbox" name="release_auto_activate"' + activate +
         '>Automatically activate verified releases</label>'
         '<div class="actions"><span></span><button class="secondary" type="submit">'
-        'Save update preferences</button></div></form>'
+        'Save upgrade preferences</button></div></form>'
     )
 
 def update_preferences_script():
@@ -719,11 +724,11 @@ def update_upload_script():
         'document.getElementById("update-bundle"),f=input.files&&input.files[0],out=document.getElementById('
         '"update-result"),box=document.getElementById("update-progress"),'
         'label=box.querySelector(".status-text");if(!f){portalRequire(input,'
-        '"Choose a .iotapp, .iotcore or .iotuni update bundle");return;}var firmware=/\\.iotcore$/i.test(f.name),'
+        '"Choose a .iotapp, .iotcore or .iotuni upgrade bundle");return;}var firmware=/\\.iotcore$/i.test(f.name),'
         'application=/\\.iotapp$/i.test(f.name),universal=/\\.iotuni$/i.test(f.name);'
         'function previous(text){out.className="status-history complete";out.textContent=text;}'
         'function failure(text){out.className="status-history failed";out.textContent=text;}'
-        'if(!firmware&&!application&&!universal){failure("Choose a .iotapp, .iotcore or .iotuni update bundle.");return;}'
+        'if(!firmware&&!application&&!universal){failure("Choose a .iotapp, .iotcore or .iotuni upgrade bundle.");return;}'
         'box.classList.remove("complete","failed");box.hidden=false;label.textContent="Uploading 0%";'
         'out.className="status-history";out.textContent="";'
         'var id="",polling=false,finished=false,timer=null;function schedulePoll(){if(!finished)timer=setTimeout(poll,1000);}'
@@ -826,7 +831,7 @@ def render_updates_page(token, status=None, settings=None, message='', error=Fal
             '<form id="update-upload-form" data-csrf="' + html_escape(token) + '">'
             '<div class="actions"><span><input id="update-bundle" class="file-input-hidden" type="file" required '
             'accept=".iotapp,.iotcore,.iotuni"><label class="button secondary file-button" for="update-bundle">'
-            'Choose update file</label> <span id="update-file-name" class="file-name">No file selected</span></span>'
+            'Choose upgrade file</label> <span id="update-file-name" class="file-name">No file selected</span></span>'
             '<button type="submit">Upload and verify</button></div></form>' +
             portal_ui.progress('update-progress', '0%', True) +
         '<p id="update-result" class="status-history" role="status" aria-live="polite">'
@@ -838,7 +843,7 @@ def render_updates_page(token, status=None, settings=None, message='', error=Fal
             'Maintenance', 'Upgrades',
             'Check, upload, verify and activate signed application or core firmware releases.'
         ) + _notice(message, error) +
-        '<section class="card"><div class="section-title"><h2>Versions and update state</h2></div>' +
+        '<section class="card"><div class="section-title"><h2>Versions and upgrade state</h2></div>' +
         render_update_summary_html(status) + '<div class="update-actions">' +
         render_application_rollback_html(status, token) + '</div></section>'
         '<div class="upgrade-grid"><section class="card"><div class="section-title">'

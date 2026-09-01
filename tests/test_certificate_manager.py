@@ -311,16 +311,24 @@ class CertificateManagerTests(unittest.TestCase):
         identities = web_portal.render_certificate_route(
             '/device-certificates', 'csrf', certificates=details
         )
+        enrollment = web_portal.render_certificate_route(
+            '/certificates', 'csrf', certificates=details
+        )
         api_trust = web_portal.render_certificate_route(
             '/api-client-trust', 'csrf', certificates=details
         )
         ca_trust = web_portal.render_certificate_route(
             '/certificate-authorities', 'csrf', certificates=details
         )
-        self.assertIn('/certificate-upload', identities)
-        self.assertIn('/validate-certificates', identities)
-        self.assertIn('Manual identity installation', identities)
-        self.assertIn('Device API server identity', identities)
+        self.assertNotIn('/certificate-upload', identities)
+        self.assertNotIn('/validate-certificates', identities)
+        self.assertNotIn('Manual identity installation', identities)
+        self.assertIn('Device API and fleet server identity', identities)
+        self.assertIn('MQTT, upgrade and syslog connections', identities)
+        self.assertIn('/certificate-upload', enrollment)
+        self.assertIn('/validate-certificates', enrollment)
+        self.assertIn('Manual certificate package', enrollment)
+        self.assertIn('Device API and fleet server identity', enrollment)
         self.assertIn('value="fleet-client-cert"', api_trust)
         self.assertIn('value="management-suite-key"', ca_trust)
         self.assertIn('MQTT broker CA', ca_trust)

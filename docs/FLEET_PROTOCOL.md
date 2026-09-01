@@ -10,9 +10,14 @@ Fleet clients use dedicated certificates with `fleet:read` and optional
 `fleet:write` scopes. Device identity is the immutable factory identifier plus
 certificate identity; hostnames are display and routing attributes.
 
-Inventory reports product, application/core versions, release sequences,
-board, capabilities, drivers, health, clock and update state. It never returns
-credentials, private keys or password verifiers.
+The combined inventory route remains available for existing managers. New
+fleet clients should use `/api/v2/device`, `/interfaces`, `/hardware`, and
+`/services`, retrieving module catalog and health only when required. This
+reduces peak device JSON allocation while reporting the same product,
+application/core versions, release sequences, board, capabilities, drivers,
+health and transport state. `/api/v2/configuration` contains only a bounded
+non-secret operating summary. No endpoint returns credentials, private keys or
+password verifiers.
 
 ## Signed policy
 

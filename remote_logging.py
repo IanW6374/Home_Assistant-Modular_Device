@@ -16,6 +16,7 @@ except ImportError:
     import ssl
 
 import http_support
+from tls_sessions import TLSSessionHandle, open_tls_connection
 
 
 SEVERITY = {'ERROR': 3, 'INFO': 6, 'DEBUG': 7}
@@ -50,6 +51,7 @@ class RemoteSyslog:
         self.consecutive_failures = 0
         self.last_error = ''
         self.status_callback = status_callback
+        self.tls_session = TLSSessionHandle()
 
     @property
     def enabled(self):
@@ -155,12 +157,9 @@ class RemoteSyslog:
         host = self.settings.get('host', '')
         port = int(self.settings.get('port', 6514))
         context = self._tls_context()
-        try:
-            return await asyncio.open_connection(
-                host, port, ssl=context, server_hostname=host
-            )
-        except TypeError:
-            return await asyncio.open_connection(host, port, ssl=context)
+        return await open_tls_connection(
+            asyncio, host, port, context, host, self.tls_session
+        )
 
     async def run(self):
         tls_reader = None

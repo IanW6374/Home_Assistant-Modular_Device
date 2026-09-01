@@ -27,6 +27,13 @@ IS_ESP32 = PLATFORM == 'esp32'
 IS_ESP32_S3 = IS_ESP32 and 'ESP32S3' in MACHINE_NAME.upper().replace('-', '')
 SPIRAM_HEAP_CAPABILITY = 1 << 10
 
+# These are deliberately independent gates. The ESP32-S3 has suitable USB
+# hardware, but MicroPython 1.29's generic USBD_NCM implementation has not been
+# qualified against the ESP32 port's ESP-IDF-managed network stack. Merely
+# finding network.USBD_NCM must never make the production feature available.
+USB_NCM_FIRMWARE_BUILD_ENABLED = False
+USB_NCM_ESP32_PORT_COMPATIBLE = False
+
 
 class NullOutput:
     """Pin-compatible no-op output for boards without a simple status LED."""
@@ -274,6 +281,7 @@ def capabilities():
     heap = heap_capability()
     backup = backup_memory_capability()
     ota = firmware_ota_capability()
+    usb_ncm = usb_ncm_capability()
     return {
         'platform': platform_id(),
         'machine': MACHINE_NAME,
@@ -284,10 +292,78 @@ def capabilities():
             'psram': bool(heap.get('psram_detected')),
             'watchdog': bool(machine and hasattr(machine, 'WDT')),
             'status_led': bool(machine and hasattr(machine, 'Pin')),
+            'usb_device': usb_ncm['usb_device'],
+            'usb_ncm_hardware': usb_ncm['usb_ncm_hardware'],
+            'usb_ncm_runtime': usb_ncm['usb_ncm_runtime'],
+            'usb_ncm_available': usb_ncm['usb_ncm_available'],
+            # Backward-compatible effective capability name.
+            'usb_ncm': usb_ncm['usb_ncm_available'],
+            'tls_session_resumption': tls_session_capability()['supported'],
         },
         'heap': heap,
         'backup_memory': backup,
         'firmware_ota': ota,
+        'usb_ncm': usb_ncm,
+    }
+
+
+def usb_ncm_capability():
+    """Report every NCM gate without treating a runtime symbol as support."""
+    usb_device = bool(IS_ESP32_S3)
+    usb_ncm_hardware = bool(IS_ESP32_S3)
+    try:
+        import network
+        usb_ncm_runtime = hasattr(network, 'USBD_NCM')
+    except ImportError:
+        usb_ncm_runtime = False
+    available = bool(
+        usb_device and usb_ncm_hardware and usb_ncm_runtime and
+        USB_NCM_FIRMWARE_BUILD_ENABLED and USB_NCM_ESP32_PORT_COMPATIBLE
+    )
+    if not usb_device:
+        reason = 'native USB device hardware is unavailable on this target'
+    elif not USB_NCM_ESP32_PORT_COMPATIBLE:
+        reason = (
+            'MicroPython 1.29 USBD_NCM is not integrated with the ESP32 '
+            'ESP-IDF-managed network port'
+        )
+    elif not USB_NCM_FIRMWARE_BUILD_ENABLED:
+        reason = 'firmware was not built with MICROPY_PY_NETWORK_USBD_NCM'
+    elif not usb_ncm_runtime:
+        reason = 'runtime does not expose network.USBD_NCM'
+    else:
+        reason = 'validated platform capability is available'
+    return {
+        'supported': available,
+        'usb_device': usb_device,
+        'usb_ncm_hardware': usb_ncm_hardware,
+        'usb_ncm_runtime': bool(usb_ncm_runtime),
+        'usb_ncm_port_compatible': USB_NCM_ESP32_PORT_COMPATIBLE,
+        'firmware_build_enabled': USB_NCM_FIRMWARE_BUILD_ENABLED,
+        'usb_ncm_available': available,
+        'reason': reason,
+        'experimental': True,
+    }
+
+
+def tls_session_capability():
+    """Report only a stable runtime session API, never infer from a version."""
+    if not IS_ESP32_S3:
+        return {
+            'supported': False,
+            'reason': 'TLS session resumption is evaluated on the device runtime',
+        }
+    try:
+        import ssl
+        available = hasattr(ssl, 'SSLSession')
+    except ImportError:
+        available = False
+    return {
+        'supported': bool(available),
+        'reason': (
+            'runtime exposes SSLSession' if available else
+            'MicroPython runtime exposes no stable SSLSession API'
+        ),
     }
 
 

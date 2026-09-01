@@ -2,6 +2,7 @@
 """Enforce the inward dependency rules documented for IoT-MD v2."""
 
 import ast
+import re
 from pathlib import Path
 
 
@@ -110,9 +111,35 @@ def module_imported_roots(path):
     return result
 
 
+def frozen_dependency_errors(root=ROOT):
+    """Require the recovery image to contain its project-local import closure.
+
+    Universal updates activate the firmware before the application.  A frozen
+    recovery module therefore cannot rely on a module being supplied by the
+    newer application bundle: during the first trial boot only the previous
+    application generation is available.
+    """
+    root = Path(root)
+    manifest = (root / 'firmware/manifest.py').read_text()
+    frozen = set(re.findall(r'module\("([^"]+\.py)"', manifest))
+    errors = []
+    for relative in sorted(frozen):
+        path = root / relative
+        if not path.is_file():
+            continue
+        for imported in sorted(module_imported_roots(path)):
+            dependency = imported + '.py'
+            if (root / dependency).is_file() and dependency not in frozen:
+                errors.append(
+                    'frozen dependency omitted: ' + relative +
+                    ' imports project module ' + dependency
+                )
+    return errors
+
+
 def architecture_errors(root=ROOT):
     root = Path(root)
-    errors = []
+    errors = frozen_dependency_errors(root)
     runtime_source = (root / 'iotmd_runtime.py').read_text()
     portal_import = runtime_source.find('from portal_server import start_web_portal')
     credential_import = runtime_source.find('import credential_security')

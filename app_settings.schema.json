@@ -3,6 +3,17 @@
   "title": "IoT-MD signed application settings",
   "type": "object",
   "properties": {
+    "features": {
+      "type": "object",
+      "properties": {
+        "transport_independent_api": {"type": "boolean"},
+        "split_api_payloads": {"type": "boolean"},
+        "hardware_resource_manager": {"type": "boolean"},
+        "usb_ncm": {"type": "boolean"},
+        "tls_session_resumption": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
     "ha": {
       "type": "object",
       "properties": {

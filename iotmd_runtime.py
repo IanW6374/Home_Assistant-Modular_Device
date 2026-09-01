@@ -51,8 +51,11 @@ import portal_auth
 import fleet_management
 import support_bundle
 import resumable_upload
+from feature_flags import FeatureFlags
+from network_transports import USBNetwork
 from remote_logging import RemoteSyslog
 from device_api import DeviceAPI, start_device_api
+from device_api_inventory import DeviceInventory
 from runtime_health import HealthHistory
 from message_broker import BoundedPublishQueue, ModuleBroker
 from services.event_service import EventService
@@ -229,6 +232,11 @@ release_base_url = runtime_credentials.get('preferences', {}).get(
 ) or release_update.release_base_url(device_settings.release_manifest_url)
 release_manifest_url = release_update.release_manifest_url(release_base_url)
 release_channel = runtime_credentials['release']['channel']
+runtime_features = FeatureFlags(device_settings.feature_policy, {'features': {
+    'usb_ncm': hardware_platform.usb_ncm_capability()['supported'],
+    'tls_session_resumption': hardware_platform.tls_session_capability()['supported'],
+}}, release_channel)
+usb_network = USBNetwork()
 certificate_config = runtime_credentials.get('certificate', {'mode': 'manual'})
 portal_certificate_hostname = (
     certificate_config.get('portal_hostname') or
@@ -442,7 +450,6 @@ application_context.register('modules', module_runtime)
 application_context.register('portal', portal_service)
 
 
-
 # Function:  Validate UUID
 def validUUID(uuid):
     if any(device['uuid'] == uuid for device in deviceObjects):
@@ -462,7 +469,6 @@ def find_device_type(device):
     return next((t for t in deviceTypes
                  if t['class'] == device['type']['class']
                  and device['type']['subclass'] in t['subclass']), None)
-
 
 
 # Function:  Validate device import
@@ -497,12 +503,9 @@ def deviceValidation (device):
     return not validationError
 
 
-
-
 class Style():
   ERROR = "\033[31m"
   RESET = "\033[0m"
-
 
 
 # Function:  Log Output       
@@ -1009,6 +1012,11 @@ def portal_status():
     status['remote_syslog'] = remote_syslog.status()
     status['syslog'] = remote_syslog.overview_status()
     status['paired_update'] = update_orchestrator.status()
+    usb_status = usb_network.snapshot()
+    status['network_transport'] = 'USB NCM' if usb_status.get('connected') else 'Wi-Fi'
+    status['usb_ncm_available'] = bool(usb_status.get('supported'))
+    status['hardware_resources'] = len(driver_loader.resource_catalog())
+    status['feature_flags'] = runtime_features.snapshot()
     return status
 
 
@@ -1730,7 +1738,7 @@ def validate_uploaded_certificates():
     if api_ca_payloads or all(api_server_staged):
         start_task('api_trust_reload', reload_device_api_listener())
         reloaded.append(
-            'Device API identity' if all(api_server_staged) else 'Device API trust'
+            'Device API/fleet identity' if all(api_server_staged) else 'Device API trust'
         )
     if reloaded:
         return {
@@ -1744,40 +1752,31 @@ def validate_uploaded_certificates():
     }
 
 
-def device_api_info():
-    return {
-        'device_name': ha_devicename,
-        'device_id': hardware_deviceid,
-        'application_version': app_update.running_version(
-            device_settings.ha_device_info.get('sw', '')
-        ),
-        'firmware_version': firmware_update.running_version(
-            hardware_platform.runtime_version()
-        ),
-        'micropython_version': hardware_platform.runtime_version(),
-        'uptime_s': uptime_seconds(),
-        'board': hardware_platform.platform_id(),
-        'drivers': module_runtime.inventory()['drivers'],
-        'resources': driver_loader.resource_catalog(),
-        'runtime': application_context.inventory(),
-        'boot': boot_tracker.snapshot(),
-        'capabilities': hardware_platform.capabilities(),
-        'release_sequence': app_update.running_release_sequence(),
-        'firmware_release_sequence': firmware_update.running_release_sequence(),
-    }
-
-
-def device_support_bundle():
-    return support_bundle.build_support_bundle(
-        device_api_info(), event_service.health, module_summaries(), {
-            'product': component_versions.PRODUCT_VERSION,
-            'application': app_update.running_version(''),
-            'firmware': firmware_update.running_version(''),
-            'micropython': hardware_platform.runtime_version(),
-        }, fleet_service, get_log_buffer()
-    )
-
-
+device_inventory = DeviceInventory({
+    'device_name': lambda: ha_devicename, 'device_id': lambda: hardware_deviceid,
+    'application_version': lambda: app_update.running_version(''),
+    'firmware_version': lambda: firmware_update.running_version(''),
+    'micropython_version': hardware_platform.runtime_version, 'uptime_s': uptime_seconds,
+    'board': hardware_platform.platform_id, 'drivers': lambda: module_runtime.inventory()['drivers'],
+    'resources': driver_loader.resource_catalog, 'runtime': application_context.inventory,
+    'boot': boot_tracker.snapshot, 'capabilities': hardware_platform.capabilities,
+    'network_state': lambda: application_context.state.get('network', 'unknown'),
+    'wifi_address': wifi_ip_address, 'mqtt_state': mqtt_connection_status,
+    'api_enabled': lambda: device_api_enabled, 'api_online': lambda: device_api_server is not None,
+    'api_port': lambda: device_api_port, 'syslog': remote_syslog.status,
+    'usb_ncm': usb_network.snapshot, 'features': runtime_features.snapshot,
+    'release_sequence': app_update.running_release_sequence,
+    'firmware_release_sequence': firmware_update.running_release_sequence,
+    'module_settings_file': lambda: moduleSettingsFile, 'release_channel': lambda: release_channel,
+    'portal_enabled': lambda: web_portal_enabled, 'portal_port': lambda: web_portal_port,
+    'portal_transport': lambda: 'https' if web_portal_https else 'http',
+    'support_builder': support_bundle.build_support_bundle, 'health': lambda: event_service.health,
+    'modules': module_summaries, 'product_version': lambda: component_versions.PRODUCT_VERSION,
+    'fleet': lambda: fleet_service, 'logs': get_log_buffer,
+})
+device_api_info = device_inventory.info
+device_api_configuration = device_inventory.configuration
+device_support_bundle = device_inventory.support
 async def start_module_api():
     global device_api_server
     if not device_api_enabled:
@@ -1790,7 +1789,9 @@ async def start_module_api():
         return None
     api = DeviceAPI(
         module_broker, runtime_health, api_client_registry,
-        device_api_info, logOutput, fleet_service, device_support_bundle
+        device_api_info, logOutput, fleet_service, device_support_bundle,
+        feature_flags=runtime_features,
+        configuration_getter=device_api_configuration,
     )
     try:
         migrated = certificate_manager.ensure_server_identity(
@@ -1822,8 +1823,6 @@ async def start_module_api():
         {'log': 'mTLS API listening on port ' + str(device_api_port)}, 'INFO'
     )
     return device_api_server
-
-
 def system_info_payload():
     update = app_update.update_status()
     firmware = firmware_update.update_status()
@@ -3053,6 +3052,8 @@ async def main(client):
             'ready' if api_server is not None else 'degraded'
         )
     )
+    if runtime_features.enabled('usb_ncm'):
+        start_task('usb_ncm', usb_network.run())
     application_context.lifecycle.transition('services-ready')
     start_task('fleet_policy_monitor', fleet_policy_monitor())
     if remote_syslog.active:

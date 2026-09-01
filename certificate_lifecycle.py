@@ -24,7 +24,7 @@ async def monitor(config, paths, log_output, reload_portal, reload_identity_set)
         log_output(
             'Local', 'Manual certificate package',
             {'log': 'Automatic renewal is unavailable. Replace the public portal and '
-                    'private Device API certificates before either identity expires.',
+                    'private Device API/fleet certificates before either identity expires.',
              'force': True},
             'INFO'
         )

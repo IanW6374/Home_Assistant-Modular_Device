@@ -81,14 +81,22 @@ def _application_file(name):
 
 APP_SETTINGS_FILE = _application_file('app_settings.json')
 _settings = load_required_json(APP_SETTINGS_FILE)
-_reject_unknown(_settings, ('ha', 'web_portal', 'local_display'), 'section')
+_reject_unknown(_settings, ('ha', 'features', 'web_portal', 'local_display'), 'section')
 _ha = _section(_settings, 'ha')
+_features = _section(_settings, 'features')
 _web_portal = _section(_settings, 'web_portal')
 local_display = _section(_settings, 'local_display')
 
 _reject_unknown(_ha, (
     'system_diagnostics',
 ), 'ha')
+_reject_unknown(_features, (
+    'transport_independent_api',
+    'split_api_payloads',
+    'hardware_resource_manager',
+    'usb_ncm',
+    'tls_session_resumption',
+), 'features')
 _reject_unknown(_web_portal, (
     'enabled',
     'log_refresh_s',
@@ -235,6 +243,16 @@ release_auto_activate = _preferences.get('release_auto_activate', False) is True
 ha_system_diagnostics = _optional(
     _ha, 'system_diagnostics', bool, False, 'ha.system_diagnostics'
 )
+feature_policy = {
+    name: _optional(_features, name, bool, default, 'features.' + name)
+    for name, default in (
+        ('transport_independent_api', True),
+        ('split_api_payloads', True),
+        ('hardware_resource_manager', True),
+        ('usb_ncm', False),
+        ('tls_session_resumption', False),
+    )
+}
 
 ha_device_info = dict(device_config.DEVICE_INFO)
 _application_state = app_update.update_status()

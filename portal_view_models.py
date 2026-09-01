@@ -4,10 +4,12 @@
 OVERVIEW_FIELDS = (
     ('device_name', 'Device'),
     ('device_state', 'Device state'),
+    ('network_transport', 'Network transport'),
     ('wifi_ip', 'Wi-Fi address'),
     ('mqtt', 'MQTT'),
     ('api', 'Device API'),
     ('syslog', 'Remote syslog'),
+    ('hardware_resources', 'Hardware resources'),
     ('uptime_s', 'Uptime (s)'),
     ('running_version', 'Application version'),
     ('firmware_running_version', 'Core version'),

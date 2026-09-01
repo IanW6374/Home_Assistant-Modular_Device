@@ -1,5 +1,89 @@
 # Changelog
 
+## 2.5.0 - 2026-09-01
+
+- Promote the tested 2.5 beta series to stable with transport-neutral Device
+  API contracts, smaller API projections and centrally resolved feature flags.
+- Add hardware resource management, explicit USB/NCM capability diagnostics
+  and safe ESP32-S3 gating while retaining Wi-Fi as the production transport.
+- Improve runtime reliability, boot-health reporting, certificate and logging
+  navigation, portal-user administration and consistent upgrade terminology.
+- Finalise the Status, Device, Module, User, Maintenance navigation order with
+  alphabetised destinations, click-to-expand Maintenance categories and
+  origin-preserving avatar-menu password changes.
+
+## 2.5.0-beta.5 - 2026-09-01
+
+- Restore the requested Status, Device, Module, User, Maintenance top-level
+  order while keeping the destinations within each dropdown alphabetical.
+- Make the Maintenance Certificates and Logging categories click-to-expand,
+  keep unrelated categories collapsed, and retain the active category on its
+  destination pages.
+- Return successful avatar-menu password changes to the originating portal
+  page and give portal-user cards a bounded width with clearly separated user
+  actions.
+
+## 2.5.0-beta.4 - 2026-09-01
+
+- Standardise the portal navigation around **Device**, **Maintenance**,
+  **Module**, **Status** and **User**, alphabetise destinations and render
+  certificate and logging destinations as always-visible labelled groups in
+  the Maintenance menu.
+- Rename Messaging to **MQTT**, Device control to **Power & reset**, and use
+  **upgrade** consistently for device software installation while retaining
+  compatible internal `update` routes and state keys.
+- Move password changes into an avatar-menu dialog, split existing and new
+  portal users, and allow administrator usernames and other portal identities
+  to be renamed without invalidating their current sessions.
+- Restore Health History timestamps and expose current device state, boot
+  stage, active network transport, hardware allocations, USB NCM availability
+  and effective runtime features alongside the persistent health counters.
+
+## 2.5.0-beta.3 - 2026-09-01
+
+- Replace the flat certificate links in Maintenance with a grouped
+  **Certificates** submenu containing enrollment, CA/signing trust, API client
+  trust and device-certificate destinations.
+- Keep the certificate destinations visible whenever Maintenance is open,
+  mark the active destination and increment the portal asset version so
+  browsers fetch the corrected navigation CSS and JavaScript.
+
+## 2.5.0-beta.2 - 2026-09-01
+
+- Freeze the TLS-session compatibility seam required by the recovery-layer
+  release client, allowing a firmware-first universal trial to start while the
+  previous application generation is still active.
+- Enforce the complete project-local import closure of every frozen recovery
+  module at build/test time, preventing another core from depending on files
+  available only in its matching application bundle.
+
+## 2.5.0-beta.1 - 2026-09-01
+
+- Introduce transport-neutral Device API request/response contracts and retain
+  HTTPS/mTLS as an adapter, allowing the same API router to serve any qualified
+  IP interface without duplicating domain behavior.
+- Add smaller `/api/v2/device`, `/interfaces`, `/hardware`, `/services`, and
+  `/configuration` projections while retaining the combined inventory endpoint
+  for backward compatibility.
+- Add central signed feature flags resolved against the release channel,
+  firmware build and detected runtime capabilities; expose both enabled state
+  and the reason a requested feature is unavailable.
+- Add the experimental USB NCM transport contract, lifecycle and capability
+  gating. The current ESP32-S3 core reports it unavailable because MicroPython
+  1.29's generic driver is not yet integrated with the ESP32 network/TinyUSB
+  port; Wi-Fi remains the required interface.
+- Separate USB device hardware, NCM hardware, runtime symbol and validated NCM
+  availability diagnostics so `network.USBD_NCM` alone cannot enable the
+  production transport.
+- Add an opaque TLS-session handle accepted by outbound clients without claiming
+  resumption support on MicroPython 1.29, which exposes no stable session API.
+- Extend hardware preflight into an owner-scoped logical resource manager with
+  provider injection and shared-instance caching; migrate MAX31865 SPI and
+  chip-select construction to the injected resource path.
+- Show a healthy running Device State tile with the same green treatment as
+  other healthy services and keep certificate destinations persistently visible
+  in the open Maintenance menu.
+
 ## 2.4.0-beta.3 - 2026-08-31
 
 - Expose all four certificate-management destinations directly in the

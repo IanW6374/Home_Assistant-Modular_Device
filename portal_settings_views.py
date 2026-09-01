@@ -168,7 +168,7 @@ def render_settings_page(csrf, settings, message='', error=False):
     )
     body = (
         portal_ui.page_heading(
-            'System', 'Network', 'Configure the device identity and wireless network.'
+            'Device', 'Network', 'Configure the device identity and wireless network.'
         ) + _notice(message, error) +
         '<form action="/settings" method="post" autocomplete="off">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">' +
@@ -243,7 +243,7 @@ def render_portal_settings_page(csrf, settings, message='', error=False):
     session_timeout_minutes = max(5, min(1440, (session_timeout_s + 59) // 60))
     body = (
         portal_ui.page_heading(
-            'System', 'Portal', 'Configure portal transport and listening port.'
+            'Device', 'Portal', 'Configure portal transport and listening port.'
         ) + _notice(message, error) +
         '<form action="/portal-settings" method="post" autocomplete="off">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">' +
@@ -289,7 +289,7 @@ def render_ntp_settings_page(csrf, settings, message='', error=False):
     )
     body = (
         portal_ui.page_heading(
-            'System', 'Time / Date',
+            'Device', 'Time / Date',
             'Configure UTC time synchronisation and automatic local daylight-saving rules.'
         ) + _notice(message, error) +
         '<form action="/ntp-settings" method="post" autocomplete="off">'
@@ -324,7 +324,7 @@ def render_messaging_page(csrf, settings, message='', error=False):
     )
     body = (
         portal_ui.page_heading(
-            'System', 'Messaging',
+            'Device', 'MQTT',
             'Configure platform-neutral MQTT messaging and the optional Home Assistant integration.'
         ) + _notice(message, error) +
         '<form action="/messaging" method="post" autocomplete="off">'
@@ -383,7 +383,7 @@ def render_messaging_page(csrf, settings, message='', error=False):
         '<form id="discovery-publish-form" action="/discover" method="post">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '"></form>'
     )
-    return portal_ui.shell('IoT-MD messaging', 'messaging', body, csrf)
+    return portal_ui.shell('IoT-MD MQTT', 'messaging', body, csrf)
 
 def render_device_api_page(csrf, settings, message='', error=False):
     enabled = ' checked' if settings.get('api_enabled') else ''
@@ -421,7 +421,7 @@ def render_device_api_page(csrf, settings, message='', error=False):
         rows.append('<p class="muted">No API client certificates are enrolled.</p>')
     body = (
         portal_ui.page_heading(
-            'System', 'Device API',
+            'Device', 'Device API',
             'Expose module state and commands over a versioned HTTPS API secured with mutual TLS.'
         ) + _notice(message, error) +
         '<section class="card"><div class="section-title"><h2>API listener</h2></div>'
@@ -461,11 +461,13 @@ def render_user_settings_page(
             for value in ('viewer', 'operator', 'administrator')
         )
         user_rows.append(
-            '<article class="module-card"><div class="module-card-title"><strong>' +
+            '<article class="module-card portal-user-card"><div class="module-card-title"><strong>' +
             html_escape(name) + '</strong><span class="badge">' + html_escape(role) +
             '</span></div><form action="/user/update" method="post">'
             '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">'
             '<input type="hidden" name="username" value="' + html_escape(name) + '">'
+            '<label class="field">Username<input name="new_username" required maxlength="32" value="' +
+            html_escape(name) + '"></label>'
             '<label class="field">Role<select name="role">' + options + '</select></label>'
             '<label class="check"><input type="checkbox" name="enabled" value="true"' +
             (' checked' if enabled else '') + '>Enabled</label><div class="actions"><span></span>'
@@ -479,21 +481,14 @@ def render_user_settings_page(
         )
     body = (
         portal_ui.page_heading(
-            'User', 'Account',
-            'Manage the administrator identity and password used to sign in to this portal.'
-        ) + _notice(message, error) +
-        '<form action="/user" method="post" autocomplete="off">'
-        '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">' +
-        render_operational_hidden_fields(settings, ('portal_username',)) +
-        '<section class="card"><div class="section-title"><h2>Administrator identity</h2></div>'
-        '<label class="field">Portal username<input name="portal_username" required maxlength="32" '
-        'value="' + html_escape(settings.get('portal_username', 'admin')) + '"></label>'
-        '<div class="actions"><span></span><button type="submit">Save changes</button>'
-        '</div></section></form>' + render_password_change_form(
-            csrf, password_message if password_error else ''
-        ) + '<section class="card"><div class="section-title"><h2>Portal users</h2>'
-        '<span class="badge">Maximum 8</span></div><div class="module-grid">' +
-        ''.join(user_rows) + '</div><form action="/user/add" method="post" autocomplete="off">'
+            'User', 'Portal users',
+            'Manage portal usernames, roles and access. Change your own password from the avatar menu.'
+        ) + _notice(message, error) + _notice(password_message, password_error) +
+        '<section class="card"><div class="section-title"><h2>Existing portal users</h2>'
+        '<span class="badge">Maximum 8</span></div><div class="module-grid portal-user-grid">' +
+        ''.join(user_rows) + '</div></section>'
+        '<section class="card"><div class="section-title"><h2>New portal user</h2></div>'
+        '<form action="/user/add" method="post" autocomplete="off">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '"><div class="grid">'
         '<label class="field">Username<input name="username" required maxlength="32"></label>'
         '<label class="field">Role<select name="role"><option value="viewer">Viewer</option>'
@@ -503,7 +498,7 @@ def render_user_settings_page(
         '<div class="actions"><span></span><button type="submit">Add portal user</button></div>'
         '</form></section>'
     )
-    return portal_ui.shell('IoT-MD account', 'user_settings', body, csrf)
+    return portal_ui.shell('IoT-MD portal users', 'user_settings', body, csrf)
 
 def render_module_settings_page(csrf, module_json='{"devices":[]}', message='', error=False):
     body = (
@@ -569,7 +564,7 @@ def render_certificate_details(certificates):
             if details.get('migration_pending'):
                 rows.append(
                     '<p class="warning-text">Upgrade identity only: replace this with a '
-                    'private-CA Device API server certificate.</p>'
+                    'private-CA Device API and fleet server certificate.</p>'
                 )
             for field, field_label in (
                 ('subject', 'Subject'), ('issuer', 'Issuer'),
@@ -618,7 +613,7 @@ def render_certificate_details(certificates):
             certificate_card('portal', 'Portal HTTPS certificate') +
             certificate_card(
                 'api_server', 'Device API and fleet server certificate',
-                'No independent API server identity is installed.'
+                'No independent Device API/fleet server identity is installed.'
             )
         ),
     )
@@ -640,20 +635,20 @@ def render_certificate_page(csrf, message='', certificates=None):
     renewal = {
         'iot_ca_auto': (
             'success', 'Automatic IoT CA enrollment',
-            'The public portal, private Device API and renewal identities are '
+            'The public portal, private Device API/fleet and renewal identities are '
             'automatically rotated together after two-thirds of the public portal '
             'or Device API certificate lifetime.'
         ),
         'iot_ca_file': (
             'success', 'IoT CA enrollment authorization (.iotenroll)',
-            'The public portal, private Device API and renewal identities are '
+            'The public portal, private Device API/fleet and renewal identities are '
             'automatically rotated together after two-thirds of the public portal '
             'or Device API certificate lifetime.'
         ),
         'acme': (
             'success', 'Private CA ACME enrollment',
             'The local portal certificate is automatically renewed after two-thirds '
-            'of its lifetime. This method does not manage a separate Device API identity.'
+            'of its lifetime. This method does not manage a separate Device API/fleet identity.'
         ),
         'self_signed': (
             'info', 'Self-signed device certificate',
@@ -663,7 +658,7 @@ def render_certificate_page(csrf, message='', certificates=None):
         'manual': (
             'warning', 'Manual certificate package',
             'Automatic renewal is unavailable. Replace the public portal and private '
-            'Device API certificates before either identity expires.'
+            'Device API/fleet certificates before either identity expires.'
         ),
     }.get(certificate_method, (
         'warning', 'Unknown certificate method',
@@ -700,7 +695,7 @@ def render_certificate_page(csrf, message='', certificates=None):
         '<p class="muted">Choose the certificate purpose, select the DER file or files, then '
         'validate and install them as one operation.</p><label class="field">Certificate type'
         '<select id="certificate-type"><option value="portal">Portal certificate and private key</option>'
-        '<option value="api-server">Device API server certificate and private key</option>'
+        '<option value="api-server">Device API and fleet server certificate and private key</option>'
         '<option value="mqtt-ca">MQTT trusted CA</option><option value="release-ca">Release-server trusted CA</option>'
         '<option value="management-suite-key">Management Suite verification key</option>'
         '<option value="syslog-ca">Syslog trusted CA</option><option value="api-client-ca">API client CA trust</option>'
@@ -721,8 +716,8 @@ def render_certificate_page(csrf, message='', certificates=None):
         '"certificate-secondary"),secondaryLabel=document.getElementById("certificate-secondary-label"),'
         'primaryLabel=document.getElementById("certificate-primary-label"),help=document.getElementById('
         '"certificate-help");var descriptions={portal:["Portal certificate","Portal private key",'
-        '"Both files are validated together; installation restarts the portal."],"api-server":["Device API server certificate",'
-        '"Device API server private key","Both private-CA files are validated together; the mTLS API reloads without a device restart."],"mqtt-ca":["MQTT trusted CA","",'
+        '"Both files are validated together; installation restarts the portal."],"api-server":["Device API and fleet server certificate",'
+        '"Device API and fleet server private key","Both private-CA files are validated together; the mTLS API reloads without a device restart."],"mqtt-ca":["MQTT trusted CA","",'
         '"Authenticates the MQTT broker."],"release-ca":["Release-server trusted CA","",'
         '"Authenticates the signed release server."],"management-suite-key":["Management Suite verification key","",'
         '"Verifies fleet policy and format-3 release catalogs; bundle signatures remain independently verified."],"syslog-ca":["Syslog trusted CA","",'
@@ -773,7 +768,7 @@ def render_certificate_page(csrf, message='', certificates=None):
 def render_device_control_page(csrf, error=''):
     body = (
         portal_ui.page_heading(
-            'Maintenance', 'Device control',
+            'Maintenance', 'Power & reset',
             'Restart, shut down, or return this device to factory defaults.'
         ) + _notice(error, True) +
         '<section class="card"><div class="section-title"><h2>Power controls</h2></div>'
@@ -788,7 +783,7 @@ def render_device_control_page(csrf, error=''):
         '<section class="card"><div class="section-title"><h2>Factory default</h2></div>'
         '<p class="warning"><strong>This cannot be undone.</strong> Network, MQTT, portal, '
         'Home Assistant, module, certificate, ACME and log-history data will be erased. '
-        'The signed core, active application and update verification key are retained.</p>'
+        'The signed core, active application and upgrade verification key are retained.</p>'
         '<form method="post" action="/factory-default" autocomplete="off">'
         '<input type="hidden" name="csrf" value="' + html_escape(csrf) + '">'
         '<div class="grid"><label class="field">Current administrator password'
@@ -806,7 +801,7 @@ def render_device_control_page(csrf, error=''):
         '<span></span><button class="danger" type="submit">Erase settings and restart</button>'
         '</div></form></section>'
     )
-    return portal_ui.shell('IoT-MD device control', 'device_control', body, csrf)
+    return portal_ui.shell('IoT-MD power and reset', 'device_control', body, csrf)
 
 
 def render_factory_default_page(csrf, error=''):
@@ -964,7 +959,7 @@ def render_configuration_backup_page(csrf, message=''):
 def _health_time_text(epoch, timezone_name='UTC'):
     try:
         value = int(epoch or 0)
-        if value <= 0 or time is None:
+        if value <= 0:
             return 'Time unavailable'
         current = timezone_rules.localtime(value, timezone_name)
         return '{:04}-{:02}-{:02} {:02}:{:02}:{:02}'.format(
@@ -983,16 +978,39 @@ def _health_value(value, timezone_name='UTC'):
         )
     return str(value)
 
+
+def _latest_health_time(health):
+    """Return the newest persisted health timestamp available."""
+    candidates = [health.get('updated_at', 0)]
+    observations = health.get('observations', {}) or {}
+    candidates.append(observations.get('last_heap_observed_at', 0))
+    for value in observations.values():
+        if isinstance(value, dict):
+            candidates.append(value.get('time', 0))
+    for event in health.get('events', ()) or ():
+        if isinstance(event, dict):
+            candidates.append(event.get('time', 0))
+    valid = []
+    for value in candidates:
+        try:
+            value = int(value or 0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            valid.append(value)
+    return max(valid) if valid else 0
+
 def render_health_history_page(csrf, status):
     health = (status or {}).get('health_history', {}) or {}
     counters = health.get('counters', {}) or {}
     observations = health.get('observations', {}) or {}
     timezone_name = (status or {}).get('timezone_name', 'UTC')
     data_groups = (
-        ('System',
+        ('Device',
          ('boots', 'watchdog_resets'),
          ('last_reset_cause', 'last_startup_exception', 'current_free_heap',
-          'current_allocated_heap', 'minimum_free_heap')),
+          'current_allocated_heap', 'minimum_free_heap',
+          'last_heap_observed_at')),
         ('Network',
          ('wifi_reconnects',),
          ('last_wifi_rssi', 'minimum_wifi_rssi')),
@@ -1002,7 +1020,7 @@ def render_health_history_page(csrf, status):
         ('API',
          ('api_requests', 'api_commands', 'api_failures'),
          ()),
-        ('Updates', (), ('last_update_result',)),
+        ('Upgrades', (), ('last_update_result',)),
     )
     grouped = []
     shown_counters = set()
@@ -1019,7 +1037,7 @@ def render_health_history_page(csrf, status):
 
     def update_result_items(value):
         if not isinstance(value, dict) or not value:
-            return health_item('last_update_result', 'No update recorded')
+            return health_item('last_update_result', 'No upgrade recorded')
         rows = []
         for key, label in (
             ('kind', 'Type'), ('result', 'Result'), ('version', 'Version'),
@@ -1034,7 +1052,7 @@ def render_health_history_page(csrf, status):
                 label
             ))
         return ''.join(rows) or health_item(
-            'last_update_result', 'No update recorded'
+            'last_update_result', 'No upgrade recorded'
         )
 
     for title, counter_keys, observation_keys in data_groups:
@@ -1049,7 +1067,11 @@ def render_health_history_page(csrf, status):
                 rows.append(
                     update_result_items(observations[key])
                     if key == 'last_update_result' else health_item(
-                        key, _health_value(observations[key], timezone_name)
+                        key, (
+                            _health_time_text(observations[key], timezone_name)
+                            if key == 'last_heap_observed_at' else
+                            _health_value(observations[key], timezone_name)
+                        )
                     )
                 )
         if rows:
@@ -1072,6 +1094,19 @@ def render_health_history_page(csrf, status):
             '<section class="health-group"><h3>Other</h3><div class="health-items">' +
             ''.join(remaining) + '</div></section>'
         )
+    feature_state = ((status or {}).get('feature_flags', {}) or {}).get('features', {}) or {}
+    enabled_features = ', '.join(
+        render_label(key) for key in sorted(feature_state)
+        if (feature_state.get(key, {}) or {}).get('enabled') is True
+    ) or 'None'
+    runtime_rows = ''.join((
+        health_item('device_state', (status or {}).get('device_state', 'unknown')),
+        health_item('boot_stage', (status or {}).get('boot_stage', 'unknown')),
+        health_item('network_transport', (status or {}).get('network_transport', 'Wi-Fi')),
+        health_item('hardware_resources', (status or {}).get('hardware_resources', 0), 'Allocated hardware resources'),
+        health_item('usb_ncm_available', 'Yes' if (status or {}).get('usb_ncm_available') else 'No'),
+        health_item('feature_flags', enabled_features, 'Enabled runtime features'),
+    ))
     events = []
     for event in list(health.get('events', []))[-24:][::-1]:
         events.append(
@@ -1082,9 +1117,14 @@ def render_health_history_page(csrf, status):
     body = (
         portal_ui.page_heading(
             'Maintenance', 'Health history',
-            'Persistent reset, connectivity, memory, MQTT, API and update health information.'
-        ) + '<section class="card"><div class="section-title"><h2>Health data</h2></div>' +
+            'Persistent reset, connectivity, memory, MQTT, API and upgrade health information.'
+        ) + '<section class="card"><div class="section-title"><h2>Health data</h2>'
+        '<span class="badge">Updated ' + html_escape(_health_time_text(
+            _latest_health_time(health), timezone_name
+        )) + '</span></div>' +
         '<div class="health-groups">' + ''.join(grouped) + '</div></section>'
+        '<section class="card"><div class="section-title"><h2>Current runtime health</h2></div>'
+        '<div class="health-items">' + runtime_rows + '</div></section>'
         '<section class="card"><div class="section-title"><h2>Recent significant events</h2></div>'
         + ('<ul>' + ''.join(events) + '</ul>' if events else '<p class="muted">No events recorded.</p>') +
         '</section><section class="card"><div class="section-title"><h2>Reset history</h2></div>'

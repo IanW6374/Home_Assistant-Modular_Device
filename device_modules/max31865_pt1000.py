@@ -96,6 +96,26 @@ def setup(device, index):
     }
 
 
+def setup_with_resources(device, index, resources):
+    """Construct hardware through the central owner-scoped resource manager."""
+    cfg = device.get('max31865', {})
+    owner = str(device['uuid'])
+    spi = resources.acquire(
+        owner + '.max31865.spi',
+        lambda _resource: get_spi(cfg, {
+            'spi': DEFAULT_SPI, 'baudrate': DEFAULT_BAUDRATE,
+            'polarity': 0, 'phase': 1, 'bits': 8, 'firstbit': SPI.MSB,
+            'sck': DEFAULT_SCK, 'mosi': DEFAULT_MOSI, 'miso': DEFAULT_MISO,
+        })
+    )
+    cs = resources.acquire(
+        owner + '.max31865.cs',
+        lambda resource: Pin(int(resource['id']), Pin.OUT)
+    )
+    cs.value(1)
+    return {'uuid': device['uuid'], 'index': index, 'spi': spi, 'cs': cs}
+
+
 def create_driver(device, device_char):
     return MAX31865PT1000Driver(device, device_char)
 

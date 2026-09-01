@@ -39,12 +39,10 @@ from portal_settings_views import *
 from portal_live_views import *
 from portal_presenters import *
 
-
 _CERTIFICATE_ROUTES = (
     '/certificates', '/certificate-authorities',
     '/api-client-trust', '/device-certificates'
 )
-
 
 def _is_certificate_request(method, route, path):
     return bool(
@@ -55,7 +53,6 @@ def _is_certificate_request(method, route, path):
         )) or
         (method == 'POST' and str(path).startswith('/certificate-upload'))
     )
-
 
 async def _handle_certificate_request(*args):
     import certificate_portal_transport
@@ -400,6 +397,8 @@ async def start_web_portal(portal):
                     )
             elif method == 'POST' and is_password_change:
                 params = form_params
+                return_to = str(params.get('return_to', '/') or '/')
+                if not return_to.startswith('/') or return_to.startswith('//') or '\r' in return_to or '\n' in return_to: return_to = '/'
                 current_password = params.get('current_password', '')
                 new_password = params.get('new_password', '')
                 confirmation = params.get('confirm_password', '')
@@ -418,8 +417,8 @@ async def start_web_portal(portal):
                             csrf_token, 'Current password is incorrect.', True
                         ) if password_change_required else render_user_settings_page(
                             csrf_token, settings_getter() if settings_getter else {},
-                            password_message='Current password is incorrect.',
-                            password_error=True
+                            password_message='Current password is incorrect.', password_error=True,
+                            users=portal_user_getter() if portal_user_getter else (), current_user=session_username
                         )
                     ))
                 elif new_password != confirmation:
@@ -428,8 +427,8 @@ async def start_web_portal(portal):
                             csrf_token, 'New passwords do not match.', True
                         ) if password_change_required else render_user_settings_page(
                             csrf_token, settings_getter() if settings_getter else {},
-                            password_message='New passwords do not match.',
-                            password_error=True
+                            password_message='New passwords do not match.', password_error=True,
+                            users=portal_user_getter() if portal_user_getter else (), current_user=session_username
                         )
                     ))
                 else:
@@ -446,7 +445,9 @@ async def start_web_portal(portal):
                                 csrf_token, str(exc), True
                             ) if password_change_required else render_user_settings_page(
                                 csrf_token, settings_getter() if settings_getter else {},
-                                password_message=str(exc), password_error=True
+                                password_message=str(exc), password_error=True, users=(
+                                    portal_user_getter() if portal_user_getter else ()),
+                                current_user=session_username
                             )
                         ))
                     else:
@@ -464,7 +465,7 @@ async def start_web_portal(portal):
                             'INFO'
                         )
                         await send_redirect(
-                            writer, '/' if was_password_change_required else '/user',
+                            writer, '/' if was_password_change_required else return_to,
                             (('Set-Cookie', cookie),)
                         )
             elif password_change_required:
@@ -558,11 +559,14 @@ async def start_web_portal(portal):
                     elif route == '/user/update':
                         if portal_user_update is None:
                             raise RuntimeError('portal user management is unavailable')
-                        portal_user_update(
-                            form_params.get('username', ''),
-                            role=form_params.get('role', 'viewer'),
-                            enabled=form_params.get('enabled') == 'true'
-                        )
+                        original_username = form_params.get('username', '')
+                        result = portal_user_update(
+                            original_username, role=form_params.get('role', 'viewer'),
+                            enabled=form_params.get('enabled') == 'true', new_username=(
+                                form_params.get('new_username', original_username)))
+                        sessions.update_identity(
+                            original_username, result.get('username', original_username),
+                            result.get('role'))
                     else:
                         if portal_user_remove is None:
                             raise RuntimeError('portal user management is unavailable')

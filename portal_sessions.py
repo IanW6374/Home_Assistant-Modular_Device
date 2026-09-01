@@ -62,6 +62,19 @@ class PortalSessions:
             self._sessions.pop(identifier, None)
         return len(identifiers)
 
+    def update_identity(self, old_username, new_username, role=None):
+        """Keep active sessions coherent after an administrator edits a user."""
+        folded = str(old_username).lower()
+        changed = 0
+        for value in self._sessions.values():
+            if str(value.get('username', '')).lower() != folded:
+                continue
+            value['username'] = str(new_username)
+            if role is not None:
+                value['role'] = str(role)
+            changed += 1
+        return changed
+
     def expire(self, now=None):
         now = int(self.now_ms() if now is None else now)
         expired = [

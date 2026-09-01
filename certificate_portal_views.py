@@ -12,7 +12,7 @@ METHODS = {
     ),
     'iot_ca_auto': (
         'Automatic IoT CA enrollment',
-        'Requests a managed public portal and private Device API identity during an enabled IoT CA window.'
+        'Requests a managed public portal and private Device API/fleet identity during an enabled IoT CA window.'
     ),
     'iot_ca_file': (
         'IoT CA enrollment authorization (.iotenroll)',
@@ -111,10 +111,10 @@ def _upload_widget(csrf, choices, return_label):
     return body, script
 
 
-def _identity_upload_widget(csrf, return_to='/device-certificates'):
+def _identity_upload_widget(csrf, return_to='/certificates'):
     body = ('<label class="field">Device identity<select id="identity-type">'
             '<option value="portal">Portal HTTPS identity</option>'
-            '<option value="api-server">Device API server identity</option></select></label>'
+            '<option value="api-server">Device API and fleet server identity</option></select></label>'
             '<div class="grid"><label id="identity-cert-label" class="field">Certificate chain'
             '<input id="identity-cert" type="file" accept=".der,.pem,application/pkix-cert,application/x-pem-file" required></label>'
             '<label class="field">Matching private key<input id="identity-key" type="file" accept=".der,application/octet-stream" required></label></div>'
@@ -125,7 +125,7 @@ def _identity_upload_widget(csrf, return_to='/device-certificates'):
     script = ('var identityType=document.getElementById("identity-type"),identityCert=document.getElementById('
               '"identity-cert"),identityKey=document.getElementById("identity-key"),identityCsrf=' + repr(str(csrf)) + ';'
               'identityType.onchange=function(){document.getElementById("identity-cert-label").firstChild.nodeValue='
-              'this.value==="portal"?"Portal certificate chain":"Device API server certificate";};'
+              'this.value==="portal"?"Portal certificate chain":"Device API and fleet server certificate";};'
               'function uploadIdentity(file,kind){return fetch("/certificate-upload",{method:"POST",credentials:"same-origin",headers:{'
               '"Content-Type":"application/octet-stream","X-CSRF-Token":identityCsrf,"X-Certificate-Kind":kind},body:file});}'
               'document.getElementById("identity-upload").onclick=async function(){var out=document.getElementById("identity-result"),'
@@ -252,16 +252,16 @@ def render_api_client_trust_page(csrf, message='', certificates=None):
 
 def render_device_certificates_page(csrf, message='', certificates=None):
     certificates = certificates or {}
-    upload, script = _identity_upload_widget(csrf)
     body = (portal_ui.page_heading('Maintenance', 'Device certificates',
-            'Inspect identities presented by this device. Managed identities are replaced through Certificate enrollment.') + _notice(message) +
-            '<section class="card"><div class="module-grid">' +
+            'Inspect the identities currently presented by this device. Install or replace identities through Certificate enrollment.') +
+            _notice(message) +
+            '<section class="card"><div class="section-title"><h2>Installed device identities</h2></div>'
+            '<p class="muted">The Device API/fleet identity is presented by the inbound mutual-TLS endpoint. '
+            'MQTT, upgrade and syslog connections instead validate their remote servers using the trust anchors under CA &amp; signing trust.</p>'
+            '<div class="module-grid">' +
             _card(certificates.get('portal'), 'Portal HTTPS identity') +
-            _card(certificates.get('api_server'), 'Device API server identity') + '</div></section>'
-            '<section class="card"><div class="section-title"><h2>Manual identity installation</h2></div>'
-            '<p class="warning-text">Manual identities are not automatically renewed. The portal and Device log warn before expiry.</p>' +
-            upload + '</section>')
-    return portal_ui.shell('IoT-MD device certificates', 'device_certificates', body, csrf, script)
+            _card(certificates.get('api_server'), 'Device API and fleet server identity') + '</div></section>')
+    return portal_ui.shell('IoT-MD device certificates', 'device_certificates', body, csrf)
 
 
 def render_certificate_route(route, csrf, message='', certificates=None):

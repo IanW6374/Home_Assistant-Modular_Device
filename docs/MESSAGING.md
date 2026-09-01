@@ -2,12 +2,13 @@
 
 IoT-MD treats MQTT as a platform-neutral transport. Home Assistant discovery is
 an optional integration layered over the same secure broker connection. Both
-are configured under **System > Messaging**.
+are configured under **Device > MQTT**.
 
 ## Connection and security
 
 Enable MQTT, enter the broker host and TLS port, and install the broker CA under
-**Maintenance > Certificates**. TLS is mandatory and authenticates the broker;
+**Maintenance > Certificates > CA & signing trust**. TLS is mandatory and
+authenticates the broker;
 IoT-MD does not currently present an MQTT client certificate. Username and
 password are optional only when the broker deliberately permits a client
 without them. QoS can be 0 or 1.

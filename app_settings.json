@@ -2,6 +2,13 @@
   "ha": {
     "system_diagnostics": true
   },
+  "features": {
+    "transport_independent_api": true,
+    "split_api_payloads": true,
+    "hardware_resource_manager": true,
+    "usb_ncm": false,
+    "tls_session_resumption": false
+  },
   "web_portal": {
     "enabled": true,
     "value_refresh_s": 5,

@@ -43,19 +43,26 @@ PORTAL_CSS = (
     '.nav-group{position:relative}.nav-group>.nav-link[aria-haspopup="true"]:after{content:"▾";'
     'margin-left:6px;font-size:.72rem}.nav-dropdown{position:absolute;z-index:10;top:100%;left:0;'
     'display:none;min-width:13rem;padding:7px;border:1px solid var(--line);border-radius:11px;'
-    'background:var(--surface);box-shadow:var(--shadow)}.nav-group:last-of-type .nav-dropdown{'
+    'background:var(--surface);box-shadow:var(--shadow)}.nav-actions>.nav-group:nth-last-of-type(-n+2)>.nav-dropdown{'
     'right:0;left:auto}.nav-dropdown .nav-link{display:flex;width:100%;white-space:nowrap}'
-    '.nav-menu-section{display:block;margin:5px 8px 2px;padding-top:7px;border-top:1px solid var(--line);'
-    'color:var(--muted);font-size:.7rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase}'
-    '.nav-menu-section:first-child{margin-top:0;padding-top:2px;border-top:0}'
-    '.nav-menu-section+.nav-link{margin-top:1px}'
+    '.nav-subgroup{display:grid;gap:2px;margin:2px 0}.nav-submenu-trigger{width:100%;'
+    'justify-content:space-between;border:0;background:transparent;color:var(--muted);font-weight:650}'
+    '.nav-submenu-trigger:after{content:"▸";margin-left:8px;font-size:.72rem}'
+    '.nav-subgroup.open>.nav-submenu-trigger:after{content:"▾"}.nav-submenu{display:none;gap:2px;'
+    'margin:0 0 3px 10px;padding:2px 0 2px 7px;border-left:2px solid var(--line)}'
+    '.nav-subgroup.open>.nav-submenu{display:grid}.nav-submenu .nav-link{font-size:.84rem}'
     '.nav-menu-trigger{border:0;background:transparent;color:var(--muted);font-weight:650}'
     '.nav-menu-trigger:hover,.nav-menu-trigger[aria-current="page"]{background:var(--bg);color:var(--ink)}'
     '.identity-menu{margin-left:6px}.identity-menu>.portal-identity{border:1px solid var(--accent);'
     'background:var(--bg);color:var(--accent2)}.identity-menu>.portal-identity:after{content:none}'
     '.identity-dropdown{min-width:15rem;padding:12px}.identity-details{display:grid;gap:2px;'
     'padding:2px 5px 10px;border-bottom:1px solid var(--line)}.identity-details span{color:var(--muted);'
-    'font-size:.78rem}.identity-dropdown form{padding-top:7px}.identity-signout{width:100%;text-align:left}'
+    'font-size:.78rem}.identity-dropdown form{padding-top:7px}.identity-action,.identity-signout{'
+    'width:100%;text-align:left}.password-dialog{width:min(34rem,calc(100% - 28px));border:1px solid var(--line);'
+    'border-radius:var(--radius);padding:0;background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}'
+    '.password-dialog::backdrop{background:rgba(17,42,52,.48)}.password-dialog-inner{padding:23px}'
+    '.password-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px}'
+    '.password-dialog-head h2{margin:0}.password-dialog-close{padding:6px 10px}'
     '.restart-required{display:flex;align-items:center;gap:8px;margin-left:auto;padding:5px 6px 5px 10px;'
     'border:1px solid #efcf92;border-radius:10px;background:#fffaf1;color:#744500;white-space:nowrap}'
     '.restart-required[hidden]{display:none}.restart-required span{font-size:.78rem;font-weight:750}'
@@ -183,6 +190,9 @@ PORTAL_CSS = (
     'padding:5px 0;border-top:1px solid var(--line)}.health-item:first-child{border-top:0}'
     '.health-item span{font-size:.75rem;color:var(--muted)}.health-item strong{font-size:.88rem;'
     'text-align:right;overflow-wrap:anywhere;min-width:0}'
+    '.portal-user-grid{grid-template-columns:repeat(auto-fill,30rem);justify-content:start}'
+    '.portal-user-card form{display:grid;gap:7px}.portal-user-card form+form{margin-top:12px;'
+    'padding-top:12px;border-top:1px solid var(--line)}.portal-user-card .actions button{width:10rem}'
     '@keyframes status-spin{to{transform:rotate(360deg)}}.page-load-action{display:flex;'
     'justify-content:center;width:100%;margin:18px 0 0}.file-input-hidden{position:absolute;'
     'width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);'
@@ -243,7 +253,7 @@ PORTAL_CSS = (
     'min-width:0;margin:2px 0 7px 12px;box-shadow:none}.breadcrumb{justify-content:flex-end}'
     '.metric.wide{grid-column:1/-1;min-width:0}'
     '.upgrade-grid{grid-template-columns:1fr}'
-    '.identity-menu{margin-left:0}.card,.panel{padding:18px}.grid{grid-template-columns:1fr}}'
+    '.identity-menu{margin-left:0}.card,.panel{padding:18px}.grid,.portal-user-grid{grid-template-columns:1fr}}'
 )
 
 
@@ -278,6 +288,11 @@ PORTAL_JS = (
     'var trigger=groups[j].querySelector(".nav-menu-trigger");if(!trigger)continue;trigger.onclick=function(e){'
     'e.stopPropagation();var group=this.parentNode,open=!group.classList.contains("open");close(group);'
     'group.classList.toggle("open",open);this.setAttribute("aria-expanded",open?"true":"false");};}'
+    'var subgroups=document.querySelectorAll(".nav-subgroup");for(var k=0;k<subgroups.length;k++){'
+    'var subtrigger=subgroups[k].querySelector(".nav-submenu-trigger");if(!subtrigger)continue;'
+    'subtrigger.onclick=function(e){e.stopPropagation();var subgroup=this.parentNode;'
+    'var expanded=!subgroup.classList.contains("open");subgroup.classList.toggle("open",expanded);'
+    'this.setAttribute("aria-expanded",expanded?"true":"false");};}'
     'document.onclick=function(){close();};document.onkeydown=function(e){if(e.key==="Escape"){close();'
     'if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();}};'
     'var restart=document.getElementById("restart-required");if(restart){fetch("/api/restart-required",'
@@ -285,7 +300,29 @@ PORTAL_JS = (
     'function(s){if(!s||!s.required)return;restart.hidden=false;var label=document.getElementById('
     '"restart-required-label");if(label&&s.reason_count)label.textContent=s.reason_count===1?'
     '"Restart required":"Restart required ("+s.reason_count+" changes)";}).catch(function(){});}'
+    'var passwordOpen=document.getElementById("change-password-open"),passwordDialog=document.getElementById('
+    '"change-password-dialog"),passwordClose=document.getElementById("change-password-close");'
+    'if(passwordOpen&&passwordDialog){passwordOpen.onclick=function(){var returnTo=document.getElementById('
+    '"change-password-return");if(returnTo)returnTo.value=location.pathname+location.search;'
+    'if(passwordDialog.showModal)passwordDialog.showModal();else passwordDialog.setAttribute("open","open");};}'
+    'if(passwordClose&&passwordDialog){passwordClose.onclick=function(){passwordDialog.close?'
+    'passwordDialog.close():passwordDialog.removeAttribute("open");};}'
     '})();'
+)
+
+
+CERTIFICATE_NAVIGATION = (
+    ('api_client_trust', '/api-client-trust', 'API client trust'),
+    ('certificate_authorities', '/certificate-authorities', 'CA & signing trust'),
+    ('certificates', '/certificates', 'Certificate enrollment'),
+    ('device_certificates', '/device-certificates', 'Device certificates'),
+)
+
+CERTIFICATE_ACTIVE_KEYS = tuple(item[0] for item in CERTIFICATE_NAVIGATION)
+
+LOGGING_NAVIGATION = (
+    ('audit_logging', '/audit-log', 'Audit log'),
+    ('logging', '/logging', 'Device log'),
 )
 
 
@@ -293,45 +330,43 @@ NAVIGATION = (
     ('status', '/', 'Status', (
         ('overview', '/', 'Overview'),
     )),
-    ('system', '/settings', 'System', (
+    ('device', '/device-api', 'Device', (
+        ('device_api', '/device-api', 'Device API'),
+        ('logging_settings', '/logging-settings', 'Logging'),
+        ('messaging', '/messaging', 'MQTT'),
         ('settings', '/settings', 'Network'),
         ('portal_settings', '/portal-settings', 'Portal'),
         ('ntp_settings', '/ntp-settings', 'Time / Date'),
-        ('messaging', '/messaging', 'Messaging'),
-        ('device_api', '/device-api', 'Device API'),
-        ('logging_settings', '/logging-settings', 'Logging'),
     )),
     ('module', '/module-settings', 'Module', (
         ('modules', '/module-settings', 'Configuration'),
         ('module_diagnostics', '/diagnostics', 'Diagnostics'),
     )),
     ('user', '/user', 'User', (
-        ('user_settings', '/user', 'Account'),
+        ('user_settings', '/user', 'Portal users'),
     )),
-    ('maintenance', '/updates', 'Maintenance', (
-        ('updates', '/updates', 'Upgrades'),
-        ('certificates', '/certificates', 'Certificate enrollment'),
-        ('certificate_authorities', '/certificate-authorities', 'CA & signing trust'),
-        ('api_client_trust', '/api-client-trust', 'API client trust'),
-        ('device_certificates', '/device-certificates', 'Device certificates'),
+    ('maintenance', '/certificates', 'Maintenance', (
+        ('certificates', '/certificates', 'Certificates', CERTIFICATE_NAVIGATION),
         ('configuration_backup', '/configuration-backup', 'Configuration backup'),
         ('health_history', '/health-history', 'Health history'),
-        ('logging', '/logging', 'Device log'),
-        ('audit_logging', '/audit-log', 'Audit log'),
-        ('device_control', '/device-control', 'Device control'),
+        ('maintenance_logging', '/logging', 'Logging', LOGGING_NAVIGATION),
+        ('device_control', '/device-control', 'Power & reset'),
+        ('updates', '/updates', 'Upgrades'),
     )),
 )
 
 
-CERTIFICATE_NAVIGATION = (
-    ('certificates', '/certificates', 'Certificate enrollment'),
-    ('certificate_authorities', '/certificate-authorities', 'CA & signing trust'),
-    ('api_client_trust', '/api-client-trust', 'API client trust'),
-    ('device_certificates', '/device-certificates', 'Device certificates'),
-)
+def _navigation_keys(items):
+    keys = []
+    for item in items:
+        keys.append(item[0])
+        if len(item) > 3:
+            keys.extend(_navigation_keys(item[3]))
+    return tuple(keys)
 
 
-CERTIFICATE_ACTIVE_KEYS = tuple(item[0] for item in CERTIFICATE_NAVIGATION)
+CERTIFICATE_ACTIVE_KEYS = _navigation_keys(CERTIFICATE_NAVIGATION)
+LOGGING_ACTIVE_KEYS = _navigation_keys(LOGGING_NAVIGATION)
 
 
 def escape(value):
@@ -521,16 +556,35 @@ def personalise_page(page, username, role):
 def navigation(active, csrf):
     links = []
     for key, path, label, children in NAVIGATION:
-        child_keys = tuple(item[0] for item in children)
+        child_keys = _navigation_keys(children)
         current = ' aria-current="page"' if (
             key == active or active in child_keys
         ) else ''
         child_links = []
-        for child_key, child_path, child_label in children:
-            if key == 'maintenance' and child_key == 'certificates':
+        for child in children:
+            child_key, child_path, child_label = child[:3]
+            nested = child[3] if len(child) > 3 else ()
+            if nested:
+                nested_active = active in _navigation_keys(nested)
+                submenu_links = []
+                for nested_key, nested_path, nested_label in nested:
+                    nested_current = ' aria-current="page"' if nested_key == active else ''
+                    submenu_links.append(
+                        '<a class="nav-link" role="menuitem" href="' +
+                        escape(nested_path) + '"' + nested_current + '>' +
+                        escape(nested_label) + '</a>'
+                    )
                 child_links.append(
-                    '<span class="nav-menu-section" role="presentation">Certificates</span>'
+                    '<div class="nav-subgroup' + (' open' if nested_active else '') + '">'
+                    '<button class="nav-link nav-submenu-trigger" type="button" '
+                    'aria-haspopup="true" aria-expanded="' +
+                    ('true' if nested_active else 'false') + '">' +
+                    escape(child_label) + '</button>'
+                    '<div class="nav-submenu" role="menu" aria-label="' +
+                    escape(child_label) + ' submenu">' +
+                    ''.join(submenu_links) + '</div></div>'
                 )
+                continue
             child_current = ' aria-current="page"' if child_key == active else ''
             child_links.append(
                 '<a class="nav-link" role="menuitem" href="' +
@@ -543,9 +597,25 @@ def navigation(active, csrf):
             '<div class="nav-dropdown" role="menu" aria-label="' + escape(label) +
             ' submenu">' + ''.join(child_links) + '</div></div>'
         )
-    logout = (
+    account_actions = (
+        '<button id="change-password-open" class="secondary compact identity-action" '
+        'type="button">Change password</button>'
         '<form action="/logout" method="post"><input type="hidden" name="csrf" value="' +
         escape(csrf) + '"><button class="secondary compact" type="submit">Sign out</button></form>'
+    )
+    password_dialog = (
+        '<dialog id="change-password-dialog" class="password-dialog"><div class="password-dialog-inner">'
+        '<div class="password-dialog-head"><h2>Change password</h2><button id="change-password-close" '
+        'class="secondary compact password-dialog-close" type="button" aria-label="Close">Close</button></div>'
+        '<form method="post" action="/user?action=password"><input type="hidden" name="csrf" value="' +
+        escape(csrf) + '"><input id="change-password-return" type="hidden" name="return_to" value="/">'
+        '<label class="field">Current password<input type="password" name="current_password" '
+        'autocomplete="current-password" maxlength="256" required></label><label class="field">New password'
+        '<input type="password" name="new_password" autocomplete="new-password" minlength="16" maxlength="256" '
+        'required></label><label class="field">Confirm password<input type="password" name="confirm_password" '
+        'autocomplete="new-password" minlength="16" maxlength="256" required></label>'
+        '<p class="muted">Use at least 16 characters with three character types, or a varied passphrase of at least 20 characters.</p>'
+        '<div class="actions"><span></span><button type="submit">Save new password</button></div></form></div></dialog>'
     )
     return (
         '<button id="nav-toggle" class="nav-toggle secondary compact" type="button" '
@@ -553,32 +623,29 @@ def navigation(active, csrf):
         '<nav id="portal-nav" class="nav-actions" aria-label="Primary">' +
         ''.join(links) + '<div class="nav-group identity-menu"><!--portal-identity-->'
         '<div class="nav-dropdown identity-dropdown" role="menu" aria-label="Account menu">'
-        '<!--portal-identity-details-->' + logout.replace(
+        '<!--portal-identity-details-->' + account_actions.replace(
             'class="secondary compact"', 'class="secondary compact identity-signout"'
-        ) + '</div></div></nav>'
+        ) + '</div></div></nav>' + password_dialog
     )
 
 
 def breadcrumb(active):
-    if active in CERTIFICATE_ACTIVE_KEYS:
-        current = next(
-            item for item in CERTIFICATE_NAVIGATION if item[0] == active
-        )
-        base = (
-            '<div class="breadcrumb" role="navigation" aria-label="Breadcrumb">'
-            '<a href="/updates">Maintenance</a>'
-            '<span class="breadcrumb-separator" aria-hidden="true">\\</span>'
-        )
-        if active == 'certificates':
-            return base + '<a href="/certificates" aria-current="page">Certificates</a></div>'
-        return (
-            base + '<a href="/certificates">Certificates</a>'
-            '<span class="breadcrumb-separator" aria-hidden="true">\\</span>'
-            '<a href="' + escape(current[1]) + '" aria-current="page">' +
-            escape(current[2]) + '</a></div>'
-        )
     for _key, path, label, children in NAVIGATION:
-        for child_key, child_path, child_label in children:
+        for child in children:
+            child_key, child_path, child_label = child[:3]
+            nested = child[3] if len(child) > 3 else ()
+            for nested_key, nested_path, nested_label in nested:
+                if nested_key != active:
+                    continue
+                return (
+                    '<div class="breadcrumb" role="navigation" aria-label="Breadcrumb">'
+                    '<a href="' + escape(path) + '">' + escape(label) + '</a>'
+                    '<span class="breadcrumb-separator" aria-hidden="true">\\</span>'
+                    '<a href="' + escape(child_path) + '">' + escape(child_label) + '</a>'
+                    '<span class="breadcrumb-separator" aria-hidden="true">\\</span>'
+                    '<a href="' + escape(nested_path) + '" aria-current="page">' +
+                    escape(nested_label) + '</a></div>'
+                )
             if child_key != active:
                 continue
             return (

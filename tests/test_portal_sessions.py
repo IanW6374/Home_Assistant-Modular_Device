@@ -34,6 +34,15 @@ class PortalSessionTests(unittest.TestCase):
         self.now += 101
         self.assertEqual(self.sessions.count(), 0)
 
+    def test_identity_update_keeps_active_sessions_coherent(self):
+        session = self.sessions.create({'username': 'admin', 'role': 'administrator'})
+        self.assertEqual(
+            self.sessions.update_identity('admin', 'portal-admin', 'operator'), 1
+        )
+        current = self.sessions.get(session['id'])
+        self.assertEqual(current['username'], 'portal-admin')
+        self.assertEqual(current['role'], 'operator')
+
 
 if __name__ == '__main__':
     unittest.main()

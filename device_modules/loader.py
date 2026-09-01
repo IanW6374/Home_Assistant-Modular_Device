@@ -93,6 +93,11 @@ def resource_catalog():
     return _RESOURCE_MANAGER.snapshot() if _RESOURCE_MANAGER else []
 
 
+def resource_manager():
+    """Return the central allocator for resource-aware driver factories."""
+    return _RESOURCE_MANAGER
+
+
 def _find_module_for_device(device):
     for module in _MODULES:
         try:
@@ -142,8 +147,22 @@ def setup_device(device, index):
             'setup_error': message,
         }
     try:
-        device_char = module.setup(device, index)
-        if hasattr(module, 'create_driver') and callable(module.create_driver):
+        resources = _RESOURCE_MANAGER.scope(device.get('uuid', ''))
+        if (
+            hasattr(module, 'setup_with_resources') and
+            callable(module.setup_with_resources)
+        ):
+            device_char = module.setup_with_resources(device, index, resources)
+        else:
+            device_char = module.setup(device, index)
+        if (
+            hasattr(module, 'create_driver_with_resources') and
+            callable(module.create_driver_with_resources)
+        ):
+            device_char['driver'] = module.create_driver_with_resources(
+                device, device_char, resources
+            )
+        elif hasattr(module, 'create_driver') and callable(module.create_driver):
             device_char['driver'] = module.create_driver(device, device_char)
         elif hasattr(module, 'Driver'):
             device_char['driver'] = module.Driver(device, device_char)

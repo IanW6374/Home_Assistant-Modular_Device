@@ -149,7 +149,7 @@ class WebPortalTests(unittest.TestCase):
 
     def test_portal_marks_required_and_custom_invalid_fields(self):
         backup = web_portal.render_configuration_backup_page('csrf')
-        certificates = web_portal.render_certificate_route('/device-certificates', 'csrf')
+        certificates = web_portal.render_certificate_route('/certificates', 'csrf')
         update = web_portal.render_updates_page('csrf', {})
 
         self.assertIn('id="configuration-import-file" type="file"', backup)
@@ -203,8 +203,11 @@ class WebPortalTests(unittest.TestCase):
 
         self.assertIn('<h3>MQTT</h3>', page)
         self.assertIn('<h3>API</h3>', page)
-        self.assertIn('<h3>Updates</h3>', page)
+        self.assertIn('<h3>Upgrades</h3>', page)
         self.assertIn('<time>', page)
+        self.assertNotIn('Time unavailable</time>', page)
+        self.assertNotIn('Updated Time unavailable', page)
+        self.assertIn('<h2>Current runtime health</h2>', page)
         self.assertIn('<span>Type</span><strong>application</strong>', page)
         self.assertIn('<span>Result</span><strong>confirmed</strong>', page)
         self.assertIn('<span>Version</span><strong>2.0.0</strong>', page)
@@ -218,6 +221,15 @@ class WebPortalTests(unittest.TestCase):
         overview = web_portal.render_overview_status({'api': 'online'})
         self.assertIn('Device API', overview)
         self.assertIn('online', overview)
+
+    def test_overview_marks_running_device_state_as_healthy(self):
+        overview = web_portal.render_overview_status({
+            'device_state': 'running', 'mqtt': 'up', 'api': 'online'
+        })
+        self.assertIn(
+            'class="metric good"><span>Device state</span><strong>running</strong>',
+            overview
+        )
     def test_http_request_parser_rejects_oversized_and_ambiguous_headers(self):
         class Reader:
             def __init__(self, lines):
@@ -569,10 +581,10 @@ class WebPortalTests(unittest.TestCase):
         html = render_settings_page('csrf', {})
         primary = html.split('aria-label="Primary"', 1)[1].split('</nav>', 1)[0]
 
-        for label in ('Status', 'System', 'Module', 'User', 'Maintenance'):
+        for label in ('Device', 'Maintenance', 'Module', 'Status', 'User'):
             self.assertIn('>' + label + '</button>', primary)
         self.assertNotIn('nav-menu-trigger" type="button" href=', primary)
-        self.assertIn('aria-label="System submenu"', html)
+        self.assertIn('aria-label="Device submenu"', html)
         self.assertIn('.nav-group:hover>.nav-dropdown', portal_ui.PORTAL_CSS)
         self.assertIn('.nav-group:focus-within>.nav-dropdown', portal_ui.PORTAL_CSS)
         self.assertNotIn('subnav-wrap', html)
@@ -581,21 +593,36 @@ class WebPortalTests(unittest.TestCase):
         self.assertNotIn('href="/wifi-settings">Wi-Fi</a>', html)
         self.assertIn('href="/ntp-settings">Time / Date</a>', html)
         self.assertIn('href="/logging-settings">Logging</a>', html)
-        self.assertIn('href="/messaging">Messaging</a>', html)
+        self.assertIn('href="/messaging">MQTT</a>', html)
         self.assertNotIn('href="/mqtt"', html)
         self.assertNotIn('href="/home-assistant"', html)
         self.assertIn('href="/device-api">Device API</a>', html)
         self.assertIn('href="/configuration-backup">Configuration backup</a>', html)
         self.assertIn('href="/health-history">Health history</a>', html)
-        self.assertNotIn('aria-label="Certificates submenu"', html)
+        self.assertIn('aria-label="Certificates submenu"', html)
+        self.assertIn(
+            'class="nav-subgroup"><button class="nav-link nav-submenu-trigger"',
+            html
+        )
+        self.assertIn('aria-expanded="false">Certificates</button>', html)
+        self.assertIn('aria-expanded="false">Logging</button>', html)
+        self.assertIn('aria-label="Logging submenu"', html)
+        self.assertLess(primary.index('>Status</button>'), primary.index('>Device</button>'))
+        self.assertLess(primary.index('>Device</button>'), primary.index('>Module</button>'))
+        self.assertLess(primary.index('>Module</button>'), primary.index('>User</button>'))
+        self.assertLess(primary.index('>User</button>'), primary.index('>Maintenance</button>'))
         user_menu = html.split(
             'aria-label="User submenu"', 1
         )[1].split('</div>', 1)[0]
-        self.assertIn('href="/user">Account</a>', user_menu)
+        self.assertIn('href="/user">Portal users</a>', user_menu)
         self.assertNotIn('Change password', user_menu)
         self.assertNotIn('/change-password', html)
+        self.assertIn('id="change-password-open"', html)
+        self.assertIn('id="change-password-dialog"', html)
+        self.assertIn('id="change-password-return"', html)
+        self.assertIn('location.pathname+location.search', portal_ui.PORTAL_JS)
         self.assertIn('aria-label="Breadcrumb"', html)
-        self.assertIn('<a href="/settings">System</a>', html)
+        self.assertIn('<a href="/device-api">Device</a>', html)
         self.assertIn('aria-hidden="true">\\</span>', html)
         self.assertIn('<main><div class="breadcrumb"', html)
 
@@ -608,7 +635,7 @@ class WebPortalTests(unittest.TestCase):
             'ha_discovery': True,
         })
 
-        self.assertIn('<h1>Messaging</h1>', html)
+        self.assertIn('<h1>MQTT</h1>', html)
         self.assertIn('action="/messaging"', html)
         self.assertIn('name="mqtt_server"', html)
         self.assertIn('name="ha_discovery" checked', html)
@@ -627,7 +654,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertGreater(save_button, final_card_end)
         self.assertGreater(messaging_form_end, save_button)
         self.assertNotIn('<h2>Publish configuration</h2>', html)
-        self.assertIn('aria-label="System submenu"', html)
+        self.assertIn('aria-label="Device submenu"', html)
         self.assertIn('<h2>MQTT connection</h2>', html)
 
     def test_messaging_and_user_have_dedicated_pages(self):
@@ -643,21 +670,22 @@ class WebPortalTests(unittest.TestCase):
             {'username': 'admin', 'role': 'administrator', 'enabled': True},
         ))
 
-        self.assertIn('<h1>Messaging</h1>', mqtt)
+        self.assertIn('<h1>MQTT</h1>', mqtt)
         self.assertIn('action="/messaging"', mqtt)
         self.assertIn('<h2>MQTT connection</h2>', mqtt)
         self.assertIn('<h2>Home Assistant integration</h2>', mqtt)
-        self.assertIn('<a href="/settings">System</a>', mqtt)
-        self.assertIn('<h1>Account</h1>', user)
-        self.assertIn('action="/user"', user)
-        self.assertIn('<h2>Administrator identity</h2>', user)
-        self.assertIn('<h2>Change password</h2>', user)
-        identity_card = user.split(
-            '<h2>Administrator identity</h2>', 1
-        )[1].split('</section>', 1)[0]
-        self.assertIn('Save changes', identity_card)
+        self.assertIn('<a href="/device-api">Device</a>', mqtt)
+        self.assertIn('<h1>Portal users</h1>', user)
+        self.assertNotIn('<h2>Administrator identity</h2>', user)
+        self.assertIn('<h2>Existing portal users</h2>', user)
+        self.assertIn('<h2>New portal user</h2>', user)
+        self.assertIn('name="new_username"', user)
+        self.assertIn('.portal-user-card .actions button{width:10rem}', portal_ui.PORTAL_CSS)
+        self.assertIn('.portal-user-grid{grid-template-columns:repeat(auto-fill,30rem)', portal_ui.PORTAL_CSS)
+        self.assertIn('.portal-user-card form+form{margin-top:12px', portal_ui.PORTAL_CSS)
         self.assertIn('>Administrator</option>', user)
         self.assertIn('action="/user?action=password"', user)
+        self.assertIn('id="change-password-dialog"', user)
         self.assertNotIn('/change-password', user)
         self.assertNotIn('/user/password', user)
         self.assertIn('<a href="/user">User</a>', user)
@@ -666,7 +694,7 @@ class WebPortalTests(unittest.TestCase):
             password_error=True
         )
         self.assertIn('Current password is incorrect.', password_error)
-        self.assertIn('<h1>Account</h1>', password_error)
+        self.assertIn('<h1>Portal users</h1>', password_error)
 
     def test_module_configuration_uses_one_structured_json_editor(self):
         html = web_portal.render_module_settings_page(
@@ -686,18 +714,22 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('href="/module-settings" aria-current="page">Configuration</a>', html)
         self.assertIn('href="/diagnostics">Diagnostics</a>', html)
 
-    def test_log_viewer_is_under_maintenance_and_configuration_under_system(self):
+    def test_log_viewer_and_certificate_groups_are_visible_under_maintenance(self):
         html = web_portal.render_logging_page(
             'csrf', 'INFO', ('ERROR', 'INFO', 'DEBUG'), ['hello']
         )
         maintenance_menu = html.split(
             'aria-label="Maintenance submenu"', 1
-        )[1].split('</div>', 1)[0]
+        )[1].split('</div></div><div class="nav-group">', 1)[0]
 
         self.assertIn('aria-label="Maintenance submenu"', html)
         self.assertIn('href="/updates">Upgrades</a>', maintenance_menu)
         self.assertNotIn('/updates?check=1', maintenance_menu)
-        self.assertIn('class="nav-menu-section" role="presentation">Certificates</span>', maintenance_menu)
+        self.assertIn('class="nav-subgroup">', maintenance_menu)
+        self.assertIn('aria-expanded="false">Certificates</button>', maintenance_menu)
+        self.assertIn('aria-label="Certificates submenu"', maintenance_menu)
+        self.assertIn('.nav-subgroup.open>.nav-submenu{display:grid}', portal_ui.PORTAL_CSS)
+        self.assertIn('querySelectorAll(".nav-subgroup")', portal_ui.PORTAL_JS)
         self.assertIn('href="/certificates">Certificate enrollment</a>', maintenance_menu)
         self.assertIn('href="/certificate-authorities">CA &amp; signing trust</a>', maintenance_menu)
         self.assertIn('href="/api-client-trust">API client trust</a>', maintenance_menu)
@@ -705,7 +737,7 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('href="/logging" aria-current="page">Device log</a>', maintenance_menu)
         self.assertIn('<h1>Device log</h1>', html)
         self.assertIn('href="/audit-log">Audit log</a>', maintenance_menu)
-        self.assertIn('href="/device-control">Device control</a>', maintenance_menu)
+        self.assertIn('href="/device-control">Power &amp; reset</a>', maintenance_menu)
         self.assertNotIn('href="/diagnostics">Diagnostics</a>', maintenance_menu)
         self.assertNotIn('href="/download-diagnostics"', html)
         self.assertIn('id="log-refresh-toggle"', html)
@@ -721,8 +753,10 @@ class WebPortalTests(unittest.TestCase):
         )
         certificate_menu = certificates.split(
             'aria-label="Maintenance submenu"', 1
-        )[1].split('</div>', 1)[0]
-        self.assertNotIn('aria-label="Certificates submenu"', certificates)
+        )[1].split('<div class="nav-group identity-menu"', 1)[0]
+        self.assertIn('class="nav-subgroup open">', certificate_menu)
+        self.assertIn('aria-expanded="true">Certificates</button>', certificate_menu)
+        self.assertIn('aria-label="Certificates submenu"', certificates)
         self.assertIn('href="/certificates">Certificate enrollment</a>', certificate_menu)
         self.assertIn(
             'href="/certificate-authorities" aria-current="page">CA &amp; signing trust</a>',
@@ -737,7 +771,7 @@ class WebPortalTests(unittest.TestCase):
         )
         audit_menu = audit.split(
             'aria-label="Maintenance submenu"', 1
-        )[1].split('</div>', 1)[0]
+        )[1].split('<div class="nav-group identity-menu"', 1)[0]
         self.assertIn(
             'href="/audit-log" aria-current="page">Audit log</a>', audit_menu
         )
@@ -751,7 +785,7 @@ class WebPortalTests(unittest.TestCase):
             'log_buffer_lines': 200, 'syslog_transport': 'udp'
         })
         system_menu = settings.split(
-            'aria-label="System submenu"', 1
+            'aria-label="Device submenu"', 1
         )[1].split('</div>', 1)[0]
         self.assertIn('href="/logging-settings" aria-current="page">Logging</a>', system_menu)
         self.assertIn('name="log_buffer_lines"', settings)
@@ -851,7 +885,7 @@ class WebPortalTests(unittest.TestCase):
             (web_portal.render_ntp_settings_page('csrf', settings),
              'Time synchronisation', 'Save changes'),
             (web_portal.render_user_settings_page('csrf', settings),
-             'Administrator identity', 'Save changes'),
+             'New portal user', 'Add portal user'),
         )
         for html, heading, action in pages:
             card = html.split('<h2>' + heading + '</h2>', 1)[1].split(
@@ -1180,7 +1214,7 @@ class WebPortalTests(unittest.TestCase):
                     ('GET /messaging HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
-                self.assertIn('<h1>Messaging</h1>', messaging)
+                self.assertIn('<h1>MQTT</h1>', messaging)
                 self.assertIn('action="/messaging"', messaging)
                 self.assertIn('<h2>Home Assistant integration</h2>', messaging)
 
@@ -1188,8 +1222,8 @@ class WebPortalTests(unittest.TestCase):
                     ('GET /user HTTP/1.1\r\nCookie: iotmd_session=' + session_id +
                      '\r\n\r\n').encode()
                 )
-                self.assertIn('<h1>Account</h1>', user_page)
-                self.assertIn('action="/user"', user_page)
+                self.assertIn('<h1>Portal users</h1>', user_page)
+                self.assertIn('action="/user/add"', user_page)
                 self.assertIn('action="/user?action=password"', user_page)
                 self.assertNotIn('/change-password', user_page)
                 self.assertNotIn('/user/password', user_page)
@@ -1218,8 +1252,8 @@ class WebPortalTests(unittest.TestCase):
                     normal_wrong_body
                 )
                 self.assertIn('400 Bad Request', normal_wrong)
-                self.assertIn('<h1>Account</h1>', normal_wrong)
-                self.assertIn('<h2>Administrator identity</h2>', normal_wrong)
+                self.assertIn('<h1>Portal users</h1>', normal_wrong)
+                self.assertIn('<h2>Existing portal users</h2>', normal_wrong)
                 self.assertIn('<h2>Change password</h2>', normal_wrong)
                 self.assertIn('Current password is incorrect.', normal_wrong)
 
@@ -1329,7 +1363,7 @@ class WebPortalTests(unittest.TestCase):
                     ('GET /factory-default HTTP/1.1\r\nCookie: iotmd_session=' +
                      reset_session + '\r\n\r\n').encode()
                 )
-                self.assertIn('<h1>Device control</h1>', reset_page)
+                self.assertIn('<h1>Power &amp; reset</h1>', reset_page)
                 self.assertIn('action="/restart-device"', reset_page)
                 self.assertIn('action="/shutdown-device"', reset_page)
                 self.assertIn('name="reset_confirmation"', reset_page)
@@ -1371,7 +1405,7 @@ class WebPortalTests(unittest.TestCase):
                     ('GET /device-control HTTP/1.1\r\nCookie: iotmd_session=' +
                      shutdown_session + '\r\n\r\n').encode()
                 )
-                self.assertIn('<h1>Device control</h1>', control_page)
+                self.assertIn('<h1>Power &amp; reset</h1>', control_page)
                 self.assertIn('action="/restart-device"', control_page)
                 self.assertIn('action="/shutdown-device"', control_page)
                 self.assertIn('class="actions power-actions"', control_page)
@@ -2224,7 +2258,7 @@ class WebPortalTests(unittest.TestCase):
             'universal_update_version': '2.0.0',
         }, {})
         self.assertIn('action="/activate-universal"', universal)
-        self.assertIn('Activate universal update 2.0.0 and reboot', universal)
+        self.assertIn('Activate universal upgrade 2.0.0 and reboot', universal)
         self.assertNotIn('action="/activate-update"', universal)
         self.assertNotIn('action="/activate-firmware"', universal)
         self.assertNotIn('Upload and verify', ready)

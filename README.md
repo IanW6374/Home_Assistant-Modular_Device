@@ -18,8 +18,10 @@ requirement.
   mandatory-mTLS `/api/v2` access.
 - Encrypted complete configuration backup and validated restore preview.
 - NTP, IANA time zones, daylight-saving support and local-time energy resets.
-- Structured audit, health and update history with local and remote syslog.
+- Structured audit, health and upgrade history with local and remote syslog.
 - Resource-aware modular drivers with persistent calibration and diagnostics.
+- Transport-neutral API contracts, bounded resource injection and centrally
+  resolved feature flags.
 
 ## Supported modules
 
@@ -36,6 +38,9 @@ configurations are in [`examples/`](examples/).
 ## Hardware and software
 
 - ESP32-S3-DevKitC-1-N8R8 with 8 MB flash, 8 MB octal PSRAM and Wi-Fi.
+- Experimental USB NCM application support in v2.5, capability-gated and
+  unavailable on the current ESP32-S3 core; it is never required for setup,
+  recovery or normal operation.
 - MicroPython 1.29.0 built with ESP-IDF 5.5.1.
 - Python 3.12 or newer for host tooling.
 - ESP-IDF and the pinned MicroPython checkout for core builds.
@@ -68,7 +73,7 @@ retains its `.local` mDNS name for private services. The Device API uses port
 The portal provides:
 
 - status, module values and diagnostics;
-- network, portal, time, Messaging, API and logging settings;
+- network, portal, time, MQTT, Device API and logging settings;
 - module configuration, calibration and debug controls;
 - users and role-aware permissions;
 - application, core and universal upgrades;
@@ -78,12 +83,29 @@ The portal provides:
 Settings that require a restart are committed immediately and collected behind
 one banner action so several changes can be activated with one reboot.
 
+Portal destinations use a shared navigation model and consistent terminology.
+The top-level order is **Status**, **Device**, **Module**, **User** and
+**Maintenance**; destinations inside each dropdown are alphabetical:
+
+- **Device** contains Device API, logging, MQTT, network, portal and time/date
+  settings.
+- **Maintenance** contains click-to-expand certificate and logging categories,
+  configuration backup, health history, Power & reset, and Upgrades.
+- **Module** contains configuration and diagnostics; **Status** contains the
+  live overview; **User** contains portal-user management. Password changes are
+  opened from the signed-in user's avatar menu.
+
+An **upgrade** is the act of installing software on a device. A **release** is
+the signed artifact published by the Management Suite, and a **rollout** is the
+fleet operation that assigns a release to devices. Compatibility-facing route,
+configuration and code identifiers may continue to use `update`.
+
 ## Messaging and Home Assistant
 
 MQTT base and state/command/response/availability topics are administrator
 defined. The optional Home Assistant profile publishes discovery records that
 refer to those same operational topics. Broker TLS verifies the exact hostname
-configured under **System > Messaging** against the certificate DNS/IP SAN;
+configured under **Device > MQTT** against the certificate DNS/IP SAN;
 the installed MQTT CA establishes trust but does not replace that identity
 check. Retained module state is an MQTT broker feature, not persistence of
 physical output state across a device restart. See the
@@ -94,7 +116,7 @@ Fleet and release services are provided by the separate public
 The generic IoT Certificate Authority and IoT Syslog remain independent
 add-ons. See the [management ecosystem](docs/MANAGEMENT_SUITE.md).
 
-## Updates
+## Upgrades
 
 IoT-MD uses three signed artifact types:
 
@@ -102,7 +124,7 @@ IoT-MD uses three signed artifact types:
 | --- | --- |
 | `.iotapp` | Replaceable application and selected drivers |
 | `.iotcore` | Secure MicroPython core firmware |
-| `.iotuni` | Matched application and core universal update |
+| `.iotuni` | Matched application and core universal upgrade |
 
 Use **Maintenance > Upgrades** for normal installation. Release sequences must
 increase monotonically. Verification occurs before staging, and activation uses
@@ -149,7 +171,8 @@ Important entry points:
 | `services/` | Application use cases |
 | `device_modules/` | Drivers, capabilities and resource allocation |
 | `web_portal.py` | Authenticated portal transport |
-| `device_api.py` | Mandatory-mTLS API v2 transport |
+| `api_contracts.py` / `device_api.py` | Transport-neutral API v2 contract and mandatory-mTLS HTTPS adapter |
+| `feature_flags.py` / `network_transports.py` | Capability-aware feature policy and optional network interfaces |
 | `firmware/` | Frozen-core manifest and partition configuration |
 | `tools/` | Build, signing, qualification and recovery tooling |
 | `tests/` | Host unit and contract tests |
@@ -162,6 +185,7 @@ Important entry points:
 - [Certificate identities and initial provisioning](docs/CERTIFICATES.md)
 - [MQTT messaging and Home Assistant](docs/MESSAGING.md)
 - [Device API v2](docs/API.md) and [OpenAPI contract](docs/openapi.yaml)
+- [Feature flags and network transports](docs/FEATURES_AND_TRANSPORTS.md)
 - [Management ecosystem](docs/MANAGEMENT_SUITE.md)
 - [Upgrade and recovery](docs/UPGRADE_GUIDE.md)
 - [Fleet protocol](docs/FLEET_PROTOCOL.md)

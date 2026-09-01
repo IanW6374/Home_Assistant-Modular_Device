@@ -27,10 +27,12 @@ except ImportError:
 
 import update_security
 import http_support
+from tls_sessions import TLSSessionHandle, open_tls_connection
 
 
 MAX_DESCRIPTOR_BYTES = 16384
 MAX_REDIRECTS = 4
+_TLS_SESSION = TLSSessionHandle()
 
 
 def normalize_release_base_url(url):
@@ -241,12 +243,9 @@ class _VerifiedReader:
 async def _open_response(url, ca_path, redirects=MAX_REDIRECTS):
     host, port, path = _parse_https_url(url)
     context = _tls_context(ca_path)
-    try:
-        reader, writer = await asyncio.open_connection(
-            host, port, ssl=context, server_hostname=host
-        )
-    except TypeError:
-        reader, writer = await asyncio.open_connection(host, port, ssl=context)
+    reader, writer = await open_tls_connection(
+        asyncio, host, port, context, host, _TLS_SESSION
+    )
     host_header = host if port == 443 else host + ':' + str(port)
     writer.write(
         ('GET ' + path + ' HTTP/1.1\r\nHost: ' + host_header +

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: IoT Modular Device API
-  version: 2.2.9
+  version: 2.5.0
   description: Mutual-TLS JSON API exposed by an IoT-MD device.
 servers:
   - url: https://{device}:8444
@@ -11,6 +11,36 @@ servers:
 security:
   - mutualTLS: []
 paths:
+  /api/v2/device:
+    get:
+      summary: Bounded device identity and version projection
+      responses:
+        '200': {description: Device summary, content: {application/json: {schema: {$ref: '#/components/schemas/DeviceProjection'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v2/interfaces:
+    get:
+      summary: Network and messaging interface state
+      responses:
+        '200': {description: Interface state, content: {application/json: {schema: {$ref: '#/components/schemas/InterfaceProjection'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v2/hardware:
+    get:
+      summary: Hardware capabilities, drivers and resource bindings
+      responses:
+        '200': {description: Hardware projection, content: {application/json: {schema: {$ref: '#/components/schemas/HardwareProjection'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v2/services:
+    get:
+      summary: Runtime, boot and effective feature state
+      responses:
+        '200': {description: Service projection, content: {application/json: {schema: {$ref: '#/components/schemas/ServiceProjection'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v2/configuration:
+    get:
+      summary: Non-secret operating configuration
+      responses:
+        '200': {description: Safe configuration projection, content: {application/json: {schema: {$ref: '#/components/schemas/ConfigurationProjection'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v2/device/inventory:
     get:
       summary: Device and module inventory
@@ -111,6 +141,36 @@ components:
   parameters:
     ModuleUuid: {name: uuid, in: path, required: true, schema: {type: string, pattern: '^[0-9A-Fa-f]{4}$'}}
   schemas:
+    DeviceProjection:
+      type: object
+      required: [api_version, device]
+      properties:
+        api_version: {const: 2}
+        device: {type: object, additionalProperties: true}
+    InterfaceProjection:
+      type: object
+      required: [api_version, interfaces]
+      properties:
+        api_version: {const: 2}
+        interfaces: {type: object, additionalProperties: true}
+    HardwareProjection:
+      type: object
+      required: [api_version, hardware]
+      properties:
+        api_version: {const: 2}
+        hardware: {type: object, additionalProperties: true}
+    ServiceProjection:
+      type: object
+      required: [api_version, services]
+      properties:
+        api_version: {const: 2}
+        services: {type: object, additionalProperties: true}
+    ConfigurationProjection:
+      type: object
+      required: [api_version, configuration]
+      properties:
+        api_version: {const: 2}
+        configuration: {type: object, additionalProperties: true}
     Inventory:
       type: object
       required: [api_version, device, modules]

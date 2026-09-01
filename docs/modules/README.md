@@ -40,14 +40,20 @@ control that presentation.
 | `sensor` | `WHES` | [WHES inverter](whes.md) |
 | `sensor` | `EMS-Boiler` | [EMS Boiler](ems-boiler.md) |
 
-GPIO numbers are ESP32-S3 GPIO numbers, not header positions. Do not assign a
-pin, UART or SPI bus to more than one module. The portal resource validator
-reports conflicts before restart. After applying a change, use **Module >
-Diagnostics** to confirm values and driver health.
+GPIO numbers are ESP32-S3 GPIO numbers, not header positions. The central
+resource manager maps owner-qualified logical names (for example
+`00A1.max31865.spi`) to physical GPIO, ADC, UART and SPI resources before any
+driver is created. Do not assign an exclusive pin or UART to more than one
+module. Shared SPI buses are allowed only when their pins and electrical mode
+match; each device retains its own chip select. The portal validator reports
+conflicts before restart, and `/api/v2/hardware` exposes the effective binding
+catalog. Resource-aware drivers receive an owner-scoped acquisition interface;
+they cannot acquire another module's declaration. After applying a change, use
+**Module > Diagnostics** to confirm values and driver health.
 
 Use unique UUIDs permanently: changing a UUID changes MQTT topics, API identity
 and Home Assistant unique IDs. A module-level `retain_state` overrides the
-global Messaging setting. It controls the MQTT retain flag for that module's
+global MQTT setting. It controls the MQTT retain flag for that module's
 state publication so new subscribers receive the broker's last value; it does
 not persist driver memory or physical output state across a device restart.
 Never retain command messages. Poll intervals are seconds unless a driver

@@ -361,7 +361,7 @@ def _certificate_page(csrf, hostname='', message='', ready=False, error=False):
         'The CA must be on the same multicast network and able to resolve mDNS.</p>'
         '<p class="info"><strong>Renewal:</strong> The portal certificate renews automatically '
         'through this ACME directory after two-thirds of its lifetime. This route does not install '
-        'or renew a separate private Device API identity.</p>'
+        'or renew a separate private Device API/fleet identity.</p>'
         '<label class="field">Home IoT trusted CA certificate<input id="trust-ca" name="trust_ca" '
         'type="file" accept=".der,application/pkix-cert" required></label>'
         '<label class="field">ACME directory URL<span class="field-hint">Leave blank to use '
