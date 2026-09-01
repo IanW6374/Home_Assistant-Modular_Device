@@ -1,0 +1,25 @@
+name: v3 alpha contracts
+
+on:
+  push:
+    branches:
+      - 'alpha/v3-platform-rewrite'
+  pull_request:
+    branches:
+      - 'alpha/v3-platform-rewrite'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python v3/tools/check_contracts.py
+      - run: python tools/check_documentation.py
+      - run: python tools/check_repository_hygiene.py

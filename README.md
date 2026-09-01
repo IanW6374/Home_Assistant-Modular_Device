@@ -179,6 +179,10 @@ Important entry points:
 
 ## Documentation
 
+- [v3 greenfield alpha rewrite](v3/README.md)
+- [v3 target architecture](docs/V3_ARCHITECTURE.md),
+  [requirements](docs/V3_REQUIREMENTS.md) and
+  [delivery roadmap](docs/V3_ROADMAP.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Boot lifecycle and activation health](docs/BOOT_LIFECYCLE.md)
 - [MicroPython and firmware baseline](docs/MICROPYTHON.md)

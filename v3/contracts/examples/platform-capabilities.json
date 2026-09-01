@@ -1,0 +1,30 @@
+{
+  "abi_version": 1,
+  "board": {
+    "target": "esp32-s3",
+    "revision": "devkitc-n8r8"
+  },
+  "runtime": {
+    "engine": "micropython",
+    "version": "unselected",
+    "platform_abi": 1
+  },
+  "security": {
+    "secure_boot": true,
+    "flash_encryption": true,
+    "encrypted_nvs": true
+  },
+  "memory": {
+    "psram": true,
+    "psram_bytes": 8388608,
+    "ota_partition_bytes": 2097152
+  },
+  "interfaces": {
+    "wifi": true,
+    "usb_device": true,
+    "usb_ncm_hardware": true,
+    "usb_ncm_runtime": false,
+    "usb_ncm_available": false,
+    "ethernet": false
+  }
+}

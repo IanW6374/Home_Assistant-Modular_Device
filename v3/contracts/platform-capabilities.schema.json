@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-md.local/contracts/v3/platform-capabilities.schema.json",
+  "title": "IoT-MD v3 platform capabilities",
+  "type": "object",
+  "required": [
+    "abi_version",
+    "board",
+    "runtime",
+    "security",
+    "memory",
+    "interfaces"
+  ],
+  "properties": {
+    "abi_version": {"const": 1},
+    "board": {
+      "type": "object",
+      "required": ["target", "revision"],
+      "properties": {
+        "target": {"const": "esp32-s3"},
+        "revision": {"type": "string", "minLength": 1, "maxLength": 32}
+      },
+      "additionalProperties": false
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["engine", "version", "platform_abi"],
+      "properties": {
+        "engine": {"const": "micropython"},
+        "version": {"type": "string", "minLength": 1, "maxLength": 32},
+        "platform_abi": {"const": 1}
+      },
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "required": ["secure_boot", "flash_encryption", "encrypted_nvs"],
+      "properties": {
+        "secure_boot": {"type": "boolean"},
+        "flash_encryption": {"type": "boolean"},
+        "encrypted_nvs": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "memory": {
+      "type": "object",
+      "required": ["psram", "psram_bytes", "ota_partition_bytes"],
+      "properties": {
+        "psram": {"type": "boolean"},
+        "psram_bytes": {"type": "integer", "minimum": 0},
+        "ota_partition_bytes": {"type": "integer", "minimum": 1048576}
+      },
+      "additionalProperties": false
+    },
+    "interfaces": {
+      "type": "object",
+      "required": ["wifi", "usb_device", "usb_ncm_hardware", "usb_ncm_runtime", "usb_ncm_available"],
+      "properties": {
+        "wifi": {"type": "boolean"},
+        "usb_device": {"type": "boolean"},
+        "usb_ncm_hardware": {"type": "boolean"},
+        "usb_ncm_runtime": {"type": "boolean"},
+        "usb_ncm_available": {"type": "boolean"},
+        "ethernet": {"type": "boolean", "default": false}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
