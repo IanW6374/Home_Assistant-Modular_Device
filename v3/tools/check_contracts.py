@@ -19,6 +19,14 @@ def main():
             contracts / 'examples' / 'paired-update-state.json',
             contracts / 'paired-update-state.schema.json',
         ),
+        (
+            contracts / 'examples' / 'runtime-configuration.json',
+            contracts / 'runtime-configuration.schema.json',
+        ),
+        (
+            contracts / 'examples' / 'kernel-snapshot.json',
+            contracts / 'kernel-snapshot.schema.json',
+        ),
     )
     for instance_path, schema_path in pairs:
         schema = json.loads(schema_path.read_text())

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-md.local/contracts/v3/kernel-snapshot.schema.json",
+  "title": "IoT-MD v3 bounded application-kernel snapshot",
+  "type": "object",
+  "required": ["contract_version", "kernel_state", "device", "health", "services", "resources", "events"],
+  "properties": {
+    "contract_version": {"const": 1},
+    "kernel_state": {"enum": ["idle", "validating", "running", "recovery", "stopped"]},
+    "device": {"type": "string", "maxLength": 32},
+    "health": {
+      "type": "object",
+      "required": ["state", "services_total", "services_degraded", "services_failed"],
+      "properties": {
+        "state": {"enum": ["healthy", "degraded", "failed", "inactive"]},
+        "services_total": {"type": "integer", "minimum": 0, "maximum": 16},
+        "services_degraded": {"type": "integer", "minimum": 0, "maximum": 16},
+        "services_failed": {"type": "integer", "minimum": 0, "maximum": 16}
+      },
+      "additionalProperties": false
+    },
+    "services": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": ["name", "state", "critical", "failures", "last_error", "detail"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 32},
+          "state": {"enum": ["registered", "running", "degraded", "failed", "stopped"]},
+          "critical": {"type": "boolean"},
+          "failures": {"type": "integer", "minimum": 0},
+          "last_error": {"type": "string", "maxLength": 120},
+          "detail": {"type": "object", "maxProperties": 12}
+        },
+        "additionalProperties": false
+      }
+    },
+    "resources": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": ["handle", "kind", "identifier", "owner"],
+        "properties": {
+          "handle": {"type": "integer", "minimum": 1},
+          "kind": {"type": "string", "minLength": 1, "maxLength": 12},
+          "identifier": {"type": "string", "minLength": 1, "maxLength": 32},
+          "owner": {"type": "string", "minLength": 1, "maxLength": 32}
+        },
+        "additionalProperties": false
+      }
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": ["sequence", "code", "source", "severity"],
+        "properties": {
+          "sequence": {"type": "integer", "minimum": 1},
+          "code": {"type": "string", "minLength": 1, "maxLength": 48},
+          "source": {"type": "string", "minLength": 1, "maxLength": 32},
+          "severity": {"enum": ["info", "warning", "error"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

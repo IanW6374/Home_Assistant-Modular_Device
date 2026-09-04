@@ -24,7 +24,7 @@ class V3PlatformContractTests(unittest.TestCase):
 
     def test_provider_must_match_versioned_native_abi(self):
         class Provider:
-            ABI_VERSION = 2
+            ABI_VERSION = 3
 
             def storage_open(self, namespace):
                 return 1
@@ -38,11 +38,23 @@ class V3PlatformContractTests(unittest.TestCase):
             def storage_commit(self, handle, generation, payload):
                 return generation + 1
 
+            def resource_claim(self, kind, identifier, owner):
+                return 1
+
+            def resource_release(self, handle):
+                return None
+
+            def resource_release_owner(self, owner):
+                return 0
+
+            def resource_snapshot(self):
+                return []
+
             def capabilities(self):
                 return V3PlatformContractTests().example()
 
-        self.assertEqual(Platform(Provider()).capabilities()['abi_version'], 2)
-        Provider.ABI_VERSION = 3
+        self.assertEqual(Platform(Provider()).capabilities()['abi_version'], 3)
+        Provider.ABI_VERSION = 2
         with self.assertRaisesRegex(PlatformContractError, 'ABI'):
             Platform(Provider())
 
@@ -60,7 +72,7 @@ class V3PlatformContractTests(unittest.TestCase):
 
     def test_native_storage_must_be_complete(self):
         class Provider:
-            ABI_VERSION = 2
+            ABI_VERSION = 3
 
             def capabilities(self):
                 return V3PlatformContractTests().example()

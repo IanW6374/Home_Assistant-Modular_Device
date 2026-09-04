@@ -1,6 +1,6 @@
 """Validated MicroPython adapter for the versioned native v3 platform ABI."""
 
-EXPECTED_ABI_VERSION = 2
+EXPECTED_ABI_VERSION = 3
 
 
 class PlatformContractError(RuntimeError):
@@ -42,7 +42,7 @@ def validate_capabilities(value):
     value = _exact_keys(
         value, 'platform capabilities',
         ('abi_version', 'board', 'runtime', 'security', 'memory', 'interfaces',
-         'storage', 'updates')
+         'storage', 'updates', 'resources')
     )
     if value['abi_version'] != EXPECTED_ABI_VERSION:
         raise PlatformContractError('unsupported platform ABI version')
@@ -117,6 +117,25 @@ def validate_capabilities(value):
         _boolean(updates[key], 'updates.' + key)
     if updates['native_rollback'] and not updates['paired_trial']:
         raise PlatformContractError('native rollback requires paired trial')
+
+    resources = _exact_keys(
+        value['resources'], 'resources', ('managed', 'max_claims', 'kinds')
+    )
+    _boolean(resources['managed'], 'resources.managed')
+    maximum = resources['max_claims']
+    if (not isinstance(maximum, int) or isinstance(maximum, bool) or
+            maximum < 1 or maximum > 32):
+        raise PlatformContractError('resources.max_claims is invalid')
+    kinds = resources['kinds']
+    allowed_kinds = ('adc', 'gpio', 'i2c', 'spi', 'uart')
+    if (not isinstance(kinds, (list, tuple)) or not kinds or len(kinds) > 8 or
+            len(set(kinds)) != len(kinds)):
+        raise PlatformContractError('resources.kinds is invalid')
+    for kind in kinds:
+        if kind not in allowed_kinds:
+            raise PlatformContractError('resources.kinds is invalid')
+    if resources['managed'] and not kinds:
+        raise PlatformContractError('managed resources require kinds')
     return value
 
 
@@ -131,13 +150,17 @@ class Platform:
             raise PlatformContractError('native v3 platform ABI is unsupported')
         if not hasattr(provider, 'capabilities'):
             raise PlatformContractError('native capability provider is incomplete')
-        for operation in (
-            'storage_open', 'storage_close', 'storage_snapshot',
-            'storage_commit'
-        ):
+        for operation in ('storage_open', 'storage_close', 'storage_snapshot',
+                          'storage_commit'):
             if not hasattr(provider, operation):
                 raise PlatformContractError(
                     'native transactional storage provider is incomplete'
+                )
+        for operation in ('resource_claim', 'resource_release',
+                          'resource_release_owner', 'resource_snapshot'):
+            if not hasattr(provider, operation):
+                raise PlatformContractError(
+                    'native resource provider is incomplete'
                 )
         self._provider = provider
 

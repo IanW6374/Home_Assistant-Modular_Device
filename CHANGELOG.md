@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.0.0-alpha.3 - 2026-09-04
+
+- Advance the native platform boundary to ABI 3 with owner-scoped, bounded
+  resource claims for ADC, GPIO, I2C, SPI and UART identities.
+- Add an exact, versioned runtime configuration contract and a non-mutating
+  migration preview from the initial draft configuration.
+- Add the greenfield application kernel, dependency-aware service registry and
+  cooperative supervisor with isolated degradation, restart and cleanup.
+- Port a small reference sensor through the new driver/resource contracts and
+  cover restart, invalid configuration, resource conflict and transient failure.
+- Add bounded health, event and support snapshots with executable JSON schemas;
+  configuration settings and secret material are not included.
+- Retain the v2.5 compatibility product runtime and keep hardware-only Alpha 1
+  and Alpha 2 recovery gates explicitly open.
+
 ## 3.0.0-alpha.2 - 2026-09-04
 
 - Advance the native platform boundary to ABI 2 with bounded opaque encrypted-

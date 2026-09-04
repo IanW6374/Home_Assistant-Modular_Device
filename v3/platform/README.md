@@ -18,6 +18,8 @@ block are represented as jobs and publish completion through the platform event
 queue. Secret key material is referred to by opaque handles and is never
 returned to MicroPython.
 
-The first bootable alpha will start the platform, publish the capability
-contract, start an embedded MicroPython runtime and remain recoverable with no
-v3 application installed.
+ABI 3 publishes the capability contract, retains Alpha 2's encrypted
+transactional namespace mechanism, and adds bounded owner-scoped logical
+resource claims. It does not yet construct physical peripherals or claim
+completion of native paired rollback; those capabilities require their HIL
+qualification gates.

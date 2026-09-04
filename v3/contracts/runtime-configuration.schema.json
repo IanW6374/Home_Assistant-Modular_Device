@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-md.local/contracts/v3/runtime-configuration.schema.json",
+  "title": "IoT-MD v3 runtime configuration",
+  "type": "object",
+  "required": ["contract_version", "device", "services", "modules"],
+  "properties": {
+    "contract_version": {"const": 1},
+    "device": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9_.:-]+$"}
+      },
+      "additionalProperties": false
+    },
+    "services": {
+      "type": "object",
+      "required": ["poll_interval_ms", "max_failures"],
+      "properties": {
+        "poll_interval_ms": {"type": "integer", "minimum": 100, "maximum": 60000},
+        "max_failures": {"type": "integer", "minimum": 1, "maximum": 10}
+      },
+      "additionalProperties": false
+    },
+    "modules": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["id", "driver", "enabled", "resource", "settings"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9_.:-]+$"},
+          "driver": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9_.:-]+$"},
+          "enabled": {"type": "boolean"},
+          "resource": {
+            "type": "object",
+            "required": ["kind", "identifier"],
+            "properties": {
+              "kind": {"type": "string", "minLength": 1, "maxLength": 12, "pattern": "^[A-Za-z0-9_.:-]+$"},
+              "identifier": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9_.:-]+$"}
+            },
+            "additionalProperties": false
+          },
+          "settings": {
+            "type": "object",
+            "maxProperties": 12,
+            "propertyNames": {"pattern": "^[A-Za-z0-9_.:-]{1,32}$"},
+            "additionalProperties": {
+              "type": ["string", "number", "integer", "boolean", "null"],
+              "minimum": -1000000000000,
+              "maximum": 1000000000000,
+              "maxLength": 64
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

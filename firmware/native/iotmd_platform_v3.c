@@ -17,10 +17,14 @@
 #include "nvs.h"
 #include "sdkconfig.h"
 
-#define IOTMD_PLATFORM_V3_ABI_VERSION (2)
+#define IOTMD_PLATFORM_V3_ABI_VERSION (3)
 #define IOTMD_V3_STORAGE_HANDLES (4)
 #define IOTMD_V3_STORAGE_MAX_PAYLOAD (4096)
 #define IOTMD_V3_STORAGE_HEADER_BYTES (16)
+#define IOTMD_V3_RESOURCE_CLAIMS (16)
+#define IOTMD_V3_RESOURCE_KIND_BYTES (12)
+#define IOTMD_V3_RESOURCE_IDENTIFIER_BYTES (32)
+#define IOTMD_V3_RESOURCE_OWNER_BYTES (32)
 
 typedef struct {
     bool used;
@@ -29,6 +33,17 @@ typedef struct {
 
 static iotmd_v3_storage_handle_t iotmd_v3_storage_handles[
     IOTMD_V3_STORAGE_HANDLES
+];
+
+typedef struct {
+    bool used;
+    char kind[IOTMD_V3_RESOURCE_KIND_BYTES + 1];
+    char identifier[IOTMD_V3_RESOURCE_IDENTIFIER_BYTES + 1];
+    char owner[IOTMD_V3_RESOURCE_OWNER_BYTES + 1];
+} iotmd_v3_resource_claim_t;
+
+static iotmd_v3_resource_claim_t iotmd_v3_resource_claims[
+    IOTMD_V3_RESOURCE_CLAIMS
 ];
 
 static void iotmd_v3_dict_store(mp_obj_t dictionary, qstr key,
@@ -250,6 +265,149 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
     iotmd_platform_v3_storage_commit
 );
 
+static const char *iotmd_v3_resource_string(mp_obj_t value, size_t maximum,
+        size_t *length_out) {
+    size_t length = 0;
+    const char *text = mp_obj_str_get_data(value, &length);
+    if (length == 0 || length > maximum) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid resource string"));
+    }
+    for (size_t index = 0; index < length; ++index) {
+        char character = text[index];
+        if (!((character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') ||
+                (character >= '0' && character <= '9') ||
+                character == '_' || character == '-' || character == '.' ||
+                character == ':')) {
+            mp_raise_ValueError(MP_ERROR_TEXT("invalid resource string"));
+        }
+    }
+    *length_out = length;
+    return text;
+}
+
+static mp_obj_t iotmd_platform_v3_resource_claim(size_t n_args,
+        const mp_obj_t *args) {
+    size_t kind_length = 0;
+    size_t identifier_length = 0;
+    size_t owner_length = 0;
+    const char *kind = iotmd_v3_resource_string(
+        args[0], IOTMD_V3_RESOURCE_KIND_BYTES, &kind_length
+    );
+    const char *identifier = iotmd_v3_resource_string(
+        args[1], IOTMD_V3_RESOURCE_IDENTIFIER_BYTES, &identifier_length
+    );
+    const char *owner = iotmd_v3_resource_string(
+        args[2], IOTMD_V3_RESOURCE_OWNER_BYTES, &owner_length
+    );
+    if (!((kind_length == 3 && memcmp(kind, "adc", 3) == 0) ||
+            (kind_length == 4 && memcmp(kind, "gpio", 4) == 0) ||
+            (kind_length == 3 && memcmp(kind, "i2c", 3) == 0) ||
+            (kind_length == 3 && memcmp(kind, "spi", 3) == 0) ||
+            (kind_length == 4 && memcmp(kind, "uart", 4) == 0))) {
+        mp_raise_ValueError(MP_ERROR_TEXT("unsupported resource kind"));
+    }
+    for (size_t index = 0; index < IOTMD_V3_RESOURCE_CLAIMS; ++index) {
+        iotmd_v3_resource_claim_t *claim = &iotmd_v3_resource_claims[index];
+        if (claim->used && strcmp(claim->kind, kind) == 0 &&
+                strcmp(claim->identifier, identifier) == 0) {
+            if (strcmp(claim->owner, owner) == 0) {
+                return MP_OBJ_NEW_SMALL_INT(index + 1);
+            }
+            mp_raise_OSError(MP_EBUSY);
+        }
+    }
+    for (size_t index = 0; index < IOTMD_V3_RESOURCE_CLAIMS; ++index) {
+        iotmd_v3_resource_claim_t *claim = &iotmd_v3_resource_claims[index];
+        if (!claim->used) {
+            memcpy(claim->kind, kind, kind_length);
+            claim->kind[kind_length] = '\0';
+            memcpy(claim->identifier, identifier, identifier_length);
+            claim->identifier[identifier_length] = '\0';
+            memcpy(claim->owner, owner, owner_length);
+            claim->owner[owner_length] = '\0';
+            claim->used = true;
+            return MP_OBJ_NEW_SMALL_INT(index + 1);
+        }
+    }
+    mp_raise_msg(
+        &mp_type_RuntimeError, MP_ERROR_TEXT("resource claim limit reached")
+    );
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(
+    iotmd_platform_v3_resource_claim_obj, 3, 3,
+    iotmd_platform_v3_resource_claim
+);
+
+static mp_obj_t iotmd_platform_v3_resource_release(mp_obj_t handle_in) {
+    mp_int_t handle = mp_obj_get_int(handle_in);
+    if (handle < 1 || handle > IOTMD_V3_RESOURCE_CLAIMS ||
+            !iotmd_v3_resource_claims[handle - 1].used) {
+        mp_raise_ValueError(MP_ERROR_TEXT("invalid resource handle"));
+    }
+    memset(&iotmd_v3_resource_claims[handle - 1], 0,
+        sizeof(iotmd_v3_resource_claim_t));
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    iotmd_platform_v3_resource_release_obj,
+    iotmd_platform_v3_resource_release
+);
+
+static mp_obj_t iotmd_platform_v3_resource_release_owner(mp_obj_t owner_in) {
+    size_t owner_length = 0;
+    const char *owner = iotmd_v3_resource_string(
+        owner_in, IOTMD_V3_RESOURCE_OWNER_BYTES, &owner_length
+    );
+    (void)owner_length;
+    size_t released = 0;
+    for (size_t index = 0; index < IOTMD_V3_RESOURCE_CLAIMS; ++index) {
+        iotmd_v3_resource_claim_t *claim = &iotmd_v3_resource_claims[index];
+        if (claim->used && strcmp(claim->owner, owner) == 0) {
+            memset(claim, 0, sizeof(iotmd_v3_resource_claim_t));
+            ++released;
+        }
+    }
+    return mp_obj_new_int_from_uint(released);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    iotmd_platform_v3_resource_release_owner_obj,
+    iotmd_platform_v3_resource_release_owner
+);
+
+static mp_obj_t iotmd_platform_v3_resource_snapshot(void) {
+    mp_obj_t result = mp_obj_new_list(0, NULL);
+    for (size_t index = 0; index < IOTMD_V3_RESOURCE_CLAIMS; ++index) {
+        iotmd_v3_resource_claim_t *claim = &iotmd_v3_resource_claims[index];
+        if (!claim->used) {
+            continue;
+        }
+        mp_obj_t item = mp_obj_new_dict(4);
+        iotmd_v3_dict_store(
+            item, MP_QSTR_handle, MP_OBJ_NEW_SMALL_INT(index + 1)
+        );
+        iotmd_v3_dict_store(
+            item, MP_QSTR_kind,
+            mp_obj_new_str(claim->kind, strlen(claim->kind))
+        );
+        iotmd_v3_dict_store(
+            item, MP_QSTR_identifier,
+            mp_obj_new_str(claim->identifier, strlen(claim->identifier))
+        );
+        iotmd_v3_dict_store(
+            item, MP_QSTR_owner,
+            mp_obj_new_str(claim->owner, strlen(claim->owner))
+        );
+        mp_obj_list_append(result, item);
+    }
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(
+    iotmd_platform_v3_resource_snapshot_obj,
+    iotmd_platform_v3_resource_snapshot
+);
+
 static void iotmd_v3_dict_store(mp_obj_t dictionary, qstr key,
     mp_obj_t value) {
     mp_obj_dict_store(dictionary, MP_OBJ_NEW_QSTR(key), value);
@@ -360,7 +518,27 @@ static mp_obj_t iotmd_platform_v3_capabilities(void) {
     iotmd_v3_dict_store(updates, MP_QSTR_paired_trial, mp_const_false);
     iotmd_v3_dict_store(updates, MP_QSTR_native_rollback, mp_const_false);
 
-    mp_obj_t result = mp_obj_new_dict(8);
+    mp_obj_t resource_kinds_items[] = {
+        mp_obj_new_str("adc", sizeof("adc") - 1),
+        mp_obj_new_str("gpio", sizeof("gpio") - 1),
+        mp_obj_new_str("i2c", sizeof("i2c") - 1),
+        mp_obj_new_str("spi", sizeof("spi") - 1),
+        mp_obj_new_str("uart", sizeof("uart") - 1),
+    };
+    mp_obj_t resources = mp_obj_new_dict(3);
+    iotmd_v3_dict_store(resources, MP_QSTR_managed, mp_const_true);
+    iotmd_v3_dict_store(
+        resources, MP_QSTR_max_claims,
+        MP_OBJ_NEW_SMALL_INT(IOTMD_V3_RESOURCE_CLAIMS)
+    );
+    iotmd_v3_dict_store(
+        resources, MP_QSTR_kinds,
+        mp_obj_new_tuple(
+            MP_ARRAY_SIZE(resource_kinds_items), resource_kinds_items
+        )
+    );
+
+    mp_obj_t result = mp_obj_new_dict(9);
     iotmd_v3_dict_store(
         result, MP_QSTR_abi_version,
         MP_OBJ_NEW_SMALL_INT(IOTMD_PLATFORM_V3_ABI_VERSION)
@@ -372,6 +550,7 @@ static mp_obj_t iotmd_platform_v3_capabilities(void) {
     iotmd_v3_dict_store(result, MP_QSTR_interfaces, interfaces);
     iotmd_v3_dict_store(result, MP_QSTR_storage, storage);
     iotmd_v3_dict_store(result, MP_QSTR_updates, updates);
+    iotmd_v3_dict_store(result, MP_QSTR_resources, resources);
     return result;
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(
@@ -394,6 +573,14 @@ static const mp_rom_map_elem_t iotmd_platform_v3_module_globals_table[] = {
       MP_ROM_PTR(&iotmd_platform_v3_storage_snapshot_obj) },
     { MP_ROM_QSTR(MP_QSTR_storage_commit),
       MP_ROM_PTR(&iotmd_platform_v3_storage_commit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_resource_claim),
+      MP_ROM_PTR(&iotmd_platform_v3_resource_claim_obj) },
+    { MP_ROM_QSTR(MP_QSTR_resource_release),
+      MP_ROM_PTR(&iotmd_platform_v3_resource_release_obj) },
+    { MP_ROM_QSTR(MP_QSTR_resource_release_owner),
+      MP_ROM_PTR(&iotmd_platform_v3_resource_release_owner_obj) },
+    { MP_ROM_QSTR(MP_QSTR_resource_snapshot),
+      MP_ROM_PTR(&iotmd_platform_v3_resource_snapshot_obj) },
 };
 static MP_DEFINE_CONST_DICT(
     iotmd_platform_v3_module_globals,

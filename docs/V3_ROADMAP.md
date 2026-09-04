@@ -52,6 +52,14 @@ trial and native rollback unavailable.
 Exit: the reference module survives restart, configuration failure and resource
 conflict tests without compromising recovery.
 
+Current status: `3.0.0-alpha.3` implements ABI 3 owner-scoped resource claims,
+an exact versioned configuration and migration preview, the first application
+kernel/service supervisor, a reference sensor driver, and bounded health/event/
+support snapshots. Host tests cover restart, invalid configuration, exclusive
+resource conflict, failure isolation and cleanup. Physical sensor exercise,
+watchdog fault injection and repeated hardware restart qualification remain the
+Alpha 3 HIL evidence gate.
+
 ## Alpha 4 — product transports
 
 - Port MQTT, server-rendered portal and mTLS Device API over Wi-Fi.

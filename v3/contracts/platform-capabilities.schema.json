@@ -11,10 +11,11 @@
     "memory",
     "interfaces",
     "storage",
-    "updates"
+    "updates",
+    "resources"
   ],
   "properties": {
-    "abi_version": {"const": 2},
+    "abi_version": {"const": 3},
     "board": {
       "type": "object",
       "required": ["target", "revision"],
@@ -30,7 +31,7 @@
       "properties": {
         "engine": {"const": "micropython"},
         "version": {"type": "string", "minLength": 1, "maxLength": 32},
-        "platform_abi": {"const": 2}
+        "platform_abi": {"const": 3}
       },
       "additionalProperties": false
     },
@@ -85,6 +86,22 @@
         "paired_manifest": {"type": "boolean"},
         "paired_trial": {"type": "boolean"},
         "native_rollback": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "required": ["managed", "max_claims", "kinds"],
+      "properties": {
+        "managed": {"type": "boolean"},
+        "max_claims": {"type": "integer", "minimum": 1, "maximum": 32},
+        "kinds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {"type": "string", "enum": ["adc", "gpio", "i2c", "spi", "uart"]}
+        }
       },
       "additionalProperties": false
     }

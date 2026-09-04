@@ -16,13 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MemoryProvider:
-    ABI_VERSION = 2
+    ABI_VERSION = 3
 
     def __init__(self):
         self.namespaces = {}
         self.handles = {}
         self.next_handle = 1
         self.interrupt = ''
+        self.resources = {}
+        self.next_resource_handle = 1
 
     def capabilities(self):
         return json.loads((
@@ -57,6 +59,36 @@ class MemoryProvider:
             self.interrupt = ''
             raise OSError(errno.EIO)
         return generation + 1
+
+    def resource_claim(self, kind, identifier, owner):
+        for handle, item in self.resources.items():
+            if item[:2] == (kind, identifier):
+                if item[2] == owner:
+                    return handle
+                raise OSError(errno.EBUSY)
+        handle = self.next_resource_handle
+        self.next_resource_handle += 1
+        self.resources[handle] = (kind, identifier, owner)
+        return handle
+
+    def resource_release(self, handle):
+        del self.resources[handle]
+
+    def resource_release_owner(self, owner):
+        handles = [
+            handle for handle, item in self.resources.items()
+            if item[2] == owner
+        ]
+        for handle in handles:
+            del self.resources[handle]
+        return len(handles)
+
+    def resource_snapshot(self):
+        return [
+            {'handle': handle, 'kind': item[0], 'identifier': item[1],
+             'owner': item[2]}
+            for handle, item in sorted(self.resources.items())
+        ]
 
 
 def pair(sequence=2707, suffix='a'):

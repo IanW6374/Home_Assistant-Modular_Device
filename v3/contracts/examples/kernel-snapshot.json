@@ -1,0 +1,28 @@
+{
+  "contract_version": 1,
+  "kernel_state": "running",
+  "device": "iot-md-001",
+  "health": {
+    "state": "healthy",
+    "services_total": 1,
+    "services_degraded": 0,
+    "services_failed": 0
+  },
+  "services": [
+    {
+      "name": "reference-1",
+      "state": "running",
+      "critical": false,
+      "failures": 0,
+      "last_error": "",
+      "detail": {"driver": "reference-sensor", "started": true, "samples": 1, "value": 21.5}
+    }
+  ],
+  "resources": [
+    {"handle": 1, "kind": "adc", "identifier": "adc:1", "owner": "reference-1"}
+  ],
+  "events": [
+    {"sequence": 1, "code": "service_started", "source": "reference-1", "severity": "info"},
+    {"sequence": 2, "code": "kernel_started", "source": "kernel", "severity": "info"}
+  ]
+}

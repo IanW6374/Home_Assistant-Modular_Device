@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "device": {"name": "iot-md-001"},
+  "services": {"poll_interval_ms": 1000, "max_failures": 3},
+  "modules": [
+    {
+      "id": "reference-1",
+      "driver": "reference-sensor",
+      "enabled": true,
+      "resource": {"kind": "adc", "identifier": "adc:1"},
+      "settings": {"scale": 1, "offset": 0}
+    }
+  ]
+}

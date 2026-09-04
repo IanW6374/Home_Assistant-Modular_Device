@@ -56,8 +56,9 @@ extract keys or keep raw native pointers.
 
 ## Platform ABI
 
-ABI 1 established capability discovery. ABI 2 adds bounded encrypted-storage
-handles and atomic whole-namespace snapshots. The ABI follows these rules:
+ABI 1 established capability discovery. ABI 2 added bounded encrypted-storage
+handles and atomic whole-namespace snapshots. ABI 3 adds owner-scoped logical
+resource claims and bounded resource inventory. The ABI follows these rules:
 
 - primitive values only: bounded strings, integers, booleans, bytes and maps;
 - explicit maximum size and timeout for every call;
@@ -77,6 +78,24 @@ bytes and native handles—not ESP-IDF NVS objects—cross the boundary.
 The checked-in JSON schemas are executable documentation for host tooling. The
 native module and runtime adapter will share generated constants or one source
 definition where practical.
+
+## Application kernel
+
+The Alpha 3 kernel validates or previews migration before it creates a service
+or claims hardware. Its registry resolves service dependencies deterministically
+and its cooperative supervisor isolates transient failures as degraded state,
+records a bounded event, and permits an individual service restart. A failed
+boot stops every started service and releases owner-scoped claims before it
+enters recovery.
+
+The initial reference sensor is deliberately small: it proves the driver,
+resource and lifecycle contracts without making a production claim for a new
+physical sensor. Its sample source is injectable for host and HIL fixtures.
+Portal, MQTT and API adapters do not consume this kernel until Alpha 4.
+
+Kernel health and support snapshots have fixed collection limits and contain
+only operational state. Runtime configuration and module settings are excluded
+so these snapshots cannot become an accidental secret-export path.
 
 ## Release and recovery model
 
@@ -109,6 +128,12 @@ Drivers request logical resources. The runtime resource service checks product
 policy while the native platform owns physical GPIO, ADC, UART, I2C, SPI and
 interrupt allocation. Compatible shared buses use one native instance; unsafe
 conflicts fail before a driver starts.
+
+ABI 3 implements the exclusive ownership ledger for ADC, GPIO, I2C, SPI and
+UART identities. Claims use opaque integer handles, are idempotent for the same
+owner, conflict across different owners, and can be released individually or
+by owner after a failed start or MicroPython soft restart. Physical peripheral
+construction and explicitly shared-bus policy remain later platform work.
 
 The initial target remains ESP32-S3 N8R8. A future production board should
 prefer 16 MB flash and 8 MB PSRAM, but larger hardware must not become an alpha

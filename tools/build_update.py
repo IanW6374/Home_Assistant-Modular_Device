@@ -80,9 +80,14 @@ V3_ALPHA_FILES = (
     'v3/__init__.py',
     'v3/runtime/__init__.py',
     'v3/runtime/iotmd_next/__init__.py',
+    'v3/runtime/iotmd_next/configuration.py',
+    'v3/runtime/iotmd_next/kernel.py',
     'v3/runtime/iotmd_next/paired_update.py',
     'v3/runtime/iotmd_next/platform.py',
+    'v3/runtime/iotmd_next/reference_sensor.py',
+    'v3/runtime/iotmd_next/resources.py',
     'v3/runtime/iotmd_next/storage.py',
+    'v3/runtime/iotmd_next/supervisor.py',
 )
 CORE_DEVICE_MODULES = (
     'device_modules/__init__.py',
