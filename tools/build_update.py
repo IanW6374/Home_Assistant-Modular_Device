@@ -76,6 +76,12 @@ CORE_FILES = (
     'application/lifecycle.py',
     'application/boot_health.py',
 )
+V3_ALPHA_FILES = (
+    'v3/__init__.py',
+    'v3/runtime/__init__.py',
+    'v3/runtime/iotmd_next/__init__.py',
+    'v3/runtime/iotmd_next/platform.py',
+)
 CORE_DEVICE_MODULES = (
     'device_modules/__init__.py',
     'device_modules/loader.py',
@@ -668,6 +674,16 @@ def collect_files(
             if not path.is_file():
                 raise ValueError('required runtime file not found: ' + name)
             paths.append((name, path))
+        # Alpha branches carry the next-generation runtime beside the proven
+        # product runtime.  Treat it as an atomic package when the v3 contract
+        # root exists, while keeping the generic/v2 bundle builder reusable by
+        # synthetic roots and maintenance tooling that deliberately omit v3.
+        if (root / 'v3').is_dir():
+            for name in V3_ALPHA_FILES:
+                path = root / name
+                if not path.is_file():
+                    raise ValueError('required v3 alpha runtime file not found: ' + name)
+                paths.append((name, path))
         for path in sorted(selected_drivers | selected_library_files(selected_drivers, root)):
             relative = path.relative_to(root).as_posix()
             if not path.is_file():

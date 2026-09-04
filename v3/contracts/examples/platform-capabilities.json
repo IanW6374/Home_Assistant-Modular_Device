@@ -6,7 +6,7 @@
   },
   "runtime": {
     "engine": "micropython",
-    "version": "unselected",
+    "version": "1.29.0",
     "platform_abi": 1
   },
   "security": {

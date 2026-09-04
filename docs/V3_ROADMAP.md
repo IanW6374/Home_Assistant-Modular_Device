@@ -21,6 +21,11 @@ Exit: contract checks pass and architecture decisions are accepted.
 
 Exit: repeated boot, watchdog, corrupt-runtime and recovery HIL tests pass.
 
+Current status: `3.0.0-alpha.1` implements the first native capability ABI and
+validated MicroPython adapter on the qualified v2.5 toolchain. It is a boundary
+test candidate, not completion of the Alpha 1 exit gate; native recovery
+ownership and its HIL fault matrix remain to be implemented.
+
 ## Alpha 2 — storage and paired updates
 
 - Implement encrypted namespace handles and transactional storage.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.0-alpha.1 - 2026-09-01
+
+- Add the first versioned native `_iotmd_platform_v3` capability ABI and a
+  fail-closed MicroPython adapter backed by an executable JSON contract.
+- Report the real platform security, PSRAM, OTA partition and interface gates
+  without claiming USB NCM availability.
+- Retain the stable v2.5 product behavior as an explicitly temporary
+  compatibility payload so the new native/runtime boundary can be qualified
+  independently before application services are ported.
+
 ## 2.5.0 - 2026-09-01
 
 - Promote the tested 2.5 beta series to stable with transport-neutral Device

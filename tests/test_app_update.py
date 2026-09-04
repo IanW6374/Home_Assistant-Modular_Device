@@ -741,6 +741,7 @@ class AppUpdateTests(unittest.TestCase):
             self.assertIn('device_modules/' + driver, names)
         self.assertIn('device_modules/driver_index.py', names)
         self.assertIn('app_settings.json', names)
+        self.assertIn('v3/runtime/iotmd_next/platform.py', names)
         self.assertNotIn('device_settings.json', names)
         self.assertNotIn('module_settings.json', names)
         generated = generated_driver_index(root).decode()
