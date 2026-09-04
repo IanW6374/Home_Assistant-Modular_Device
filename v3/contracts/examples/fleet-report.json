@@ -1,0 +1,12 @@
+{
+  "contract_version": 1,
+  "device_id": "esp32s3-0123456789ab",
+  "cohort": "alpha-canary",
+  "policy_sequence": 42,
+  "inventory": {"board": "esp32-s3", "modules": 2, "transports": 5},
+  "release": {"version": "3.0.0-alpha.5", "sequence": 2710, "confirmed": true},
+  "health": {"state": "healthy", "services_degraded": 0, "services_failed": 0},
+  "canary": {"outcome": "confirmed", "consecutive_failures": 0, "rollout_paused": false},
+  "event_cursor": 104,
+  "retention_gap": false
+}

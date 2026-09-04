@@ -7,8 +7,13 @@ MAX_METADATA_ITEMS = 24
 NAVIGATION = (
     ('Status', 'Overview', '/status', 'viewer'),
     ('Status', 'Connectivity', '/status/connectivity', 'viewer'),
+    ('Device', 'Identity', '/device/identity', 'viewer'),
+    ('Device', 'Fleet', '/device/fleet', 'viewer'),
     ('Device', 'Services', '/device/services', 'viewer'),
+    ('Maintenance', 'Certificate enrollment', '/maintenance/certificates',
+     'administrator'),
     ('Maintenance', 'Diagnostics', '/maintenance/diagnostics', 'operator'),
+    ('Maintenance', 'Migration', '/maintenance/migration', 'administrator'),
     ('Maintenance', 'Upgrades', '/maintenance/upgrades', 'administrator'),
 )
 

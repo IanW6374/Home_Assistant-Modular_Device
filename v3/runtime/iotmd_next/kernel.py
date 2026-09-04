@@ -34,7 +34,8 @@ class EventJournal:
 
 
 class ApplicationKernel:
-    def __init__(self, platform, driver_factories=None, service_factories=None):
+    def __init__(self, platform, driver_factories=None, service_factories=None,
+                 domain_factories=None):
         self._platform = platform
         self._events = EventJournal()
         self._resources = ResourceManager(platform)
@@ -42,6 +43,7 @@ class ApplicationKernel:
             ReferenceSensor.DRIVER: self._reference_factory,
         }
         self._service_factories = service_factories or {}
+        self._domain_factories = domain_factories or {}
         self._configuration = None
         self._supervisor = None
         self._state = 'idle'
@@ -69,6 +71,17 @@ class ApplicationKernel:
                 self._supervisor.register(
                     transport['id'], factory(transport),
                     transport['dependencies'], transport['critical']
+                )
+            for name in ('identity', 'fleet'):
+                domain = self._configuration[name]
+                if not domain['enabled']:
+                    continue
+                factory = self._domain_factories.get(name)
+                if factory is None:
+                    raise KernelError(name + ' service is unavailable')
+                self._supervisor.register(
+                    name, factory(domain), domain['dependencies'],
+                    domain['critical']
                 )
             for module in self._configuration['modules']:
                 if not module['enabled']:

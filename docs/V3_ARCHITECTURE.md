@@ -108,6 +108,27 @@ TLS, MQTT, CA, syslog and release services. They report operational state and
 the exception class only. This preserves useful fault isolation without
 turning a support snapshot into a credential or endpoint-detail export.
 
+Alpha 5 advances the runtime configuration contract to version 3. Identity and
+fleet are explicit dependency-ordered domain services rather than special cases
+inside a transport. The portal and Device API render their bounded projections;
+certificate, socket and fleet-client implementations stay behind injected
+adapters.
+
+The identity service represents portal, Device API/fleet and renewal identities
+with opaque certificate and key handles. It orchestrates all supported
+enrollment methods, checks renewal only with a synchronized clock and never
+renews a manual package. Trust anchors are purpose-labelled and removed using
+their observed generation so a stale page cannot delete a replacement anchor.
+Neither snapshots nor API responses contain certificate or private-key bytes.
+
+The fleet service accepts only signed P-256 policy targeted to the device or
+its configured cohort. It rejects unknown fields, invalid time windows, replayed
+sequences and unsynchronized clocks before saving policy transactionally.
+Canary outcomes increment a bounded failure count and pause rollout at the
+signed policy threshold. Its report contains only bounded inventory, release,
+health, canary and event-cursor values. The transport supplies policy and carries
+reports; it does not decide whether policy is valid.
+
 Kernel health and support snapshots have fixed collection limits and contain
 only operational state. Runtime configuration and module settings are excluded
 so these snapshots cannot become an accidental secret-export path.
@@ -137,6 +158,15 @@ backup produces a preview, validation report and migration plan. The confirmed
 v2 state remains untouched until v3 trial health succeeds. Rollback therefore
 returns to both the v2 software and its original configuration.
 
+Alpha 5 implements the runtime coordinator for an already authenticated and
+decrypted v2 complete backup. The preview is fingerprint-bound and records only
+section counts, warnings and a plan identifier. Credentials, module settings
+and certificate/trust files are staged by a platform adapter and represented by
+opaque handles. A healthy v3 trial activates those handles; an unhealthy trial
+discards them. Atomic native activation and representative-device rollback are
+still qualification gates, so this coordinator is not yet the production
+restore path.
+
 ## Hardware and resource model
 
 Drivers request logical resources. The runtime resource service checks product
@@ -149,6 +179,13 @@ UART identities. Claims use opaque integer handles, are idempotent for the same
 owner, conflict across different owners, and can be released individually or
 by owner after a failed start or MicroPython soft restart. Physical peripheral
 construction and explicitly shared-bus policy remain later platform work.
+
+Alpha 5 permits each module to declare up to eight resources and adds a static
+catalog matching all supported v2.5 driver backends and module type variants.
+A driver claims the complete set before starting its injected hardware backend;
+failed start and stop release the whole owner scope. Dynamic unsigned driver
+loading remains out of scope, and the catalog is a compatibility declaration—not
+evidence that every physical backend has passed v3 HIL qualification.
 
 The initial target remains ESP32-S3 N8R8. A future production board should
 prefer 16 MB flash and 8 MB PSRAM, but larger hardware must not become an alpha

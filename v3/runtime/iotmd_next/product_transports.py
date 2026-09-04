@@ -117,11 +117,15 @@ class MQTTService:
 
 class PortalService:
     def __init__(self, adapter, snapshot_getter, connectivity_getter,
-                 connectivity_runner=None):
+                 connectivity_runner=None, identity_getter=None,
+                 fleet_getter=None, migration_getter=None):
         self._adapter = _adapter(adapter, ('start', 'stop', 'poll', 'status'))
         self._snapshot_getter = snapshot_getter
         self._connectivity_getter = connectivity_getter
         self._connectivity_runner = connectivity_runner
+        self._identity_getter = identity_getter
+        self._fleet_getter = fleet_getter
+        self._migration_getter = migration_getter
 
     def start(self):
         self._adapter.start(self.handle)
@@ -169,6 +173,36 @@ class PortalService:
                     'Connectivity', role, route, '<ul>' + ''.join(rows) + '</ul>'
                 ), 'text/html; charset=utf-8'
             )
+        if route in ('/device/identity', '/device/fleet',
+                     '/maintenance/migration'):
+            if request.method != 'GET':
+                return TransportResponse(405, 'Method not allowed', 'text/plain')
+            if route == '/maintenance/migration' and role != 'administrator':
+                return TransportResponse(403, 'Administrator role required', 'text/plain')
+            getter = {
+                '/device/identity': self._identity_getter,
+                '/device/fleet': self._fleet_getter,
+                '/maintenance/migration': self._migration_getter,
+            }[route]
+            if getter is None:
+                return TransportResponse(503, 'Service unavailable', 'text/plain')
+            value = getter()
+            rows = []
+            for key in sorted(value):
+                item = value[key]
+                if item is None or isinstance(item, (str, int, float, bool)):
+                    rows.append('<li>' + html_escape(key) + ': ' +
+                                html_escape(item) + '</li>')
+            title = {
+                '/device/identity': 'Identity',
+                '/device/fleet': 'Fleet',
+                '/maintenance/migration': 'Migration',
+            }[route]
+            return TransportResponse(
+                200, render_document(
+                    title, role, route, '<ul>' + ''.join(rows) + '</ul>'
+                ), 'text/html; charset=utf-8'
+            )
         if route == '/maintenance/diagnostics':
             if role not in ('operator', 'administrator'):
                 return TransportResponse(403, 'Operator role required', 'text/plain')
@@ -203,10 +237,13 @@ class PortalService:
 
 
 class DeviceAPIService:
-    def __init__(self, adapter, snapshot_getter, connectivity_getter):
+    def __init__(self, adapter, snapshot_getter, connectivity_getter,
+                 identity=None, fleet=None):
         self._adapter = _adapter(adapter, ('start', 'stop', 'poll', 'status'))
         self._snapshot_getter = snapshot_getter
         self._connectivity_getter = connectivity_getter
+        self._identity = identity
+        self._fleet = fleet
 
     def start(self):
         self._adapter.start(self.handle, require_mtls=True)
@@ -231,11 +268,33 @@ class DeviceAPIService:
     def handle(self, request):
         if not isinstance(request, TransportRequest):
             raise ValueError('API request contract is invalid')
+        route = request.path.split('?', 1)[0]
+        if route == '/api/v3/fleet/report':
+            if not self._authorized(request, 'fleet:read') or self._fleet is None:
+                return TransportResponse(403, {'error': 'mTLS scope denied'})
+            if request.method != 'GET':
+                return TransportResponse(405, {'error': 'method not allowed'})
+            return TransportResponse(200, self._fleet.report())
+        if route == '/api/v3/fleet/policy':
+            if not self._authorized(request, 'fleet:write') or self._fleet is None:
+                return TransportResponse(403, {'error': 'mTLS scope denied'})
+            if request.method != 'POST':
+                return TransportResponse(405, {'error': 'method not allowed'})
+            try:
+                policy = json.loads(request.body.decode())
+                result = self._fleet.apply_policy(policy)
+            except Exception as exc:
+                return TransportResponse(400, {
+                    'error': str(getattr(type(exc), '__name__', 'invalid policy'))[:48]
+                })
+            return TransportResponse(200, {
+                'api_version': API_VERSION,
+                'policy_sequence': result['policy_sequence'],
+            })
         if not self._authorized(request, 'read'):
             return TransportResponse(403, {'error': 'mTLS scope denied'})
         if request.method != 'GET':
             return TransportResponse(405, {'error': 'method not allowed'})
-        route = request.path.split('?', 1)[0]
         snapshot = self._snapshot_getter()
         if route == '/api/v3/device':
             return TransportResponse(200, {
@@ -258,6 +317,11 @@ class DeviceAPIService:
                 'api_version': API_VERSION,
                 'connectivity': self._connectivity_getter(),
             })
+        if route == '/api/v3/identity' and self._identity is not None:
+            return TransportResponse(200, {
+                'api_version': API_VERSION,
+                'identity': self._identity.snapshot(),
+            })
         return TransportResponse(404, {'error': 'not found'})
 
     def snapshot(self):
@@ -266,7 +330,8 @@ class DeviceAPIService:
         return value
 
 
-def build_service_factories(adapters, snapshot_getter, connectivity):
+def build_service_factories(adapters, snapshot_getter, connectivity,
+                            identity=None, fleet=None, migration=None):
     """Return configuration factories without exposing adapter objects."""
     if not isinstance(adapters, dict):
         raise ValueError('transport adapters are invalid')
@@ -281,13 +346,16 @@ def build_service_factories(adapters, snapshot_getter, connectivity):
     def portal(unused):
         return PortalService(
             adapters.get('portal'), snapshot_getter,
-            connectivity.diagnostics, connectivity.run
+            connectivity.diagnostics, connectivity.run,
+            None if identity is None else identity.snapshot,
+            None if fleet is None else fleet.snapshot,
+            None if migration is None else migration.state,
         )
 
     def device_api(unused):
         return DeviceAPIService(
             adapters.get('device-api'), snapshot_getter,
-            connectivity.diagnostics
+            connectivity.diagnostics, identity, fleet
         )
 
     return {

@@ -1,0 +1,13 @@
+[
+  {"driver": "dht11", "types": ["sensor:dht11"]},
+  {"driver": "ems", "types": ["sensor:EMS-Boiler"]},
+  {"driver": "grove_ac_voltage", "types": ["sensor:Grove-AC-Voltage"]},
+  {"driver": "hcsr04", "types": ["sensor:hcsr04"]},
+  {"driver": "light", "types": ["light:brightness", "light:onoff", "light:rgb"]},
+  {"driver": "max31865_pt1000", "types": ["sensor:MAX31865-PT1000"]},
+  {"driver": "modbus_transport", "types": ["sensor:RS485-Modbus-Multiport"]},
+  {"driver": "rs485_modbus", "types": ["sensor:RS485-Modbus"]},
+  {"driver": "switch_dimmer", "types": ["switch:dimmer"]},
+  {"driver": "switch_onoff", "types": ["switch:onoff"]},
+  {"driver": "whes", "types": ["sensor:WHES"]}
+]

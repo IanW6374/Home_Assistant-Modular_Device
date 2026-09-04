@@ -30,7 +30,7 @@ class ReferenceSensor:
         return 0
 
     def start(self):
-        resource = self._configuration['resource']
+        resource = self._configuration['resources'][0]
         self._handle = self._resources.claim(
             resource['kind'], resource['identifier'],
             self._configuration['id']
@@ -44,7 +44,7 @@ class ReferenceSensor:
     def poll(self):
         if self._handle is None:
             raise ReferenceSensorError('reference sensor is not started')
-        raw = self._reader(self._configuration['resource']['identifier'])
+        raw = self._reader(self._configuration['resources'][0]['identifier'])
         if not isinstance(raw, (int, float)) or isinstance(raw, bool):
             raise ReferenceSensorError('reference sensor sample is invalid')
         self._value = raw * self._scale + self._offset

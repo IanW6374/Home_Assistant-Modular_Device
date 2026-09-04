@@ -31,6 +31,22 @@ def main():
             contracts / 'examples' / 'connectivity-diagnostics.json',
             contracts / 'connectivity-diagnostics.schema.json',
         ),
+        (
+            contracts / 'examples' / 'identity-state.json',
+            contracts / 'identity-state.schema.json',
+        ),
+        (
+            contracts / 'examples' / 'fleet-report.json',
+            contracts / 'fleet-report.schema.json',
+        ),
+        (
+            contracts / 'examples' / 'migration-plan.json',
+            contracts / 'migration-plan.schema.json',
+        ),
+        (
+            contracts / 'examples' / 'driver-catalog.json',
+            contracts / 'driver-catalog.schema.json',
+        ),
     )
     for instance_path, schema_path in pairs:
         schema = json.loads(schema_path.read_text())

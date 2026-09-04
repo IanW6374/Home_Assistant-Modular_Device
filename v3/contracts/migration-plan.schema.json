@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-md.local/contracts/v3/migration-plan.schema.json",
+  "title": "IoT-MD v2-to-v3 migration plan",
+  "type": "object",
+  "required": ["contract_version", "phase", "plan_id", "fingerprint", "source_device", "sections", "warnings", "failure"],
+  "properties": {
+    "contract_version": {"const": 1},
+    "phase": {"enum": ["idle", "preview", "staged", "trial", "confirmed", "rolled-back"]},
+    "plan_id": {"type": "string", "maxLength": 64},
+    "fingerprint": {"type": "string", "pattern": "^$|^[0-9a-f]{64}$"},
+    "source_device": {"type": "string", "maxLength": 64},
+    "sections": {
+      "type": "array", "maxItems": 3,
+      "items": {
+        "type": "object", "required": ["name", "count", "handle", "state"],
+        "properties": {
+          "name": {"enum": ["credentials", "module_settings", "certificates_and_trust"]},
+          "count": {"type": "integer", "minimum": 0, "maximum": 64},
+          "handle": {"type": "integer", "minimum": 0},
+          "state": {"enum": ["preview", "staged", "activated", "discarded"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    "warnings": {"type": "array", "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 96}},
+    "failure": {"type": "string", "maxLength": 96}
+  },
+  "additionalProperties": false
+}

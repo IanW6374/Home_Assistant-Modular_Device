@@ -1,7 +1,7 @@
 """Deterministic service registry and bounded cooperative supervisor."""
 
 SERVICE_STATES = ('registered', 'running', 'degraded', 'failed', 'stopped')
-MAX_SERVICES = 16
+MAX_SERVICES = 20
 
 
 class SupervisorError(RuntimeError):

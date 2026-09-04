@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.0.0-alpha.5 - 2026-09-04
+
+- Advance runtime configuration to version 3 with explicit identity and fleet
+  domains, multi-resource modules and non-mutating migration from earlier alpha
+  contracts.
+- Add opaque-handle certificate lifecycle orchestration, managed renewal for
+  non-manual enrollment methods and generation-guarded trust removal.
+- Add signed, scoped fleet policy validation, bounded inventory/canary reports
+  and dedicated `fleet:read` and `fleet:write` Device API routes.
+- Add previewed, fingerprint-bound v2 complete-backup migration which stages
+  secrets in isolated platform storage and activates them only after a healthy
+  v3 trial.
+- Port the supported v2.5 driver catalog to a multi-resource lifecycle contract
+  with deterministic claim cleanup, and add bounded identity, fleet and
+  migration portal summaries.
+- Retain the v2.5 compatibility product runtime while Alpha 5 certificate,
+  fleet, migration, physical-driver and interruption HIL gates remain open.
+
 ## 3.0.0-alpha.4 - 2026-09-04
 
 - Add browser byte-level progress to manual upgrade chunks so the initial

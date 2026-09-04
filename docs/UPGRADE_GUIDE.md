@@ -1,4 +1,23 @@
-# IoT-MD v2 upgrade and recovery guide
+# IoT-MD upgrade and recovery guide
+
+## V3 alpha qualification
+
+V3 alpha packages are recovery-device test releases, not stable fleet
+upgrades. They retain the v2.5 compatibility product runtime while the new
+native/runtime boundaries are qualified. Use the release-specific test note,
+including its monotonically increasing sequence and open HIL gates, before
+installing one.
+
+Alpha 5 can preview an already authenticated/decrypted v2 complete backup and
+stage its credentials, module settings and certificate/trust material into an
+isolated v3 namespace. Preview does not mutate the backup or confirmed v2 state.
+Staged handles are activated only after a healthy v3 trial and discarded after
+an unhealthy trial. Until the native atomic-activation and representative-device
+rollback gate passes, use the existing v2 restore workflow for production data.
+
+The ordinary artifact remains one `.iotuni` paired release. Alpha component
+artifacts are published for factory and recovery diagnosis, and installation
+of an older release sequence may require USB recovery or a newer signed build.
 
 ## Artifact types
 

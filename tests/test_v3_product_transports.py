@@ -117,12 +117,18 @@ class V3ProductTransportTests(unittest.TestCase):
         previous = copy.deepcopy(current)
         previous['contract_version'] = 1
         del previous['transports']
+        del previous['identity']
+        del previous['fleet']
+        for module in previous['modules']:
+            module['resource'] = module.pop('resources')[0]
         original = copy.deepcopy(previous)
         plan = migrate_configuration(previous)
         self.assertEqual(previous, original)
         self.assertEqual(plan['from_version'], 1)
-        self.assertEqual(plan['to_version'], 2)
+        self.assertEqual(plan['to_version'], 3)
         self.assertEqual(plan['configuration']['transports'], [])
+        self.assertFalse(plan['configuration']['identity']['enabled'])
+        self.assertFalse(plan['configuration']['fleet']['enabled'])
 
     def test_transport_dependencies_start_before_product_services(self):
         value = configuration()

@@ -101,8 +101,12 @@ class V3ApplicationKernelTests(unittest.TestCase):
         plan = migrate_configuration(source)
         self.assertEqual(source, original)
         self.assertTrue(plan['changed'])
-        self.assertEqual(plan['configuration']['contract_version'], 2)
+        self.assertEqual(plan['configuration']['contract_version'], 3)
         self.assertEqual(plan['configuration']['transports'], [])
+        self.assertEqual(
+            plan['configuration']['modules'][0]['resources'],
+            [{'kind': 'adc', 'identifier': 'adc:1'}],
+        )
 
     def test_unknown_or_duplicate_configuration_fails_before_claiming(self):
         value = configuration()

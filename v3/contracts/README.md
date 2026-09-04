@@ -5,9 +5,10 @@ MicroPython runtime. Every contract has an integer ABI version, fixed limits,
 explicit optional fields and fail-closed validation.
 
 The executable contracts currently describe platform capabilities, paired
-update state, runtime configuration, bounded kernel snapshots and unified
-connectivity diagnostics. Alpha 2 defines the native whole-namespace snapshot
-calls:
+update state, runtime configuration, bounded kernel snapshots, unified
+connectivity diagnostics, identity metadata, fleet reports, migration plans
+and the supported driver catalog. Alpha 2 defines the native whole-namespace
+snapshot calls:
 
 - `storage_open(namespace)` returns an opaque bounded handle;
 - `storage_snapshot(handle)` returns one generation and byte payload;
@@ -27,11 +28,17 @@ Alpha 4 adds a bounded diagnostic record for DNS, time, TLS, MQTT, CA, syslog
 and release-service reachability. Product services exchange bounded request,
 response and state values; socket and TLS objects remain inside adapters.
 
-Later alpha milestones will add:
+Alpha 5 advances runtime configuration to version 3. Identity records contain
+only metadata and opaque certificate/key handles. Fleet reports expose bounded
+inventory, release, health, canary and event-cursor values. Migration plans
+record preview/staging state and opaque handles without embedding credentials,
+keys or protected files. The driver catalog is static and modules may declare
+multiple logical resources.
+
+Later platform milestones will add:
 
 - platform events and native job completion;
-- opaque credential and certificate handles;
-- migration checkpoints;
+- native-backed credential, certificate and migration handles;
 - network-interface lifecycle;
 - native update staging, trial and rollback operations; and
 - native platform event and boot-health snapshots.

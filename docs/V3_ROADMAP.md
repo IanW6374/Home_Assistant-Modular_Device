@@ -87,6 +87,16 @@ stack until MQTT/portal/API parity and network-fault HIL evidence passes.
 Exit: representative v2 devices migrate, roll back and retry without losing
 their confirmed v2 state.
 
+Current status: `3.0.0-alpha.5` implements configuration contract version 3,
+opaque certificate/key handles, managed identity renewal, generation-guarded
+trust administration, signed targeted fleet policy, bounded canary reporting,
+previewed and isolated v2 complete-backup migration, and the complete v2.5
+driver catalog over a multi-resource lifecycle contract. Host tests cover
+validation, replay/time/target rejection, renewal policy, rollout pausing,
+secret-free migration previews, rollback and driver cleanup. Real certificate
+issuance, Management Suite interoperability, representative backup migration,
+physical drivers and power-interruption recovery remain the Alpha 5 HIL gate.
+
 ## Beta — operational qualification
 
 - Multi-day soak, storage pressure, certificate renewal and network fault tests.

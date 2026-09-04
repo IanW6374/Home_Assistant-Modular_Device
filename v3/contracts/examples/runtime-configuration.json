@@ -1,56 +1,17 @@
 {
-  "contract_version": 2,
+  "contract_version": 3,
   "device": {"name": "iot-md-001"},
   "services": {"poll_interval_ms": 1000, "max_failures": 3},
   "transports": [
-    {
-      "id": "wifi",
-      "adapter": "wifi",
-      "enabled": true,
-      "critical": true,
-      "dependencies": [],
-      "settings": {}
-    },
-    {
-      "id": "connectivity",
-      "adapter": "connectivity",
-      "enabled": true,
-      "critical": false,
-      "dependencies": ["wifi"],
-      "settings": {}
-    },
-    {
-      "id": "mqtt",
-      "adapter": "mqtt",
-      "enabled": true,
-      "critical": false,
-      "dependencies": ["wifi"],
-      "settings": {"topic_prefix": "iot-md/iot-md-001"}
-    },
-    {
-      "id": "portal",
-      "adapter": "portal",
-      "enabled": true,
-      "critical": true,
-      "dependencies": ["wifi", "connectivity"],
-      "settings": {}
-    },
-    {
-      "id": "device-api",
-      "adapter": "device-api",
-      "enabled": true,
-      "critical": false,
-      "dependencies": ["wifi", "connectivity"],
-      "settings": {}
-    }
+    {"id": "wifi", "adapter": "wifi", "enabled": true, "critical": true, "dependencies": [], "settings": {}},
+    {"id": "connectivity", "adapter": "connectivity", "enabled": true, "critical": false, "dependencies": ["wifi"], "settings": {}},
+    {"id": "mqtt", "adapter": "mqtt", "enabled": true, "critical": false, "dependencies": ["wifi"], "settings": {"topic_prefix": "iot-md/iot-md-001"}},
+    {"id": "portal", "adapter": "portal", "enabled": true, "critical": true, "dependencies": ["wifi", "connectivity"], "settings": {}},
+    {"id": "device-api", "adapter": "device-api", "enabled": true, "critical": false, "dependencies": ["wifi", "connectivity"], "settings": {}}
   ],
+  "identity": {"enabled": false, "method": "self-signed", "critical": true, "dependencies": [], "renewal_check_s": 3600},
+  "fleet": {"enabled": false, "critical": false, "dependencies": [], "cohort": "default", "poll_interval_s": 300},
   "modules": [
-    {
-      "id": "reference-1",
-      "driver": "reference-sensor",
-      "enabled": true,
-      "resource": {"kind": "adc", "identifier": "adc:1"},
-      "settings": {"scale": 1, "offset": 0}
-    }
+    {"id": "reference-1", "driver": "reference-sensor", "enabled": true, "resources": [{"kind": "adc", "identifier": "adc:1"}], "settings": {"scale": 1, "offset": 0}}
   ]
 }

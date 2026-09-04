@@ -4,6 +4,12 @@ The independently released
 [IoT-MD Management Suite](https://github.com/IanW6374/HA-IoT-MD-Management-Suite)
 uses the device's `/api/v2` endpoints over mandatory mutual TLS.
 
+The v3 alpha boundary retains the same trust and policy semantics while adding
+a bounded `/api/v3/fleet/report` projection and `/api/v3/fleet/policy` intake.
+The former requires `fleet:read`; the latter requires `fleet:write`. These are
+Alpha 5 contract routes and do not replace the production v2 endpoints until
+Management Suite interoperability and HIL security tests pass.
+
 ## Identity and inventory
 
 Fleet clients use dedicated certificates with `fleet:read` and optional
@@ -31,11 +37,14 @@ key and devices store only the 64-byte public key. A policy binds:
 
 Devices reject invalid signatures, replayed sequences, incorrect targets,
 expired policies, unknown fields and policies requiring an unsynchronised
-clock. Fleet policy can select signed releases but cannot create firmware.
+clock. Alpha 5 additionally keeps the accepted sequence and rollout outcome in
+a transactional namespace. Fleet policy can select signed releases but cannot
+create firmware.
 
 ## Events and rollouts
 
 Events use a monotonic cursor and explicitly report retention gaps. Rollouts
 advance through ordered cohorts only after required success results and stop at
-their configured failure threshold. Rollback references a previously confirmed
-signed release.
+their configured failure threshold. Alpha 5 reports `healthy`, `confirmed`,
+`failed` or `rolled-back` canary outcomes and pauses after the signed consecutive
+failure threshold. Rollback references a previously confirmed signed release.

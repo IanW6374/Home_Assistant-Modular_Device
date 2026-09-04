@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-md.local/contracts/v3/fleet-report.schema.json",
+  "title": "IoT-MD v3 fleet canary report",
+  "type": "object",
+  "required": ["contract_version", "device_id", "cohort", "policy_sequence", "inventory", "release", "health", "canary", "event_cursor", "retention_gap"],
+  "properties": {
+    "contract_version": {"const": 1},
+    "device_id": {"type": "string", "minLength": 1, "maxLength": 64},
+    "cohort": {"type": "string", "minLength": 1, "maxLength": 32},
+    "policy_sequence": {"type": "integer", "minimum": 0},
+    "inventory": {"type": "object", "required": ["board", "modules", "transports"], "properties": {"board": {"type": "string", "maxLength": 32}, "modules": {"type": "integer", "minimum": 0, "maximum": 8}, "transports": {"type": "integer", "minimum": 0, "maximum": 8}}, "additionalProperties": false},
+    "release": {"type": "object", "required": ["version", "sequence", "confirmed"], "properties": {"version": {"type": "string", "maxLength": 48}, "sequence": {"type": "integer", "minimum": 0}, "confirmed": {"type": "boolean"}}, "additionalProperties": false},
+    "health": {"type": "object", "required": ["state", "services_degraded", "services_failed"], "properties": {"state": {"enum": ["healthy", "degraded", "failed", "inactive", "unknown"]}, "services_degraded": {"type": "integer", "minimum": 0, "maximum": 20}, "services_failed": {"type": "integer", "minimum": 0, "maximum": 20}}, "additionalProperties": false},
+    "canary": {"type": "object", "required": ["outcome", "consecutive_failures", "rollout_paused"], "properties": {"outcome": {"enum": ["unknown", "healthy", "confirmed", "failed", "rolled-back"]}, "consecutive_failures": {"type": "integer", "minimum": 0, "maximum": 20}, "rollout_paused": {"type": "boolean"}}, "additionalProperties": false},
+    "event_cursor": {"type": "integer", "minimum": 0},
+    "retention_gap": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "phase": "staged",
+  "plan_id": "migration-0001",
+  "fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "source_device": "esp32s3-aabbccddeeff",
+  "sections": [
+    {"name": "credentials", "count": 7, "handle": 301, "state": "staged"},
+    {"name": "module_settings", "count": 2, "handle": 302, "state": "staged"},
+    {"name": "certificates_and_trust", "count": 5, "handle": 303, "state": "staged"}
+  ],
+  "warnings": [],
+  "failure": ""
+}

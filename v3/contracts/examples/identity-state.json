@@ -1,0 +1,10 @@
+{
+  "contract_version": 1,
+  "generation": 4,
+  "method": "automatic-iot-ca",
+  "identities": [
+    {"purpose": "portal", "certificate_handle": 101, "key_handle": 201, "subject": "iot-md-001.example.net", "issuer": "Public ACME CA", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "not_before": 1788451200, "not_after": 1796227200},
+    {"purpose": "device-api-fleet", "certificate_handle": 102, "key_handle": 202, "subject": "iot-md-001.local", "issuer": "Home IoT CA", "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "not_before": 1788451200, "not_after": 1820073600}
+  ],
+  "renewal": {"managed": true, "state": "current", "due_at": 1793635200}
+}

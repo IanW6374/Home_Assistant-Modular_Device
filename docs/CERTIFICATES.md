@@ -85,6 +85,20 @@ The Management Suite verification key is a signing key rather than an X.509
 CA certificate. It verifies fleet policy and format-3 release catalogs; update
 artifacts remain independently verified by the immutable offline update key.
 
+## V3 identity boundary
+
+The v3 Alpha 5 runtime keeps the same user-facing enrollment methods and split
+identity model, but does not move certificate or private-key bytes through the
+application kernel. Platform adapters return opaque integer handles plus
+bounded subject, issuer, fingerprint and validity metadata. The identity domain
+orchestrates enrollment and renewal; the platform owns protected material and
+cryptographic operations. Trust anchors are removed by identifier and observed
+generation to prevent a stale portal operation from deleting newer trust.
+
+This is currently an alpha contract. The v2.5 certificate implementation
+remains the active product path until real issuance, renewal, power interruption
+and trust-removal HIL tests qualify the native adapter.
+
 ### Renewal coverage
 
 Renewal depends on the selected route and is shown beside every choice in the
