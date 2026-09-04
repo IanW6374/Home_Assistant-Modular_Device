@@ -80,7 +80,9 @@ V3_ALPHA_FILES = (
     'v3/__init__.py',
     'v3/runtime/__init__.py',
     'v3/runtime/iotmd_next/__init__.py',
+    'v3/runtime/iotmd_next/paired_update.py',
     'v3/runtime/iotmd_next/platform.py',
+    'v3/runtime/iotmd_next/storage.py',
 )
 CORE_DEVICE_MODULES = (
     'device_modules/__init__.py',
@@ -167,11 +169,11 @@ PORTAL_ROUTE_SPLITS = (
     (
         'handle_upload_routes', 'portal_route_upload',
         (
-            'action_path', 'body', 'finish_progress_response', 'headers',
-            'log_output', 'method', 'portal', 'progress_state', 'reader',
-            'report_upload_progress', 'resumable_append', 'resumable_begin',
-            'resumable_complete', 'resumable_status', 'route', 'send_response',
-            'upload_progress_by_id', 'writer',
+            'action_path', 'asyncio', 'body', 'complete_resumable_update',
+            'headers', 'log_output', 'method', 'portal', 'progress_state',
+            'reader', 'resumable_append', 'resumable_begin',
+            'resumable_complete', 'resumable_status', 'route',
+            'send_response', 'upload_progress_by_id', 'writer',
         ),
         (),
     ),
