@@ -91,7 +91,22 @@ enters recovery.
 The initial reference sensor is deliberately small: it proves the driver,
 resource and lifecycle contracts without making a production claim for a new
 physical sensor. Its sample source is injectable for host and HIL fixtures.
-Portal, MQTT and API adapters do not consume this kernel until Alpha 4.
+Alpha 4 registers product transports through the same dependency-aware service
+registry. Configuration contract version 2 declares adapter identity,
+dependencies and criticality; socket or client instances are injected at the
+outer edge and never enter configuration or support snapshots.
+
+MQTT receives only a bounded state projection and provides a separate optional
+Home Assistant discovery operation. The server-rendered portal and Device API
+share bounded request/response values while retaining distinct authentication:
+the portal uses roles and the API requires a verified mTLS identity with an
+explicit scope. Navigation and form fields come from shared metadata rather
+than duplicated page definitions.
+
+Connectivity diagnostics rotate one bounded probe at a time across DNS, time,
+TLS, MQTT, CA, syslog and release services. They report operational state and
+the exception class only. This preserves useful fault isolation without
+turning a support snapshot into a credential or endpoint-detail export.
 
 Kernel health and support snapshots have fixed collection limits and contain
 only operational state. Runtime configuration and module settings are excluded

@@ -69,6 +69,14 @@ Alpha 3 HIL evidence gate.
 
 Exit: portal/API/MQTT behavior and security match the v3 requirements baseline.
 
+Current status: `3.0.0-alpha.4` implements configuration contract version 2,
+dependency-ordered product services, bounded request/response values, injected
+Wi-Fi, MQTT, server-rendered portal and mTLS Device API adapters, shared
+presentation metadata and unified connectivity diagnostics. Host tests cover
+role/scope enforcement, escaping, payload bounds, service ordering and
+diagnostic redaction. The v2.5 compatibility runtime remains the active network
+stack until MQTT/portal/API parity and network-fault HIL evidence passes.
+
 ## Alpha 5 — identity, fleet and v2 migration
 
 - Port certificate enrollment/renewal and trust administration.

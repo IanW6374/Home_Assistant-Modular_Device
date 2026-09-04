@@ -4,13 +4,13 @@ This directory is the isolated starting point for the v3 architecture rewrite.
 Stable v2.5 maintenance continues from `main`; v3 development continues on
 `alpha/v3-platform-rewrite` until its own promotion gates pass.
 
-Version `3.0.0-alpha.3` adds the first greenfield application-kernel slice. Its
-core exposes native `_iotmd_platform_v3` ABI 3 resource ownership alongside the
-Alpha 2 transactional storage boundary. Its application contains a versioned
-configuration/migration contract, service supervisor, reference sensor driver,
-and bounded operational snapshots. It deliberately retains the proven v2.5
-product runtime as a temporary compatibility payload; the new kernel is not yet
-connected to the production portal, MQTT or Device API transports.
+Version `3.0.0-alpha.4` adds the first greenfield product-transport slice. Its
+version 2 runtime configuration declares enabled adapters and their dependency
+order. MQTT, the server-rendered portal and mTLS Device API v3 consume bounded
+domain contracts through injected Wi-Fi adapters; shared presentation metadata
+and unified connectivity probes keep transport details out of the application
+kernel. The proven v2.5 product runtime remains the active compatibility payload
+while the new adapters complete hardware and security qualification.
 
 The rewrite keeps the proven product requirements while establishing the
 native ESP-IDF platform and MicroPython application boundary before porting
@@ -45,8 +45,9 @@ wholesale.
 Read the [target architecture](../docs/V3_ARCHITECTURE.md),
 [requirements](../docs/V3_REQUIREMENTS.md) and
 [roadmap](../docs/V3_ROADMAP.md) before adding implementation code. The
-[Alpha 3 test note](../docs/V3_ALPHA3.md) defines its exact scope and safe test
-procedure. The [Alpha 2 note](../docs/V3_ALPHA2.md) and
+[Alpha 4 test note](../docs/V3_ALPHA4.md) defines its exact scope and safe test
+procedure. The [Alpha 3 note](../docs/V3_ALPHA3.md),
+[Alpha 2 note](../docs/V3_ALPHA2.md) and
 [Alpha 1 note](../docs/V3_ALPHA1.md) retain the preceding boundary history.
 
 Validate the initial contract scaffold with:

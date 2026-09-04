@@ -10,9 +10,11 @@ The runtime owns product behavior:
 - fleet, audit, support and operational diagnostics; and
 - transport-neutral request, response and event models.
 
-Alpha 3 adds exact configuration validation and migration preview, the first
-service registry/cooperative supervisor, an owner-scoped resource adapter, a
-small reference sensor and bounded diagnostic snapshots. Alpha 2's fail-closed
+Alpha 4 adds declarative product-transport configuration, bounded request and
+response contracts, injected Wi-Fi/MQTT/portal/mTLS API adapters, shared portal
+metadata and unified connectivity diagnostics. Alpha 3's service registry,
+resource adapter, reference sensor and bounded kernel snapshots remain the
+composition base. Alpha 2's fail-closed
 transactional-storage and paired-release adapters remain in place. The paired
 coordinator may describe and reconcile a pair, but cannot select partitions or
 claim native rollback; those mechanisms remain platform-owned and

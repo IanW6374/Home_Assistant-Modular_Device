@@ -6,6 +6,14 @@ from .storage import TransactionalNamespace, StorageContractError, StorageConfli
 from .configuration import ConfigurationError, migrate_configuration
 from .kernel import ApplicationKernel, KernelError
 from .resources import ResourceConflict, ResourceError, ResourceManager
+from .connectivity import ConnectivityDiagnostics
+from .product_transports import (
+    DeviceAPIService, MQTTService, PortalService, WiFiService,
+    build_service_factories,
+)
+from .transport_contracts import (
+    TransportContractError, TransportRequest, TransportResponse,
+)
 
 __all__ = (
     'EXPECTED_ABI_VERSION', 'Platform', 'PlatformContractError',
@@ -13,4 +21,8 @@ __all__ = (
     'StorageContractError', 'StorageConflict', 'ConfigurationError',
     'migrate_configuration', 'ApplicationKernel', 'KernelError',
     'ResourceConflict', 'ResourceError', 'ResourceManager',
+    'ConnectivityDiagnostics', 'DeviceAPIService', 'MQTTService',
+    'PortalService', 'WiFiService', 'build_service_factories',
+    'TransportContractError',
+    'TransportRequest', 'TransportResponse',
 )

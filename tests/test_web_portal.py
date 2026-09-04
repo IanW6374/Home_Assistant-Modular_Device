@@ -77,7 +77,8 @@ class WebPortalTests(unittest.TestCase):
     def test_universal_component_poller_renders_verification_percent(self):
         script = portal_live_views.update_upload_script()
         self.assertIn('waitForComponent(uploadId,kind)', script)
-        self.assertIn('"Verifying "+kind+" "+(s.percent||0)+"%"', script)
+        self.assertIn('"Verifying signed "+name+" "+(s.percent||0)+"%"', script)
+        self.assertIn('"Checking uploaded "+componentName(kind)+" bytes"', script)
 
     def test_certificate_routes_are_dispatched_to_lazy_adapter(self):
         self.assertTrue(web_portal._is_certificate_request(
@@ -1945,10 +1946,12 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Verification complete', updates)
         self.assertIn('setTimeout(poll,1000)', updates)
         self.assertIn('f.slice(offset,end)', updates)
-        self.assertIn('Writing firmware 0%', updates)
+        self.assertIn('request.upload.onprogress=function(event)', updates)
+        self.assertIn('(base+event.loaded)*100/total', updates)
+        self.assertIn('Checking uploaded ', updates)
         self.assertIn('previous("Completed: upload");startPolling()', updates)
         self.assertNotIn('Writing firmware on device', updates)
-        self.assertIn('Verifying application 0%', updates)
+        self.assertIn('Verifying signed ', updates)
         self.assertIn('.iotuni', updates)
         self.assertIn('firmware_verification', updates)
         self.assertIn('application_verification', updates)

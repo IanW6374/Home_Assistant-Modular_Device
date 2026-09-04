@@ -73,10 +73,12 @@ class KernelProvider:
 
 
 def configuration():
-    return json.loads((
+    value = json.loads((
         ROOT / 'v3' / 'contracts' / 'examples' /
         'runtime-configuration.json'
     ).read_text())
+    value['transports'] = []
+    return value
 
 
 class V3ApplicationKernelTests(unittest.TestCase):
@@ -99,7 +101,8 @@ class V3ApplicationKernelTests(unittest.TestCase):
         plan = migrate_configuration(source)
         self.assertEqual(source, original)
         self.assertTrue(plan['changed'])
-        self.assertEqual(plan['configuration']['contract_version'], 1)
+        self.assertEqual(plan['configuration']['contract_version'], 2)
+        self.assertEqual(plan['configuration']['transports'], [])
 
     def test_unknown_or_duplicate_configuration_fails_before_claiming(self):
         value = configuration()

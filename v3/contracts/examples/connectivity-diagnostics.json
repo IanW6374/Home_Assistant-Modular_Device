@@ -1,0 +1,12 @@
+{
+  "running": true,
+  "probes": {
+    "dns": {"state": "reachable", "attempts": 1, "error": ""},
+    "time": {"state": "reachable", "attempts": 1, "error": ""},
+    "tls": {"state": "reachable", "attempts": 1, "error": ""},
+    "mqtt": {"state": "reachable", "attempts": 1, "error": ""},
+    "ca": {"state": "reachable", "attempts": 1, "error": ""},
+    "syslog": {"state": "reachable", "attempts": 1, "error": ""},
+    "release": {"state": "reachable", "attempts": 1, "error": ""}
+  }
+}

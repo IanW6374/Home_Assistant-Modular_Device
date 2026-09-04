@@ -34,13 +34,14 @@ class EventJournal:
 
 
 class ApplicationKernel:
-    def __init__(self, platform, driver_factories=None):
+    def __init__(self, platform, driver_factories=None, service_factories=None):
         self._platform = platform
         self._events = EventJournal()
         self._resources = ResourceManager(platform)
         self._drivers = driver_factories or {
             ReferenceSensor.DRIVER: self._reference_factory,
         }
+        self._service_factories = service_factories or {}
         self._configuration = None
         self._supervisor = None
         self._state = 'idle'
@@ -59,6 +60,16 @@ class ApplicationKernel:
             self._supervisor = ServiceRegistry(
                 self._events, service_settings['max_failures']
             )
+            for transport in self._configuration['transports']:
+                if not transport['enabled']:
+                    continue
+                factory = self._service_factories.get(transport['adapter'])
+                if factory is None:
+                    raise KernelError('transport adapter is unavailable')
+                self._supervisor.register(
+                    transport['id'], factory(transport),
+                    transport['dependencies'], transport['critical']
+                )
             for module in self._configuration['modules']:
                 if not module['enabled']:
                     continue

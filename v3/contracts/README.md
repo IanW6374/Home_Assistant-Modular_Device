@@ -5,8 +5,9 @@ MicroPython runtime. Every contract has an integer ABI version, fixed limits,
 explicit optional fields and fail-closed validation.
 
 The executable contracts currently describe platform capabilities, paired
-update state, runtime configuration and bounded kernel snapshots. Alpha 2
-defines the native whole-namespace snapshot calls:
+update state, runtime configuration, bounded kernel snapshots and unified
+connectivity diagnostics. Alpha 2 defines the native whole-namespace snapshot
+calls:
 
 - `storage_open(namespace)` returns an opaque bounded handle;
 - `storage_snapshot(handle)` returns one generation and byte payload;
@@ -21,6 +22,10 @@ Alpha 3 adds the resource boundary:
 - `resource_release_owner(owner)` cleans up an application owner; and
 - `resource_snapshot()` returns at most the advertised number of primitive
   claim records.
+
+Alpha 4 adds a bounded diagnostic record for DNS, time, TLS, MQTT, CA, syslog
+and release-service reachability. Product services exchange bounded request,
+response and state values; socket and TLS objects remain inside adapters.
 
 Later alpha milestones will add:
 

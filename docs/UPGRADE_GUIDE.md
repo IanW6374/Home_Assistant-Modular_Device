@@ -40,6 +40,12 @@ contiguous source-compilation allocation during trial boot.
 6. Wait for trial health confirmation and verify the running application/core
    versions on the overview page.
 
+For universal uploads, the portal reports transport and trust operations as
+different phases. **Checking uploaded core/application bytes** validates that
+the resumable transfer matches the release manifest. **Verifying signed core
+firmware/application** then validates the signed component itself. These are
+separate operations; each signed component is installed and verified once.
+
 All three upload types are resumable. Retrying the same `.iotapp`, `.iotcore` or
 `.iotuni` continues from its last committed 64 KiB chunk; selecting a different
 artifact discards the interrupted upload and reclaims its storage. The portal

@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.0.0-alpha.4 - 2026-09-04
+
+- Add browser byte-level progress to manual upgrade chunks so the initial
+  upload visibly advances instead of remaining at zero percent.
+- Distinguish resumable transport hashing from signed application verification,
+  removing the misleading appearance that a universal upgrade verifies the
+  application twice.
+- Advance runtime configuration to version 2 with bounded, dependency-ordered
+  product transport declarations and non-mutating Alpha 3 migration.
+- Add injected Wi-Fi, MQTT, server-rendered portal and mTLS Device API v3
+  services over transport-neutral request, response and state contracts.
+- Generate role-aware navigation and diagnostic forms from shared metadata and
+  add bounded DNS, time, TLS, MQTT, CA, syslog and release probes with redacted
+  failures.
+- Retain the v2.5 compatibility network runtime until Alpha 4 parity, security
+  and network-fault hardware qualification is complete.
+
 ## 3.0.0-alpha.3 - 2026-09-04
 
 - Advance the native platform boundary to ABI 3 with owner-scoped, bounded

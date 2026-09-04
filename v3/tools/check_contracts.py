@@ -27,6 +27,10 @@ def main():
             contracts / 'examples' / 'kernel-snapshot.json',
             contracts / 'kernel-snapshot.schema.json',
         ),
+        (
+            contracts / 'examples' / 'connectivity-diagnostics.json',
+            contracts / 'connectivity-diagnostics.schema.json',
+        ),
     )
     for instance_path, schema_path in pairs:
         schema = json.loads(schema_path.read_text())
