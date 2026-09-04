@@ -431,11 +431,60 @@ def render_overview_status(status):
             tone = ' good' if lowered in ('connected', 'up', 'online') else (
                 '' if lowered in ('not configured', 'disabled') else ' warn'
             )
+        if key == 'release_qualification_summary':
+            lowered = str(value).lower()
+            tone = (
+                ' good' if lowered == 'ready' else
+                (' bad' if lowered in ('blocked', 'unavailable') else ' warn')
+            )
         values.append(
             '<div class="metric' + tone + '"><span>' + label +
             '</span><strong>' + html_escape(value) + '</strong></div>'
         )
     return '<div id="overview-status" class="metrics">' + ''.join(values) + '</div>'
+
+
+def render_release_qualification_page(token, status=None):
+    status = status or {}
+    evidence = status.get('evidence')
+    if not status.get('available') or not isinstance(evidence, dict):
+        detail = status.get('error', '')
+        content = (
+            '<div class="warning"><strong>Qualification recorder unavailable.</strong>' +
+            (' ' + html_escape(detail) if detail else '') + '</div>'
+        )
+    else:
+        rows = []
+        for gate in evidence.get('gates', ()):
+            state = str(gate.get('status', 'not-run'))
+            tone = {
+                'passed': 'good', 'failed': 'bad',
+                'in-progress': 'warn', 'not-run': '',
+            }.get(state, '')
+            rows.append(
+                '<div class="metric ' + tone + '"><span>' +
+                html_escape(str(gate.get('name', '')).replace('-', ' ')) +
+                '</span><strong>' + html_escape(state) + '</strong>' +
+                '<small>' + html_escape(gate.get('observed', 0)) + ' / ' +
+                html_escape(gate.get('required', 0)) + '</small></div>'
+            )
+        content = (
+            '<div class="notice"><strong>' +
+            html_escape(status.get('summary', 'Not started')) +
+            '</strong> — promotion remains closed until every gate has observed '
+            'evidence and passes.</div><div class="metrics">' +
+            ''.join(rows) + '</div>'
+        )
+    body = (
+        portal_ui.page_heading(
+            'Maintenance', 'Release qualification',
+            'Review soak, recovery, renewal, upgrade and canary evidence for this release.'
+        ) + '<section class="card"><div class="section-title">'
+        '<h2>Promotion gates</h2></div>' + content + '</section>'
+    )
+    return portal_ui.shell(
+        'IoT-MD release qualification', 'release_qualification', body, token
+    )
 
 def render_overview_modules(modules):
     cards = []
@@ -787,7 +836,7 @@ def update_upload_script():
         'return r.text().then(function(t){throw new Error(t||"Component verification failed");});return waitForComponent(uploadId,kind);});}'
         'var end=Math.min(offset+65536,blob.size),url="/resumable-upload-chunk?id="+encodeURIComponent(uploadId)+'
         '"&offset="+offset;return uploadChunk(url,blob.slice(offset,end),offset,blob.size,"Uploading "+componentName(kind)+" ").then(function(progress){var received=Number('
-        'progress.received_bytes||end),percent=Math.round(received*100/blob.size);label.textContent="Uploading "+kind+" "+percent+"%";'
+        'progress.received_bytes||end),percent=Math.round(received*100/blob.size);label.textContent="Uploading "+componentName(kind)+" "+percent+"%";'
         'return chunk(received);});}return chunk(Number(s.received_bytes||0));});}'
         'function startUniversalUpload(){return f.slice(0,10).arrayBuffer().then(function(header){var bytes=new Uint8Array(header),'
         'magic=String.fromCharCode.apply(null,bytes.slice(0,6));if(magic!=="IOTU1\\n")throw new Error("Invalid universal update header");'

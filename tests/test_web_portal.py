@@ -80,6 +80,27 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('"Verifying signed "+name+" "+(s.percent||0)+"%"', script)
         self.assertIn('"Checking uploaded "+componentName(kind)+" bytes"', script)
 
+    def test_release_qualification_is_visible_on_overview_and_detail_page(self):
+        overview = web_portal.render_overview_status({
+            'release_qualification_summary': 'Blocked',
+        })
+        self.assertIn('Release qualification', overview)
+        self.assertIn('metric bad', overview)
+        page = web_portal.render_release_qualification_page('csrf', {
+            'available': True,
+            'summary': 'In progress',
+            'evidence': {'gates': [{
+                'name': 'power-recovery', 'status': 'not-run',
+                'observed': 0, 'required': 3,
+            }]},
+        })
+        self.assertIn('Release qualification', page)
+        self.assertIn('power recovery', page)
+        self.assertIn('not-run', page)
+        self.assertIn('/release-qualification', portal_ui.navigation(
+            'release_qualification', 'csrf'
+        ))
+
     def test_certificate_routes_are_dispatched_to_lazy_adapter(self):
         self.assertTrue(web_portal._is_certificate_request(
             'GET', '/certificates', '/certificates'
@@ -210,6 +231,9 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('offline?2000:500', page)
         self.assertIn('id=\\"login-form\\"', page)
         self.assertIn('probe(a,":root{")', page)
+        self.assertIn('readyPasses>=2', page)
+        self.assertIn('Confirming portal readiness…', page)
+        self.assertNotIn('Promise.all([probe(t', page)
         self.assertIn('Portal ready — opening login…', page)
         self.assertIn('"reconnect="+Date.now()', page)
         self.assertIn('Date.now()-started>=6000', page)
@@ -1952,6 +1976,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('previous("Completed: upload");startPolling()', updates)
         self.assertNotIn('Writing firmware on device', updates)
         self.assertIn('Verifying signed ', updates)
+        self.assertIn('"Uploading "+componentName(kind)+" "+percent+"%"', updates)
+        self.assertNotIn('"Uploading "+kind+" "+percent+"%"', updates)
         self.assertIn('.iotuni', updates)
         self.assertIn('firmware_verification', updates)
         self.assertIn('application_verification', updates)

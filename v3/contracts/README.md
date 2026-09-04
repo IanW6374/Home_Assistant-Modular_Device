@@ -6,9 +6,9 @@ explicit optional fields and fail-closed validation.
 
 The executable contracts currently describe platform capabilities, paired
 update state, runtime configuration, bounded kernel snapshots, unified
-connectivity diagnostics, identity metadata, fleet reports, migration plans
-and the supported driver catalog. Alpha 2 defines the native whole-namespace
-snapshot calls:
+connectivity diagnostics, identity metadata, fleet reports, migration plans,
+the supported driver catalog and release-bound qualification evidence. Alpha 2
+defines the native whole-namespace snapshot calls:
 
 - `storage_open(namespace)` returns an opaque bounded handle;
 - `storage_snapshot(handle)` returns one generation and byte payload;
@@ -34,6 +34,13 @@ inventory, release, health, canary and event-cursor values. Migration plans
 record preview/staging state and opaque handles without embedding credentials,
 keys or protected files. The driver catalog is static and modules may declare
 multiple logical resources.
+
+Alpha 6 adds a 15-gate qualification evidence contract. It preserves
+`not-run`, `in-progress`, `passed` and `failed` as distinct states, binds the
+campaign to one version and monotonic release sequence, and never treats an
+unreachable probe as a health or storage observation. The beta profile also
+requires sustained observation counts rather than accepting one late sample as
+evidence for the complete soak.
 
 Later platform milestones will add:
 

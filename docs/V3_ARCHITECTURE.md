@@ -133,6 +133,26 @@ Kernel health and support snapshots have fixed collection limits and contain
 only operational state. Runtime configuration and module settings are excluded
 so these snapshots cannot become an accidental secret-export path.
 
+## Integration cutover and qualification
+
+Alpha 6 introduces one persistent cutover coordinator rather than allowing a
+build flag to select the greenfield runtime. Compatibility is the durable
+default. Shadow mode starts the compatibility path and an isolated v3 kernel;
+active mode starts only v3, but is rejected unless the platform reports native
+paired trial and rollback and the current release-bound qualification record is
+fully passing. A boot exception or failed runtime health check requests recovery
+and persistently returns requested and effective ownership to compatibility. A
+subsequent v3 attempt therefore requires a new explicit operator request.
+
+Qualification is an evidence contract, not a derived marketing status. The
+ledger resets when release version or monotonic sequence changes. Offline
+probes contribute network observations but never fabricated service-health or
+storage samples. The beta profile also requires 2,400 health and storage
+observations during its 48-hour soak, so one late sample cannot qualify the
+period. Unexecuted tests remain `not-run`; observed failures are sticky until
+an explicit campaign reset. USB NCM is not a promotion dependency while the
+ESP32-S3 MicroPython integration remains unsupported.
+
 ## Release and recovery model
 
 Users install one universal release containing independently signed platform

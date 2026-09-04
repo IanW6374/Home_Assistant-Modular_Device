@@ -23,6 +23,7 @@ implementation boundaries. Each requirement has one primary owner.
 | FLEET-01 | Report bounded inventory, health and release state | Runtime |
 | FLEET-02 | Apply signed scoped policy and support canary rollout | External/runtime |
 | QUAL-01 | Pass host, HIL, interruption, rollback and soak gates | Host/HIL |
+| QUAL-02 | Bind persistent evidence to one release and refuse active-v3 cutover until every required gate passes | Runtime/platform |
 
 ## Explicit non-goals for the first alpha
 

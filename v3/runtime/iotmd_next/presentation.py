@@ -14,6 +14,8 @@ NAVIGATION = (
      'administrator'),
     ('Maintenance', 'Diagnostics', '/maintenance/diagnostics', 'operator'),
     ('Maintenance', 'Migration', '/maintenance/migration', 'administrator'),
+    ('Maintenance', 'Release qualification', '/maintenance/qualification',
+     'viewer'),
     ('Maintenance', 'Upgrades', '/maintenance/upgrades', 'administrator'),
 )
 

@@ -351,6 +351,7 @@ NAVIGATION = (
         ('health_history', '/health-history', 'Health history'),
         ('maintenance_logging', '/logging', 'Logging', LOGGING_NAVIGATION),
         ('device_control', '/device-control', 'Power & reset'),
+        ('release_qualification', '/release-qualification', 'Release qualification'),
         ('updates', '/updates', 'Upgrades'),
     )),
 )
@@ -716,7 +717,7 @@ def restart_page(target, message='Settings saved. The device is restarting.'):
     )
     script = (
         'var t=document.getElementById("restart-target").href,a=new URL("/assets/portal.css",t).href,'
-        'same=new URL(t).origin===location.origin,offline=false,failures=0,started=Date.now(),'
+        'same=new URL(t).origin===location.origin,offline=false,failures=0,readyPasses=0,started=Date.now(),'
         'status=document.querySelector("#restart-progress .status-text");'
         'function go(){var join=t.indexOf("?")<0?"?":"&";window.location.replace('
         't+join+"reconnect="+Date.now());}function fresh(url){var u=new URL(url);'
@@ -728,9 +729,11 @@ def restart_page(target, message='Settings saved. The device is restarting.'):
         'if(Date.now()-started>=6000){offline=true;status.textContent="Checking restarted portal…";}'
         'else status.textContent="Waiting for device to restart…";retry();}).catch(function(){failures++;'
         'if(failures>=2){offline=true;status.textContent="Device offline — reconnecting…";}retry();});'
-        'return;}Promise.all([probe(t,"id=\\\"login-form\\\""),probe(a,":root{")]).then(function(ok){'
-        'if(ok[0]&&ok[1]){status.textContent="Portal ready — opening login…";setTimeout(go,500);return;}'
-        'status.textContent="Portal starting — reconnecting…";retry();}).catch(function(){retry();});}'
+        'return;}probe(t,"id=\\\"login-form\\\"").then(function(loginReady){if(!loginReady)return false;'
+        'return probe(a,":root{");}).then(function(ok){if(ok){readyPasses++;if(readyPasses>=2){'
+        'status.textContent="Portal ready — opening login…";setTimeout(go,1200);return;}'
+        'status.textContent="Confirming portal readiness…";retry();return;}readyPasses=0;'
+        'status.textContent="Portal starting — reconnecting…";retry();}).catch(function(){readyPasses=0;retry();});}'
         'setTimeout(ready,1000);'
     )
     return shell('IoT-MD restarting', '', body, script=script, authenticated=False)

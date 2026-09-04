@@ -47,6 +47,10 @@ def main():
             contracts / 'examples' / 'driver-catalog.json',
             contracts / 'driver-catalog.schema.json',
         ),
+        (
+            contracts / 'examples' / 'qualification-evidence.json',
+            contracts / 'qualification-evidence.schema.json',
+        ),
     )
     for instance_path, schema_path in pairs:
         schema = json.loads(schema_path.read_text())

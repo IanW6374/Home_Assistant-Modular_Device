@@ -228,6 +228,51 @@ class V3ProductTransportTests(unittest.TestCase):
         denied = adapter.handler(TransportRequest('GET', '/status'))
         self.assertEqual(denied.status, 401)
 
+    def test_qualification_is_surfaced_in_overview_detail_and_api(self):
+        qualification = type('Qualification', (), {
+            'snapshot': lambda unused: {
+                'promotion_ready': False,
+                'gates': [
+                    {'name': 'soak', 'status': 'in-progress',
+                     'observed': 30, 'required': 60},
+                    {'name': 'storage', 'status': 'passed',
+                     'observed': 200, 'required': 100},
+                ],
+            }
+        })()
+        portal = PortalService(
+            Adapter(),
+            lambda: {'kernel_state': 'running',
+                     'health': {'state': 'healthy'}},
+            lambda: {'probes': {}},
+            qualification_getter=qualification.snapshot,
+        )
+        overview = portal.handle(TransportRequest(
+            'GET', '/status', identity={'role': 'viewer'}
+        ))
+        self.assertIn('Release qualification', overview.body)
+        self.assertIn('In progress', overview.body)
+        details = portal.handle(TransportRequest(
+            'GET', '/maintenance/qualification', identity={'role': 'viewer'}
+        ))
+        self.assertEqual(details.status, 200)
+        self.assertIn('soak', details.body)
+        self.assertIn('30 / 60', details.body)
+
+        adapter = Adapter()
+        api = DeviceAPIService(
+            adapter, lambda: {}, lambda: {}, qualification=qualification
+        )
+        response = api.handle(TransportRequest(
+            'GET', '/api/v3/qualification',
+            identity={'verified': True, 'scopes': ['read']}
+        ))
+        self.assertEqual(response.status, 200)
+        payload = json.loads(response.body)
+        self.assertEqual(
+            payload['qualification']['gates'][0]['name'], 'soak'
+        )
+
     def test_portal_diagnostic_form_uses_metadata_and_operator_role(self):
         adapter = Adapter()
         calls = []

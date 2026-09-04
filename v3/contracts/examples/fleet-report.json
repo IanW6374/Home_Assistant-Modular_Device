@@ -4,7 +4,7 @@
   "cohort": "alpha-canary",
   "policy_sequence": 42,
   "inventory": {"board": "esp32-s3", "modules": 2, "transports": 5},
-  "release": {"version": "3.0.0-alpha.5", "sequence": 2710, "confirmed": true},
+  "release": {"version": "3.0.0-alpha.6", "sequence": 2711, "confirmed": true},
   "health": {"state": "healthy", "services_degraded": 0, "services_failed": 0},
   "canary": {"outcome": "confirmed", "consecutive_failures": 0, "rollout_paused": false},
   "event_cursor": 104,

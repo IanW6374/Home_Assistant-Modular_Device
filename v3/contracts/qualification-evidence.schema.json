@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-md.local/contracts/v3/qualification-evidence.schema.json",
+  "title": "IoT-MD v3 operational qualification evidence",
+  "type": "object",
+  "required": ["contract_version", "profile", "device_id", "release", "started_at", "observed_at", "elapsed_s", "counters", "measurements", "gates", "promotion_ready"],
+  "properties": {
+    "contract_version": {"const": 1},
+    "profile": {"type": "string", "minLength": 1, "maxLength": 32},
+    "device_id": {"type": "string", "minLength": 1, "maxLength": 64},
+    "release": {
+      "type": "object",
+      "required": ["version", "sequence", "confirmed"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1, "maxLength": 48},
+        "sequence": {"type": "integer", "minimum": 0},
+        "confirmed": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "started_at": {"type": "integer", "minimum": 1},
+    "observed_at": {"type": "integer", "minimum": 1},
+    "elapsed_s": {"type": "integer", "minimum": 0},
+    "counters": {
+      "type": "object",
+      "required": ["samples", "health_samples", "storage_samples", "unhealthy_samples", "consecutive_unhealthy", "maximum_consecutive_unhealthy", "network_interruptions", "network_recoveries", "renewal_attempts", "renewal_successes", "renewal_failures", "update_trials", "update_confirmations", "update_failures", "update_rollbacks", "power_interruptions", "power_recoveries", "power_failures", "native_recoveries_attempts", "native_recoveries_successes", "native_recoveries_failures", "watchdog_recoveries_attempts", "watchdog_recoveries_successes", "watchdog_recoveries_failures", "identity_transactions_attempts", "identity_transactions_successes", "identity_transactions_failures", "fleet_transactions_attempts", "fleet_transactions_successes", "fleet_transactions_failures", "migration_rollbacks_attempts", "migration_rollbacks_successes", "migration_rollbacks_failures", "driver_checks_attempts", "driver_checks_successes", "driver_checks_failures"],
+      "properties": {
+        "samples": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "health_samples": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "storage_samples": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "unhealthy_samples": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "consecutive_unhealthy": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "maximum_consecutive_unhealthy": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "network_interruptions": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "network_recoveries": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "renewal_attempts": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "renewal_successes": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "renewal_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "update_trials": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "update_confirmations": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "update_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "update_rollbacks": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "power_interruptions": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "power_recoveries": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "power_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "native_recoveries_attempts": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "native_recoveries_successes": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "native_recoveries_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "watchdog_recoveries_attempts": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "watchdog_recoveries_successes": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "watchdog_recoveries_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "identity_transactions_attempts": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "identity_transactions_successes": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "identity_transactions_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "fleet_transactions_attempts": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "fleet_transactions_successes": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "fleet_transactions_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "migration_rollbacks_attempts": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "migration_rollbacks_successes": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "migration_rollbacks_failures": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "driver_checks_attempts": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "driver_checks_successes": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "driver_checks_failures": {"type": "integer", "minimum": 0, "maximum": 1000000}
+      },
+      "additionalProperties": false
+    },
+    "measurements": {
+      "type": "object",
+      "required": ["minimum_storage_free_bytes", "maximum_network_recovery_s", "network_outage_open"],
+      "properties": {
+        "minimum_storage_free_bytes": {"type": ["integer", "null"], "minimum": 0},
+        "maximum_network_recovery_s": {"type": "integer", "minimum": 0},
+        "network_outage_open": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": {
+        "type": "object",
+        "required": ["name", "status", "observed", "required"],
+        "properties": {
+          "name": {"enum": ["soak", "health", "storage", "network-recovery", "certificate-renewal", "paired-updates", "power-recovery", "canary-health", "release-confirmation", "native-recovery", "watchdog-recovery", "identity-interoperability", "fleet-interoperability", "migration-rollback", "driver-hardware"]},
+          "status": {"enum": ["not-run", "in-progress", "passed", "failed"]},
+          "observed": {"type": "integer", "minimum": 0},
+          "required": {"type": "integer", "minimum": 0}
+        },
+        "additionalProperties": false
+      }
+    },
+    "promotion_ready": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

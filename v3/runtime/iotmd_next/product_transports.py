@@ -118,7 +118,8 @@ class MQTTService:
 class PortalService:
     def __init__(self, adapter, snapshot_getter, connectivity_getter,
                  connectivity_runner=None, identity_getter=None,
-                 fleet_getter=None, migration_getter=None):
+                 fleet_getter=None, migration_getter=None,
+                 qualification_getter=None):
         self._adapter = _adapter(adapter, ('start', 'stop', 'poll', 'status'))
         self._snapshot_getter = snapshot_getter
         self._connectivity_getter = connectivity_getter
@@ -126,6 +127,7 @@ class PortalService:
         self._identity_getter = identity_getter
         self._fleet_getter = fleet_getter
         self._migration_getter = migration_getter
+        self._qualification_getter = qualification_getter
 
     def start(self):
         self._adapter.start(self.handle)
@@ -147,12 +149,40 @@ class PortalService:
             if request.method != 'GET':
                 return TransportResponse(405, 'Method not allowed', 'text/plain')
             snapshot = self._snapshot_getter()
+            qualification = (
+                self._qualification_getter()
+                if self._qualification_getter is not None else None
+            )
+            qualification_content = ''
+            if qualification is not None:
+                gates = qualification.get('gates', ())
+                counts = {
+                    'passed': 0, 'failed': 0,
+                    'in-progress': 0, 'not-run': 0,
+                }
+                for gate in gates:
+                    state = str(gate.get('status', 'not-run'))
+                    if state in counts:
+                        counts[state] += 1
+                overall = (
+                    'Ready' if qualification.get('promotion_ready') else
+                    ('Blocked' if counts['failed'] else
+                     ('In progress' if counts['in-progress'] else 'Not started'))
+                )
+                qualification_content = (
+                    '<p>Release qualification: <strong>' +
+                    html_escape(overall) + '</strong> (' +
+                    html_escape(counts['passed']) + ' passed, ' +
+                    html_escape(counts['failed']) + ' failed, ' +
+                    html_escape(counts['in-progress'] + counts['not-run']) +
+                    ' open)</p>'
+                )
             content = (
                 '<p>Kernel: <strong>' +
                 html_escape(snapshot.get('kernel_state', 'unknown')) +
                 '</strong></p><p>Health: <strong>' +
                 html_escape(snapshot.get('health', {}).get('state', 'unknown')) +
-                '</strong></p>'
+                '</strong></p>' + qualification_content
             )
             return TransportResponse(
                 200, render_document('Overview', role, '/status', content),
@@ -174,7 +204,7 @@ class PortalService:
                 ), 'text/html; charset=utf-8'
             )
         if route in ('/device/identity', '/device/fleet',
-                     '/maintenance/migration'):
+                     '/maintenance/migration', '/maintenance/qualification'):
             if request.method != 'GET':
                 return TransportResponse(405, 'Method not allowed', 'text/plain')
             if route == '/maintenance/migration' and role != 'administrator':
@@ -183,6 +213,7 @@ class PortalService:
                 '/device/identity': self._identity_getter,
                 '/device/fleet': self._fleet_getter,
                 '/maintenance/migration': self._migration_getter,
+                '/maintenance/qualification': self._qualification_getter,
             }[route]
             if getter is None:
                 return TransportResponse(503, 'Service unavailable', 'text/plain')
@@ -197,7 +228,17 @@ class PortalService:
                 '/device/identity': 'Identity',
                 '/device/fleet': 'Fleet',
                 '/maintenance/migration': 'Migration',
+                '/maintenance/qualification': 'Release qualification',
             }[route]
+            if route == '/maintenance/qualification':
+                rows = []
+                for gate in value.get('gates', ()):
+                    rows.append(
+                        '<li><strong>' + html_escape(gate.get('name', '')) +
+                        '</strong>: ' + html_escape(gate.get('status', 'not-run')) +
+                        ' — ' + html_escape(gate.get('observed', 0)) + ' / ' +
+                        html_escape(gate.get('required', 0)) + '</li>'
+                    )
             return TransportResponse(
                 200, render_document(
                     title, role, route, '<ul>' + ''.join(rows) + '</ul>'
@@ -238,12 +279,13 @@ class PortalService:
 
 class DeviceAPIService:
     def __init__(self, adapter, snapshot_getter, connectivity_getter,
-                 identity=None, fleet=None):
+                 identity=None, fleet=None, qualification=None):
         self._adapter = _adapter(adapter, ('start', 'stop', 'poll', 'status'))
         self._snapshot_getter = snapshot_getter
         self._connectivity_getter = connectivity_getter
         self._identity = identity
         self._fleet = fleet
+        self._qualification = qualification
 
     def start(self):
         self._adapter.start(self.handle, require_mtls=True)
@@ -322,6 +364,11 @@ class DeviceAPIService:
                 'api_version': API_VERSION,
                 'identity': self._identity.snapshot(),
             })
+        if route == '/api/v3/qualification' and self._qualification is not None:
+            return TransportResponse(200, {
+                'api_version': API_VERSION,
+                'qualification': self._qualification.snapshot(),
+            })
         return TransportResponse(404, {'error': 'not found'})
 
     def snapshot(self):
@@ -331,7 +378,8 @@ class DeviceAPIService:
 
 
 def build_service_factories(adapters, snapshot_getter, connectivity,
-                            identity=None, fleet=None, migration=None):
+                            identity=None, fleet=None, migration=None,
+                            qualification=None):
     """Return configuration factories without exposing adapter objects."""
     if not isinstance(adapters, dict):
         raise ValueError('transport adapters are invalid')
@@ -350,12 +398,13 @@ def build_service_factories(adapters, snapshot_getter, connectivity,
             None if identity is None else identity.snapshot,
             None if fleet is None else fleet.snapshot,
             None if migration is None else migration.state,
+            None if qualification is None else qualification.snapshot,
         )
 
     def device_api(unused):
         return DeviceAPIService(
             adapters.get('device-api'), snapshot_getter,
-            connectivity.diagnostics, identity, fleet
+            connectivity.diagnostics, identity, fleet, qualification
         )
 
     return {

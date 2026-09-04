@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+## 3.0.0-alpha.6 - 2026-09-05
+
+- Keep universal core-firmware upload progress terminology stable between
+  browser byte events and completed chunks instead of alternating between
+  `core firmware` and the internal `firmware` component name.
+- Require two consecutive, complete login-page and stylesheet readiness checks
+  before leaving the restart page, with sequential probes and a short settling
+  interval for resource-constrained portal listeners.
+- Add a persistent 15-gate operational qualification contract covering soak,
+  health, storage, network recovery, certificate renewal, paired upgrades,
+  power interruption, canary state, release confirmation, native/watchdog
+  recovery, identity/fleet interoperability, migration rollback and all 13
+  physical driver variants. The 48-hour soak also requires sustained health
+  and storage sample counts, preventing one late sample from qualifying it.
+- Surface qualification state on the installed Overview, Maintenance portal,
+  Device API inventory and support output without reporting unexecuted tests as
+  passed or treating an unreachable device as an unhealthy/storage sample.
+- Add a resumable host qualification runner for mTLS monitoring and explicit
+  renewal, upgrade, power, recovery, interoperability, migration and driver
+  observations.
+- Add a persistent compatibility/shadow/active cutover coordinator. Active v3
+  ownership is fail-closed until native paired trial/rollback and every
+  recorded qualification gate pass; a failed v3 boot or health check invokes
+  recovery and persistently returns to the compatibility runtime.
+
 ## 3.0.0-alpha.5 - 2026-09-04
 
 - Advance runtime configuration to version 3 with explicit identity and fleet

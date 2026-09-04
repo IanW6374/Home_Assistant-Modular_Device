@@ -8,7 +8,10 @@ native/runtime boundaries are qualified. Use the release-specific test note,
 including its monotonically increasing sequence and open HIL gates, before
 installing one.
 
-Alpha 5 can preview an already authenticated/decrypted v2 complete backup and
+Alpha 6 adds **Maintenance > Release qualification** and a release-bound
+15-gate evidence record. It remains on the compatibility runtime until native
+paired rollback and every recorded gate pass. Alpha 5 can preview an already
+authenticated/decrypted v2 complete backup and
 stage its credentials, module settings and certificate/trust material into an
 isolated v3 namespace. Preview does not mutate the backup or confirmed v2 state.
 Staged handles are activated only after a healthy v3 trial and discarded after
@@ -182,6 +185,34 @@ python3 tools/hil_qualify.py --host device.local \
 Also verify first boot, portal/API TLS, MQTT, interrupted upload, low-storage
 cleanup, universal activation, watchdog recovery, rollback and configuration
 restore on production-equivalent hardware.
+
+For the v3 campaign, initialise or inspect a persistent host record with:
+
+```sh
+python3 v3/host/qualification_runner.py \
+  --state .qualification/alpha6.state.json \
+  --evidence .qualification/alpha6.evidence.json \
+  --device-id iot-md-001 --version 3.0.0-alpha.6 --sequence 2711 status
+```
+
+Monitor health over the mTLS Device API using the applicable JSON field paths:
+
+```sh
+python3 v3/host/qualification_runner.py \
+  --state .qualification/alpha6.state.json \
+  --evidence .qualification/alpha6.evidence.json \
+  --device-id iot-md-001 --version 3.0.0-alpha.6 --sequence 2711 monitor \
+  --url https://iot-md-001.local:8444/api/v2/device \
+  --ca-file home-iot-ca.pem --cert-file client.pem --key-file client-key.pem \
+  --health-path device.qualification_observation.health_state \
+  --storage-path device.qualification_observation.storage_free_bytes \
+  --duration 172800 --interval 60
+```
+
+Controlled events are explicit subcommands: `renewal`, `update`, `power`, or
+`validation --gate <name>`, each with a required success/failure outcome. The
+tool exits 2 while any gate remains open or failed and 0 only when promotion is
+ready. A connection failure is recorded as network-down evidence only.
 
 Release-specific reports are indexed in
 [`docs/qualification`](qualification/README.md).

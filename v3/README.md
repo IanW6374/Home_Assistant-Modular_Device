@@ -4,13 +4,13 @@ This directory is the isolated starting point for the v3 architecture rewrite.
 Stable v2.5 maintenance continues from `main`; v3 development continues on
 `alpha/v3-platform-rewrite` until its own promotion gates pass.
 
-Version `3.0.0-alpha.5` adds the first greenfield identity, fleet, migration and
-complete driver-catalog slice. Runtime configuration version 3 declares those
-domain services and permits a module to claim multiple resources. Certificate
-keys, migrated secrets and staged configuration remain behind opaque handles;
-signed fleet policy and reports use bounded transport-independent values. The
-proven v2.5 product runtime remains the active compatibility payload while the
-new services complete hardware, security and migration qualification.
+Version `3.0.0-alpha.6` adds the integration cutover boundary and an executable,
+persistent qualification campaign. The installed compatibility portal exposes
+every promotion gate, while the greenfield coordinator supports compatibility
+and shadow execution and refuses active ownership until native paired rollback
+and all recorded evidence pass. The proven v2.5 product runtime remains the
+active compatibility payload; Alpha 6 does not claim that hardware tests have
+run merely because their gates now exist.
 
 The rewrite keeps the proven product requirements while establishing the
 native ESP-IDF platform and MicroPython application boundary before porting
@@ -45,8 +45,9 @@ wholesale.
 Read the [target architecture](../docs/V3_ARCHITECTURE.md),
 [requirements](../docs/V3_REQUIREMENTS.md) and
 [roadmap](../docs/V3_ROADMAP.md) before adding implementation code. The
-[Alpha 5 test note](../docs/V3_ALPHA5.md) defines its exact scope and safe test
-procedure. The [Alpha 4 note](../docs/V3_ALPHA4.md),
+[Alpha 6 test note](../docs/V3_ALPHA6.md) defines its exact scope and safe test
+procedure. The [Alpha 5 note](../docs/V3_ALPHA5.md),
+[Alpha 4 note](../docs/V3_ALPHA4.md),
 [Alpha 3 note](../docs/V3_ALPHA3.md),
 [Alpha 2 note](../docs/V3_ALPHA2.md) and
 [Alpha 1 note](../docs/V3_ALPHA1.md) retain the preceding boundary history.

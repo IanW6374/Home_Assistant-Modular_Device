@@ -11,6 +11,7 @@ import certificate_codec
 import device_api
 from api_contracts import APIRequest, APIResponse
 from device_api import DeviceAPI
+from device_api_inventory import DeviceInventory
 from feature_flags import FeatureFlags
 from runtime_health import HealthHistory
 
@@ -56,6 +57,33 @@ class FakeBroker:
 
 
 class DeviceAPITests(unittest.TestCase):
+    def test_inventory_bounds_release_qualification_projection(self):
+        inventory = DeviceInventory({
+            'qualification': {
+                'available': True,
+                'summary': 'In progress',
+                'evidence': {
+                    'promotion_ready': False,
+                    'gates': [
+                        {'name': 'x' * 80, 'status': 'in-progress'}
+                        for unused in range(20)
+                    ],
+                },
+            },
+            'qualification_observation': {
+                'health_state': 'healthy', 'storage_free_bytes': 1024,
+            },
+        })
+        value = inventory.info()
+        self.assertEqual(value['release_qualification']['summary'], 'In progress')
+        self.assertEqual(len(value['release_qualification']['gates']), 16)
+        self.assertEqual(
+            len(value['release_qualification']['gates'][0]['name']), 32
+        )
+        self.assertEqual(
+            value['qualification_observation']['storage_free_bytes'], 1024
+        )
+
     def test_v1_namespace_is_not_exposed_by_clean_seed_runtime(self):
         self.registry.enrol(self.cert, 'reader', ('read',))
         status, body = self.api.dispatch(

@@ -97,6 +97,25 @@ secret-free migration previews, rollback and driver cleanup. Real certificate
 issuance, Management Suite interoperability, representative backup migration,
 physical drivers and power-interruption recovery remain the Alpha 5 HIL gate.
 
+## Alpha 6 — integration cutover and executable qualification
+
+- Persist release-bound evidence for every outstanding promotion gate.
+- Surface compact qualification state in the portal, Device API and support
+  workflow, while retaining detailed machine-readable evidence.
+- Add compatibility, shadow and active runtime ownership with fail-closed
+  preflight and recovery fallback.
+- Provide resumable host tooling for soak, network, renewal, paired-upgrade,
+  power, native/watchdog recovery, interoperability, migration and driver HIL.
+
+Exit: active-v3 cutover is possible only after native paired trial/rollback and
+all 15 observed qualification gates pass. Failed or unexecuted tests must not be
+represented as successful.
+
+Current status: `3.0.0-alpha.6` implements and enforces the gate ledger,
+installed portal/API/support projections, host campaign runner and cutover
+coordinator. Active-v3 remains correctly blocked because native paired trial
+and rollback are not yet qualified and the hardware campaign is not yet run.
+
 ## Beta — operational qualification
 
 - Multi-day soak, storage pressure, certificate renewal and network fault tests.

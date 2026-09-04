@@ -50,7 +50,7 @@ handshake is substantially more expensive than a JSON request on ESP32-S3.
 
 | Method | Path | Scope | Result |
 | --- | --- | --- | --- |
-| GET | `/api/v2/device` | `read` | Identity, versions, uptime and release sequences |
+| GET | `/api/v2/device` | `read` | Identity, versions, uptime, release sequences and bounded release-qualification state |
 | GET | `/api/v2/interfaces` | `read` | Wi-Fi, MQTT, API, syslog and USB NCM state |
 | GET | `/api/v2/hardware` | `read` | Board, runtime capability, USB/NCM gates, drivers and resource bindings |
 | GET | `/api/v2/services` | `read` | Lifecycle, boot and effective feature-flag state |
@@ -102,3 +102,6 @@ Wi-Fi/MQTT passwords, private keys, certificate payloads or password verifiers.
 USB diagnostics distinguish `usb_device`, `usb_ncm_hardware`,
 `usb_ncm_runtime` and `usb_ncm_available`; clients must use the last value for
 effective availability rather than inferring support from the runtime symbol.
+Alpha 6 reports each release-qualification gate as a bounded name/status pair;
+full measurements remain in the on-device Maintenance view and qualification
+evidence file rather than expanding routine API polling payloads.

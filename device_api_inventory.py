@@ -29,6 +29,23 @@ class DeviceInventory:
             'firmware_release_sequence': self._value(
                 'firmware_release_sequence', 0
             ),
+            'release_qualification': self.qualification(),
+            'qualification_observation': self._value(
+                'qualification_observation', {}
+            ),
+        }
+
+    def qualification(self):
+        value = self._value('qualification', {}) or {}
+        evidence = value.get('evidence') or {}
+        return {
+            'available': bool(value.get('available', False)),
+            'summary': str(value.get('summary', 'Unavailable'))[:32],
+            'promotion_ready': bool(evidence.get('promotion_ready', False)),
+            'gates': [{
+                'name': str(item.get('name', ''))[:32],
+                'status': str(item.get('status', 'not-run'))[:16],
+            } for item in list(evidence.get('gates', ()))[:16]],
         }
 
     def interfaces(self):

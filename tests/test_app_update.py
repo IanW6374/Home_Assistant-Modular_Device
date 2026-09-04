@@ -462,7 +462,7 @@ class AppUpdateTests(unittest.TestCase):
         Path('component_versions.py').write_text('RUNTIME_VERSION=1\n')
         for name in (
             'iotmd_runtime.py', 'settings_loader.py', 'hardware_platform.py', 'display.py',
-            'application_upload.py',
+            'application_upload.py', 'alpha_qualification.py',
             'portal_server.py', 'web_portal_ui.py', 'web_portal.py',
             'release_update.py', 'certificate_manager.py', 'certificate_lifecycle.py',
             'certificate_status.py',

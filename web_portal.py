@@ -148,6 +148,7 @@ async def start_web_portal(portal):
     restart_status_getter = portal.get('restart.status')
     restart_request_handler = portal.get('restart.request')
     shutdown_request_handler = portal.get('shutdown.request')
+    qualification_getter = portal.get('qualification.get')
     username = settings.get('username', 'admin') or 'admin'
     password_verifier = settings.get('password_verifier', '')
     authenticator = settings.get('authenticator')
@@ -715,6 +716,13 @@ async def start_web_portal(portal):
                         csrf_token, status_snapshot.get()
                     )
                 )
+            elif method == 'GET' and is_qualification:
+                await send_response(
+                    writer, '200 OK', render_release_qualification_page(
+                        csrf_token,
+                        qualification_getter() if qualification_getter else {}
+                    )
+                )
             elif method == 'POST' and route == '/reset-health-history':
                 apply_portal_action(
                     'reset-health-history', action_path, action_handler, log_output,
@@ -1217,6 +1225,7 @@ async def start_web_portal(portal):
             is_factory_default = route == '/factory-default'
             is_configuration_backup = route == '/configuration-backup'
             is_health_history = route == '/health-history'
+            is_qualification = route == '/release-qualification'
             is_certificate_request = _is_certificate_request(
                 method, route, action_path
             )

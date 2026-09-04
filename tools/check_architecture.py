@@ -26,10 +26,13 @@ FORBIDDEN_TRANSPORT_IMPORTS = {
 # architecture review.
 LINE_LIMITS = {
     'iotmd.py': 20,
-    'iotmd_runtime.py': 3360,
+    # Alpha 6 adds only compatibility-runtime wiring for the extracted
+    # qualification service. The gate remains below the pre-v3 monolith size.
+    'iotmd_runtime.py': 3390,
     # Source route handling remains readable here; the production builder
     # promotes the two largest dispatchers to independently loaded modules.
-    'web_portal.py': 1340,
+    # One read-only qualification route delegates all rendering and policy.
+    'web_portal.py': 1350,
     'setup_wizard.py': 450,
     'certificate_manager.py': 700,
     'credential_store.py': 800,
@@ -56,7 +59,7 @@ RETIRED_SOURCE_MARKERS = {
     'release_update.py': ('_release_manifest_request_url',),
 }
 REQUIRED_APPLICATION_MODULES = (
-    'iotmd_runtime.py', 'portal_server.py',
+    'iotmd_runtime.py', 'portal_server.py', 'alpha_qualification.py',
     'certificate_status.py', 'portal_http.py', 'portal_live_views.py', 'portal_presenters.py',
     'portal_settings_views.py', 'services/home_assistant_service.py',
 )

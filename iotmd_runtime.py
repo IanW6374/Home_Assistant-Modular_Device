@@ -41,6 +41,7 @@ import release_update
 import update_orchestrator
 import timezone_rules
 import component_versions
+from alpha_qualification import runtime_qualification_service
 import certificate_manager
 import certificate_status
 import certificate_lifecycle
@@ -383,6 +384,11 @@ fleet_service = fleet_management.FleetService(
     hardware_deviceid, 'default',
     now=lambda: int(time.time()),
     localtime=lambda epoch: timezone_rules.localtime(epoch, timezone_name)
+)
+qualification_service = runtime_qualification_service(
+    hardware_deviceid, component_versions, app_update, firmware_update,
+    universal_update,
+    lambda: int(time.time())
 )
 
 
@@ -1017,6 +1023,9 @@ def portal_status():
     status['usb_ncm_available'] = bool(usb_status.get('supported'))
     status['hardware_resources'] = len(driver_loader.resource_catalog())
     status['feature_flags'] = runtime_features.snapshot()
+    qualification = qualification_service.status()
+    status['release_qualification_summary'] = qualification['summary']
+    status['release_qualification'] = qualification
     return status
 
 
@@ -1773,6 +1782,10 @@ device_inventory = DeviceInventory({
     'support_builder': support_bundle.build_support_bundle, 'health': lambda: event_service.health,
     'modules': module_summaries, 'product_version': lambda: component_versions.PRODUCT_VERSION,
     'fleet': lambda: fleet_service, 'logs': get_log_buffer,
+    'qualification': qualification_service.status,
+    'qualification_observation': lambda: qualification_service.observation(
+        main_device_error, modules_have_issues(), update_support.storage_status(),
+        fleet_service.state.get('rollout_paused', False)),
 })
 device_api_info = device_inventory.info
 device_api_configuration = device_inventory.configuration
@@ -2515,6 +2528,7 @@ async def start_admin_portal():
             'restart.status': pending_restart_status,
             'restart.request': request_pending_restart,
             'shutdown.request': request_device_shutdown,
+            'qualification.get': qualification_service.status,
         })
         web_portal_server = await portal_service.start(dependencies)
     except Exception as exc:
@@ -3076,6 +3090,8 @@ async def main(client):
             'application', 'confirmed',
             app_update.running_version(device_settings.ha_device_info.get('sw', ''))
         )
+    if firmware_confirmed or application_confirmed:
+        qualification_service.record_update('confirmed')
     if paired and paired.get('status') != 'complete':
         release_available = update_orchestrator.next_release() or {}
         if release_available:
@@ -3101,6 +3117,13 @@ async def main(client):
             'api-server-cert': api_server_cert_path, 'api-server-key': api_server_key_path,
         }, logOutput, schedule_portal_certificate_reload,
         schedule_certificate_identity_reload
+    ))
+    start_task('release_qualification', qualification_service.monitor(
+        lambda: ('failed' if main_device_error else
+                 ('degraded' if modules_have_issues() else 'healthy')),
+        update_support.storage_status,
+        lambda: network.WLAN(network.STA_IF).isconnected(),
+        lambda: fleet_service.state.get('rollout_paused', False), asyncio.sleep
     ))
 
     mqtt_started = False
