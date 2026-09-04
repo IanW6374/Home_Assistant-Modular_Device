@@ -9,10 +9,12 @@
     "runtime",
     "security",
     "memory",
-    "interfaces"
+    "interfaces",
+    "storage",
+    "updates"
   ],
   "properties": {
-    "abi_version": {"const": 1},
+    "abi_version": {"const": 2},
     "board": {
       "type": "object",
       "required": ["target", "revision"],
@@ -28,7 +30,7 @@
       "properties": {
         "engine": {"const": "micropython"},
         "version": {"type": "string", "minLength": 1, "maxLength": 32},
-        "platform_abi": {"const": 1}
+        "platform_abi": {"const": 2}
       },
       "additionalProperties": false
     },
@@ -62,6 +64,27 @@
         "usb_ncm_runtime": {"type": "boolean"},
         "usb_ncm_available": {"type": "boolean"},
         "ethernet": {"type": "boolean", "default": false}
+      },
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "required": ["encrypted", "transactional", "max_namespaces", "max_payload_bytes"],
+      "properties": {
+        "encrypted": {"type": "boolean"},
+        "transactional": {"type": "boolean"},
+        "max_namespaces": {"type": "integer", "minimum": 1, "maximum": 16},
+        "max_payload_bytes": {"type": "integer", "minimum": 512, "maximum": 65536}
+      },
+      "additionalProperties": false
+    },
+    "updates": {
+      "type": "object",
+      "required": ["paired_manifest", "paired_trial", "native_rollback"],
+      "properties": {
+        "paired_manifest": {"type": "boolean"},
+        "paired_trial": {"type": "boolean"},
+        "native_rollback": {"type": "boolean"}
       },
       "additionalProperties": false
     }

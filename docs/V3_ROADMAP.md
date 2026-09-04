@@ -35,6 +35,13 @@ ownership and its HIL fault matrix remain to be implemented.
 
 Exit: no interruption produces an unrecoverable or unconfirmed mixed pair.
 
+Current status: `3.0.0-alpha.2` implements ABI 2 encrypted transactional
+namespace snapshots and the runtime paired-release state machine. Host tests
+cover interruption at every state-record transition. Native partition-pair
+trial selection, automatic rollback and the corresponding hardware power-cut
+matrix remain open; capability reporting therefore continues to mark paired
+trial and native rollback unavailable.
+
 ## Alpha 3 — application kernel and one reference module
 
 - Add configuration schema/migrations, service registry and task supervisor.

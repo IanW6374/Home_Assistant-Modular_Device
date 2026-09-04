@@ -162,11 +162,29 @@ def validate_public_key_bytes(value):
     return point
 
 
-def append_staged_verification_key(pairs, path, exists):
+def staged_verification_key(path, exists):
+    """Validate and return a staged Management Suite key, if present."""
     staged = path + '.manual'
     if exists(staged):
         _public_key(staged)
+        return staged
+    return ''
+
+
+def append_staged_verification_key(pairs, path, exists):
+    """Compatibility helper for callers with a suitable generic transaction."""
+    staged = staged_verification_key(path, exists)
+    if staged:
         pairs.append((staged, path))
+
+
+def commit_staged_verification_key(path, exists, commit):
+    """Commit a validated signing key using a non-certificate transaction."""
+    staged = staged_verification_key(path, exists)
+    if not staged:
+        return False
+    commit(staged, path)
+    return True
 
 
 def _public_key(path=VERIFICATION_KEY_PATH):

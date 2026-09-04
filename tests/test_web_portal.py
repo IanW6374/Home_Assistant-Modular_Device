@@ -8,6 +8,7 @@ from unittest import mock
 
 import web_portal
 import portal_http
+import portal_live_views
 from portal_contracts import PortalDependencies
 import credential_security
 import http_support
@@ -42,6 +43,42 @@ from web_portal import (
 
 
 class WebPortalTests(unittest.TestCase):
+    def test_update_progress_reporter_exposes_live_byte_progress(self):
+        record = {'phase': 'verification', 'percent': 0}
+        report = web_portal.update_progress_reporter(record)
+
+        asyncio.run(report('verification', 256, 1024))
+        self.assertEqual(record['percent'], 25)
+        self.assertEqual(record['completed_bytes'], 256)
+        self.assertEqual(record['total_bytes'], 1024)
+
+        asyncio.run(report('verification', 128, 1024))
+        self.assertEqual(record['percent'], 25)
+        asyncio.run(report('verification', 1024, 1024))
+        self.assertEqual(record['percent'], 100)
+
+    def test_resumable_completion_updates_shared_record_after_response(self):
+        record = {'phase': 'verification', 'percent': 0}
+
+        async def complete(identifier, progress):
+            self.assertEqual(identifier, 'update-1')
+            await progress('verification', 5, 10)
+            self.assertEqual(record['percent'], 50)
+            return 'Application verified'
+
+        asyncio.run(web_portal.complete_resumable_update(
+            'update-1', complete, record, lambda *args: None
+        ))
+
+        self.assertEqual(record['phase'], 'complete')
+        self.assertEqual(record['percent'], 100)
+        self.assertEqual(record['message'], 'Application verified')
+
+    def test_universal_component_poller_renders_verification_percent(self):
+        script = portal_live_views.update_upload_script()
+        self.assertIn('waitForComponent(uploadId,kind)', script)
+        self.assertIn('"Verifying "+kind+" "+(s.percent||0)+"%"', script)
+
     def test_certificate_routes_are_dispatched_to_lazy_adapter(self):
         self.assertTrue(web_portal._is_certificate_request(
             'GET', '/certificates', '/certificates'

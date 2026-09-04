@@ -4,10 +4,11 @@ This directory is the isolated starting point for the v3 architecture rewrite.
 Stable v2.5 maintenance continues from `main`; v3 development continues on
 `alpha/v3-platform-rewrite` until its own promotion gates pass.
 
-Version `3.0.0-alpha.1` is the first bootable boundary test. Its core exposes a
-native `_iotmd_platform_v3` ABI and its application contains the validating
-MicroPython adapter. It deliberately retains the proven v2.5 product runtime as
-a temporary compatibility payload; it is not yet the rewritten application.
+Version `3.0.0-alpha.2` adds the first transactional-storage and paired-update
+state-machine slice to the bootable boundary test. Its core exposes native
+`_iotmd_platform_v3` ABI 2 and its application contains validating storage and
+update adapters. It deliberately retains the proven v2.5 product runtime as a
+temporary compatibility payload; it is not yet the rewritten application.
 
 The rewrite keeps the proven product requirements while establishing the
 native ESP-IDF platform and MicroPython application boundary before porting
@@ -42,8 +43,9 @@ wholesale.
 Read the [target architecture](../docs/V3_ARCHITECTURE.md),
 [requirements](../docs/V3_REQUIREMENTS.md) and
 [roadmap](../docs/V3_ROADMAP.md) before adding implementation code. The
-[Alpha 1 test note](../docs/V3_ALPHA1.md) defines its exact scope and safe test
-procedure.
+[Alpha 2 test note](../docs/V3_ALPHA2.md) defines its exact scope and safe test
+procedure. The [Alpha 1 note](../docs/V3_ALPHA1.md) remains the history of the
+initial boundary test.
 
 Validate the initial contract scaffold with:
 

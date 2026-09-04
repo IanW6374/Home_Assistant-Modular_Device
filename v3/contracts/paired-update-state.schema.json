@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iot-md.local/contracts/v3/paired-update-state.schema.json",
+  "title": "IoT-MD v3 paired update state",
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["version", "sha256"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1, "maxLength": 48},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "pair": {
+      "type": "object",
+      "required": ["id", "sequence", "platform", "runtime"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 64},
+        "sequence": {"type": "integer", "minimum": 1},
+        "platform": {"$ref": "#/$defs/component"},
+        "runtime": {"$ref": "#/$defs/component"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": [
+    "contract_version", "phase", "pair", "previous_pair", "staged",
+    "failure_reason"
+  ],
+  "properties": {
+    "contract_version": {"const": 1},
+    "phase": {
+      "enum": ["idle", "staging", "ready", "trial", "confirmed", "rollback"]
+    },
+    "pair": {"oneOf": [{"$ref": "#/$defs/pair"}, {"type": "null"}]},
+    "previous_pair": {"oneOf": [{"$ref": "#/$defs/pair"}, {"type": "null"}]},
+    "staged": {
+      "type": "object",
+      "required": ["platform", "runtime"],
+      "properties": {
+        "platform": {"type": "boolean"},
+        "runtime": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "failure_reason": {"type": "string", "maxLength": 160}
+  },
+  "additionalProperties": false
+}

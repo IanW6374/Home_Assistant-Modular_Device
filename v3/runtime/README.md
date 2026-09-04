@@ -10,6 +10,11 @@ The runtime owns product behavior:
 - fleet, audit, support and operational diagnostics; and
 - transport-neutral request, response and event models.
 
+Alpha 2 adds a fail-closed adapter for the native encrypted transactional
+namespace and a deterministic paired-release coordinator. The coordinator may
+describe and reconcile a pair, but cannot select partitions or claim native
+rollback; those mechanisms remain platform-owned and capability-gated off.
+
 Runtime code consumes only the versioned platform ABI. It may request a
 platform operation but cannot access partitions, raw encrypted storage, native
 network handles or key bytes. Services depend on domain contracts; HTTP, MQTT,

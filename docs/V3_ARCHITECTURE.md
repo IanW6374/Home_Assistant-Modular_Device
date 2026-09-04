@@ -56,7 +56,8 @@ extract keys or keep raw native pointers.
 
 ## Platform ABI
 
-The ABI begins at version 1 and follows these rules:
+ABI 1 established capability discovery. ABI 2 adds bounded encrypted-storage
+handles and atomic whole-namespace snapshots. The ABI follows these rules:
 
 - primitive values only: bounded strings, integers, booleans, bytes and maps;
 - explicit maximum size and timeout for every call;
@@ -65,6 +66,13 @@ The ABI begins at version 1 and follows these rules:
 - structured error code, operation, retryability and diagnostic context;
 - capability discovery separate from feature enablement; and
 - backwards compatibility within one major ABI, with additive optional fields.
+
+An Alpha 2 namespace commit writes a CRC-protected generation to the inactive
+of two NVS snapshot slots and commits it before it can supersede the prior
+generation. The runtime supplies the generation it read, so concurrent or
+stale commits fail rather than overwrite newer state. Recovery validates both
+slots and chooses the newest complete generation. Payloads are capped at 4096
+bytes and native handles—not ESP-IDF NVS objects—cross the boundary.
 
 The checked-in JSON schemas are executable documentation for host tooling. The
 native module and runtime adapter will share generated constants or one source
@@ -81,6 +89,12 @@ The frozen/native recovery path accepts signed v3 releases, reports diagnostics
 and restores a confirmed pair without importing the product runtime. Separate
 component artifacts remain available for factory and recovery workflows, not as
 the ordinary operator upgrade sequence.
+
+The paired state contract distinguishes `staging`, `ready`, `trial`,
+`confirmed` and `rollback`. Alpha 2 persists and validates this state but does
+not yet delegate OTA partition selection or rollback to the new native ABI;
+those capabilities remain false until hardware interruption testing proves the
+complete mechanism.
 
 ## Configuration migration
 

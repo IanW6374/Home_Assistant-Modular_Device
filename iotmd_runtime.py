@@ -1605,13 +1605,11 @@ def validate_uploaded_certificates():
     staged_api_cert = api_server_cert_path + '.manual'
     staged_api_key = api_server_key_path + '.manual'
     pairs = []
-
     def exists(path):
         try:
             return os.stat(path)[6] > 0
         except OSError:
             return False
-
     portal_staged = [exists(path) for path in (staged_cert, staged_key)]
     if any(portal_staged):
         if not all(portal_staged):
@@ -1622,7 +1620,6 @@ def validate_uploaded_certificates():
             (staged_cert, web_portal_cert_path),
             (staged_key, web_portal_key_path),
         ))
-
     api_server_staged = [exists(path) for path in (staged_api_cert, staged_api_key)]
     if any(api_server_staged):
         if not all(api_server_staged):
@@ -1633,7 +1630,6 @@ def validate_uploaded_certificates():
             (staged_api_cert, api_server_cert_path),
             (staged_api_key, api_server_key_path),
         ))
-
     mqtt_target = getattr(__import__('device_config'), 'MQTT_CA_PATH', mqtt_ca_cert_path)
     ca_stages = (
         (mqtt_target + '.manual' if exists(mqtt_target + '.manual') else staged_ca, mqtt_target),
@@ -1653,8 +1649,8 @@ def validate_uploaded_certificates():
                 context.load_verify_locations(cadata=stream.read())
         pairs.append((staged, target))
         outbound_trust_changed = True
-
-    update_security.append_staged_verification_key(pairs, fleet_management.FLEET_VERIFICATION_KEY_PATH, exists)
+    management_suite_key_stage = update_security.staged_verification_key(
+        fleet_management.FLEET_VERIFICATION_KEY_PATH, exists)
     try:
         staged_names = os.listdir('certs')
     except OSError:
@@ -1694,11 +1690,15 @@ def validate_uploaded_certificates():
             payload = stream.read()
         certificate_manager.decode_certificate(payload)
         fleet_client_payloads.append((staged, payload))
-
-    if not pairs and not api_ca_payloads and not client_payloads and not fleet_client_payloads:
+    if not (pairs or management_suite_key_stage or api_ca_payloads or
+            client_payloads or fleet_client_payloads):
         raise ValueError('no staged certificate files were found')
     if pairs:
         certificate_manager.commit_certificate_files(tuple(pairs))
+    if management_suite_key_stage:
+        update_security.commit_staged_verification_key(
+            fleet_management.FLEET_VERIFICATION_KEY_PATH, exists,
+            update_support.commit_file_with_backup)
     if all(api_server_staged):
         try:
             os.remove(API_SERVER_MIGRATION_MARKER)

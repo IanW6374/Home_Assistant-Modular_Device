@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.0.0-alpha.2 - 2026-09-04
+
+- Advance the native platform boundary to ABI 2 with bounded opaque encrypted-
+  NVS namespace handles and alternating, CRC-protected snapshot generations.
+- Add the runtime transactional-storage adapter and the first executable paired
+  platform/runtime state machine covering staging, trial, confirmation,
+  mismatch detection and restoration of the previous confirmed pair.
+- Add schemas and interruption tests proving each Alpha 2 state transition
+  recovers to either the complete old generation or complete new generation.
+- Return from update-finalisation requests immediately and run verification as
+  an asynchronous task, allowing the portal to display live firmware and
+  application byte progress instead of remaining at zero percent.
+- Install the Management Suite release-signing key through its own validated,
+  power-safe protected-file transaction instead of incorrectly routing it
+  through the X.509 certificate path validator.
+- Keep native paired trial selection and rollback capability reported as
+  unavailable until partition-control and power-cut HIL qualification pass.
+
 ## 3.0.0-alpha.1 - 2026-09-01
 
 - Add the first versioned native `_iotmd_platform_v3` capability ABI and a

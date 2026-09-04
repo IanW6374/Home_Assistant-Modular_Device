@@ -1,6 +1,6 @@
 """Validated MicroPython adapter for the versioned native v3 platform ABI."""
 
-EXPECTED_ABI_VERSION = 1
+EXPECTED_ABI_VERSION = 2
 
 
 class PlatformContractError(RuntimeError):
@@ -41,7 +41,8 @@ def _bounded_string(value, name, maximum=32):
 def validate_capabilities(value):
     value = _exact_keys(
         value, 'platform capabilities',
-        ('abi_version', 'board', 'runtime', 'security', 'memory', 'interfaces')
+        ('abi_version', 'board', 'runtime', 'security', 'memory', 'interfaces',
+         'storage', 'updates')
     )
     if value['abi_version'] != EXPECTED_ABI_VERSION:
         raise PlatformContractError('unsupported platform ABI version')
@@ -91,6 +92,31 @@ def validate_capabilities(value):
         interfaces['usb_ncm_runtime']
     ):
         raise PlatformContractError('USB NCM capability is inconsistent')
+
+    storage = _exact_keys(
+        value['storage'], 'storage',
+        ('encrypted', 'transactional', 'max_namespaces', 'max_payload_bytes')
+    )
+    _boolean(storage['encrypted'], 'storage.encrypted')
+    _boolean(storage['transactional'], 'storage.transactional')
+    if storage['transactional'] and not storage['encrypted']:
+        raise PlatformContractError('transactional storage must be encrypted')
+    for key, minimum, maximum in (
+        ('max_namespaces', 1, 16), ('max_payload_bytes', 512, 65536)
+    ):
+        number = storage[key]
+        if (not isinstance(number, int) or isinstance(number, bool) or
+                number < minimum or number > maximum):
+            raise PlatformContractError('storage.' + key + ' is invalid')
+
+    updates = _exact_keys(
+        value['updates'], 'updates',
+        ('paired_manifest', 'paired_trial', 'native_rollback')
+    )
+    for key in updates:
+        _boolean(updates[key], 'updates.' + key)
+    if updates['native_rollback'] and not updates['paired_trial']:
+        raise PlatformContractError('native rollback requires paired trial')
     return value
 
 
@@ -105,7 +131,19 @@ class Platform:
             raise PlatformContractError('native v3 platform ABI is unsupported')
         if not hasattr(provider, 'capabilities'):
             raise PlatformContractError('native capability provider is incomplete')
+        for operation in (
+            'storage_open', 'storage_close', 'storage_snapshot',
+            'storage_commit'
+        ):
+            if not hasattr(provider, operation):
+                raise PlatformContractError(
+                    'native transactional storage provider is incomplete'
+                )
         self._provider = provider
 
     def capabilities(self):
         return validate_capabilities(self._provider.capabilities())
+
+    @property
+    def provider(self):
+        return self._provider

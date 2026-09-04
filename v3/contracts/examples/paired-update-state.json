@@ -1,0 +1,19 @@
+{
+  "contract_version": 1,
+  "phase": "ready",
+  "pair": {
+    "id": "3.0.0-alpha.2-2707",
+    "sequence": 2707,
+    "platform": {
+      "version": "3.0.0-alpha.2",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "runtime": {
+      "version": "3.0.0-alpha.2",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  },
+  "previous_pair": null,
+  "staged": {"platform": true, "runtime": true},
+  "failure_reason": ""
+}

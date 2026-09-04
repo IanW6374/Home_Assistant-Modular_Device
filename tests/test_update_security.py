@@ -511,6 +511,25 @@ class UpdateSecurityTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Management Suite verification key'):
             update_security.validate_release_descriptor(descriptor, 'stable')
 
+    def test_management_suite_key_uses_generic_protected_file_transaction(self):
+        key_path = '.fleet-key'
+        staged = key_path + '.manual'
+        Path(staged).write_bytes(update_security.public_key_bytes(bytes(range(33, 65))))
+        committed = []
+
+        self.assertTrue(update_security.commit_staged_verification_key(
+            key_path, lambda path: Path(path).is_file(),
+            lambda source, target: committed.append((source, target))
+        ))
+        self.assertEqual(committed, [(staged, key_path)])
+
+        Path(staged).write_bytes(b'not-a-signing-key')
+        with self.assertRaisesRegex(ValueError, 'verification key'):
+            update_security.commit_staged_verification_key(
+                key_path, lambda path: Path(path).is_file(),
+                lambda source, target: None
+            )
+
     def test_static_release_publisher_creates_signed_channel_tree(self):
         source = Path('source.py')
         source.write_text('VALUE=1')

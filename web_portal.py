@@ -54,6 +54,53 @@ def _is_certificate_request(method, route, path):
         (method == 'POST' and str(path).startswith('/certificate-upload'))
     )
 
+
+_UPDATE_PROGRESS_PHASES = (
+    'writing', 'verification', 'firmware_writing',
+    'firmware_verification', 'application_verification', 'compacting'
+)
+
+
+def update_progress_reporter(record):
+    """Return a byte-based progress callback backed by a shared record."""
+    async def report(phase, completed=0, total=0):
+        phase = str(phase)
+        if phase not in _UPDATE_PROGRESS_PHASES:
+            return
+        total = max(0, int(total or 0))
+        completed = max(0, int(completed or 0))
+        percent = max(
+            0, min(100, int(completed * 100 / total))
+        ) if total else 0
+        if (
+            record.get('phase') == phase and
+            percent < int(record.get('percent', 0) or 0)
+        ):
+            return
+        record.update({
+            'phase': phase,
+            'percent': percent,
+            'completed_bytes': completed,
+            'total_bytes': total,
+        })
+    return report
+
+
+async def complete_resumable_update(identifier, complete, record, log_output):
+    """Complete an uploaded artifact independently of its HTTP request."""
+    try:
+        result = await complete(
+            identifier, update_progress_reporter(record)
+        )
+    except Exception as exc:
+        message = 'Update rejected: ' + str(exc)
+        record.update({'phase': 'failed', 'percent': 0, 'message': message})
+        log_upgrade_upload_failure(log_output, 'verification', exc)
+    else:
+        record.update({
+            'phase': 'complete', 'percent': 100, 'message': str(result)
+        })
+
 async def _handle_certificate_request(*args):
     import certificate_portal_transport
     return await certificate_portal_transport.handle(*args)
@@ -163,9 +210,6 @@ async def start_web_portal(portal):
         body = b''
         is_json_validation = False
         upload_state = ''
-        progress_response_started = False
-        progress_percent = -1
-        progress_phase = ''
         progress_state = {'id': '', 'record': upload_progress}
         peer_address = request_peer_address(reader, writer)
         session_role = ''
@@ -187,54 +231,6 @@ async def start_web_portal(portal):
                 writer, status, body, content_type, extra_headers,
                 response_keep_alive
             )
-
-        async def report_upload_progress(phase, completed=0, total=0):
-            nonlocal progress_response_started, progress_percent, progress_phase
-            if phase not in (
-                'writing', 'verification', 'firmware_writing',
-                'firmware_verification', 'application_verification'
-            ):
-                return
-            total = int(total or 0)
-            completed = int(completed or 0)
-            percent = int(completed * 100 / total) if total > 0 else 0
-            percent = max(0, min(100, percent))
-            progress_state['record']['phase'] = phase
-            progress_state['record']['percent'] = percent
-            if phase == progress_phase and percent == progress_percent:
-                return
-            progress_phase = phase
-            progress_percent = percent
-            # The request body still contains firmware while the inactive
-            # partition is being written.  Do not close the upload connection
-            # until the body has been fully consumed and read-back verification
-            # begins.  The browser polls the shared progress record meanwhile.
-            if phase in ('verification', 'application_verification') and not progress_response_started:
-                progress_response_started = True
-                try:
-                    await send_response(
-                        writer,
-                        '202 Accepted',
-                        json.dumps({'phase': 'verification'}),
-                        'application/json'
-                    )
-                except Exception:
-                    # Verification must not fail just because the browser closed
-                    # the upload response before receiving the acknowledgement.
-                    pass
-                finally:
-                    await close_writer()
-                if asyncio:
-                    await asyncio.sleep(0)
-
-        async def finish_progress_response(phase, message):
-            progress_state['record']['phase'] = phase
-            if phase == 'complete':
-                progress_state['record']['percent'] = 100
-            progress_state['record']['message'] = str(message)
-            if not progress_response_started:
-                return False
-            return True
 
         async def close_writer():
             await http_support.close_writer(writer)
@@ -881,17 +877,19 @@ async def start_web_portal(portal):
                     progress_state['record'] = upload_progress_by_id.setdefault(
                         progress_state['id'], {'phase': 'receiving', 'percent': 100}
                     )
-                    try:
-                        result = await resumable_complete(
-                            progress_state['id'], report_upload_progress
-                        )
-                    except Exception as exc:
-                        message = 'Update rejected: ' + str(exc)
-                        if not await finish_progress_response('failed', message):
-                            await send_response(writer, '400 Bad Request', message, 'text/plain')
-                    else:
-                        if not await finish_progress_response('complete', result):
-                            await send_response(writer, '200 OK', str(result), 'text/plain')
+                    progress_state['record'].update({
+                        'phase': 'verification', 'percent': 0,
+                        'message': 'Verification started'
+                    })
+                    asyncio.create_task(complete_resumable_update(
+                        progress_state['id'], resumable_complete,
+                        progress_state['record'], log_output
+                    ))
+                    await send_response(
+                        writer, '202 Accepted',
+                        json.dumps({'phase': 'verification', 'percent': 0}),
+                        'application/json'
+                    )
             else:
                 return False
             return True

@@ -15,6 +15,10 @@ def main():
             contracts / 'examples' / 'platform-capabilities.json',
             contracts / 'platform-capabilities.schema.json',
         ),
+        (
+            contracts / 'examples' / 'paired-update-state.json',
+            contracts / 'paired-update-state.schema.json',
+        ),
     )
     for instance_path, schema_path in pairs:
         schema = json.loads(schema_path.read_text())
