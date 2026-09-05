@@ -1,5 +1,5 @@
 {
-  "abi_version": 3,
+  "abi_version": 4,
   "board": {
     "target": "esp32-s3",
     "revision": "devkitc-n8r8"
@@ -7,7 +7,7 @@
   "runtime": {
     "engine": "micropython",
     "version": "1.29.0",
-    "platform_abi": 3
+    "platform_abi": 4
   },
   "security": {
     "secure_boot": true,
@@ -35,8 +35,23 @@
   },
   "updates": {
     "paired_manifest": true,
+    "native_trial_observation": true,
+    "native_trial_control": true,
     "paired_trial": false,
     "native_rollback": false
+  },
+  "recovery": {
+    "native_state": true,
+    "product_independent": true,
+    "signed_release": true,
+    "qualified": false
+  },
+  "jobs": {
+    "async_worker": true,
+    "max_pending": 4,
+    "max_events": 8,
+    "timeout_ms": 5000,
+    "qualified": false
   },
   "resources": {
     "managed": true,

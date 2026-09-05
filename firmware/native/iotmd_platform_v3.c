@@ -14,10 +14,14 @@
 #include "esp_partition.h"
 #include "esp_psram.h"
 #include "esp_secure_boot.h"
+#include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "nvs.h"
 #include "sdkconfig.h"
 
-#define IOTMD_PLATFORM_V3_ABI_VERSION (3)
+#define IOTMD_PLATFORM_V3_ABI_VERSION (4)
 #define IOTMD_V3_STORAGE_HANDLES (4)
 #define IOTMD_V3_STORAGE_MAX_PAYLOAD (4096)
 #define IOTMD_V3_STORAGE_HEADER_BYTES (16)
@@ -25,6 +29,14 @@
 #define IOTMD_V3_RESOURCE_KIND_BYTES (12)
 #define IOTMD_V3_RESOURCE_IDENTIFIER_BYTES (32)
 #define IOTMD_V3_RESOURCE_OWNER_BYTES (32)
+#define IOTMD_V3_RECOVERY_REASON_BYTES (160)
+#define IOTMD_V3_JOB_KIND_BYTES (24)
+#define IOTMD_V3_JOB_ARGUMENT_BYTES (160)
+#define IOTMD_V3_JOB_DETAIL_BYTES (96)
+#define IOTMD_V3_JOB_QUEUE_DEPTH (4)
+#define IOTMD_V3_EVENT_QUEUE_DEPTH (8)
+#define IOTMD_V3_JOB_STACK_BYTES (4096)
+#define IOTMD_V3_JOB_TIMEOUT_MS (5000)
 
 typedef struct {
     bool used;
@@ -46,8 +58,516 @@ static iotmd_v3_resource_claim_t iotmd_v3_resource_claims[
     IOTMD_V3_RESOURCE_CLAIMS
 ];
 
+typedef struct {
+    uint32_t identifier;
+    char kind[IOTMD_V3_JOB_KIND_BYTES + 1];
+    char argument[IOTMD_V3_JOB_ARGUMENT_BYTES + 1];
+} iotmd_v3_job_t;
+
+typedef struct {
+    uint32_t identifier;
+    char kind[IOTMD_V3_JOB_KIND_BYTES + 1];
+    char status[12];
+    int32_t error;
+    char detail[IOTMD_V3_JOB_DETAIL_BYTES + 1];
+} iotmd_v3_event_t;
+
+static QueueHandle_t iotmd_v3_job_queue = NULL;
+static QueueHandle_t iotmd_v3_event_queue = NULL;
+static TaskHandle_t iotmd_v3_job_task = NULL;
+static uint32_t iotmd_v3_next_job_identifier = 1;
+static portMUX_TYPE iotmd_v3_job_lock = portMUX_INITIALIZER_UNLOCKED;
+
 static void iotmd_v3_dict_store(mp_obj_t dictionary, qstr key,
     mp_obj_t value);
+
+static void iotmd_v3_copy_text(char *target, size_t capacity,
+        const char *source, size_t length) {
+    size_t count = length < capacity - 1 ? length : capacity - 1;
+    memcpy(target, source, count);
+    target[count] = '\0';
+}
+
+static esp_err_t iotmd_v3_recovery_write(bool requested, const char *reason) {
+    nvs_handle_t nvs;
+    esp_err_t error = nvs_open("v3recovery", NVS_READWRITE, &nvs);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if ((error = nvs_set_u8(nvs, "request", requested ? 1 : 0)) == ESP_OK &&
+            (error = nvs_set_str(nvs, "reason", reason)) == ESP_OK) {
+        error = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    return error;
+}
+
+static esp_err_t iotmd_v3_running_state(const esp_partition_t **running_out,
+        esp_ota_img_states_t *state_out) {
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    esp_err_t error = esp_ota_get_state_partition(running, &state);
+    if (error == ESP_ERR_NOT_FOUND) {
+        error = ESP_OK;
+    }
+    if (error == ESP_OK) {
+        *running_out = running;
+        *state_out = state;
+    }
+    return error;
+}
+
+static bool iotmd_v3_label_matches(const esp_partition_t *partition,
+        const char *expected) {
+    return partition != NULL && strcmp(partition->label, expected) == 0;
+}
+
+static bool iotmd_v3_error_is_retryable(esp_err_t error) {
+    return error == ESP_ERR_TIMEOUT || error == ESP_ERR_NO_MEM;
+}
+
+static void iotmd_v3_emit_event(const iotmd_v3_job_t *job,
+        const char *status, esp_err_t error, const char *detail) {
+    if (iotmd_v3_event_queue == NULL) {
+        return;
+    }
+    iotmd_v3_event_t event;
+    memset(&event, 0, sizeof(event));
+    event.identifier = job->identifier;
+    iotmd_v3_copy_text(
+        event.kind, sizeof(event.kind), job->kind, strlen(job->kind)
+    );
+    iotmd_v3_copy_text(
+        event.status, sizeof(event.status), status, strlen(status)
+    );
+    event.error = error;
+    iotmd_v3_copy_text(
+        event.detail, sizeof(event.detail), detail, strlen(detail)
+    );
+    // Diagnostics must remain bounded. Discard the oldest event rather than
+    // block a native operation when the application has stopped consuming.
+    if (xQueueSend(iotmd_v3_event_queue, &event, 0) != pdTRUE) {
+        iotmd_v3_event_t discarded;
+        xQueueReceive(iotmd_v3_event_queue, &discarded, 0);
+        xQueueSend(iotmd_v3_event_queue, &event, 0);
+    }
+}
+
+static esp_err_t iotmd_v3_execute_job(const iotmd_v3_job_t *job,
+        const char **detail) {
+    if (strcmp(job->kind, "recovery-request") == 0) {
+        *detail = "native recovery requested";
+        return iotmd_v3_recovery_write(true, job->argument);
+    }
+    const esp_partition_t *running = NULL;
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    esp_err_t error = iotmd_v3_running_state(&running, &state);
+    if (error != ESP_OK) {
+        *detail = "running partition unavailable";
+        return error;
+    }
+    if (!iotmd_v3_label_matches(running, job->argument)) {
+        *detail = "running partition changed";
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (state != ESP_OTA_IMG_PENDING_VERIFY) {
+        *detail = "partition is not pending verification";
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (strcmp(job->kind, "update-confirm") == 0) {
+        *detail = "native trial confirmed";
+        return esp_ota_mark_app_valid_cancel_rollback();
+    }
+    if (strcmp(job->kind, "update-rollback") == 0) {
+        if (!esp_ota_check_rollback_is_possible()) {
+            *detail = "rollback partition unavailable";
+            return ESP_ERR_NOT_FOUND;
+        }
+        // Publish intent before this successful call restarts the processor.
+        iotmd_v3_emit_event(job, "restarting", ESP_OK,
+            "native rollback accepted");
+        *detail = "native rollback failed to restart";
+        return esp_ota_mark_app_invalid_rollback_and_reboot();
+    }
+    *detail = "unsupported native job";
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+static void iotmd_v3_job_worker(void *unused) {
+    (void)unused;
+    iotmd_v3_job_t job;
+    while (true) {
+        if (xQueueReceive(iotmd_v3_job_queue, &job, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+        iotmd_v3_emit_event(&job, "running", ESP_OK, "native job started");
+        const char *detail = "native job completed";
+        esp_err_t error = iotmd_v3_execute_job(&job, &detail);
+        iotmd_v3_emit_event(
+            &job, error == ESP_OK ? "completed" : "failed", error, detail
+        );
+    }
+}
+
+static void iotmd_v3_job_system_start(void) {
+    if (iotmd_v3_job_queue != NULL && iotmd_v3_event_queue != NULL &&
+            iotmd_v3_job_task != NULL) {
+        return;
+    }
+    iotmd_v3_job_queue = xQueueCreate(
+        IOTMD_V3_JOB_QUEUE_DEPTH, sizeof(iotmd_v3_job_t)
+    );
+    iotmd_v3_event_queue = xQueueCreate(
+        IOTMD_V3_EVENT_QUEUE_DEPTH, sizeof(iotmd_v3_event_t)
+    );
+    if (iotmd_v3_job_queue == NULL || iotmd_v3_event_queue == NULL ||
+            xTaskCreate(
+                iotmd_v3_job_worker, "iotmd-v3-job",
+                IOTMD_V3_JOB_STACK_BYTES, NULL, tskIDLE_PRIORITY + 1,
+                &iotmd_v3_job_task
+            ) != pdPASS) {
+        mp_raise_msg(
+            &mp_type_RuntimeError,
+            MP_ERROR_TEXT("native job worker is unavailable")
+        );
+    }
+}
+
+static const char *iotmd_v3_ota_state_name(esp_ota_img_states_t state) {
+    switch (state) {
+        case ESP_OTA_IMG_NEW:
+            return "new";
+        case ESP_OTA_IMG_PENDING_VERIFY:
+            return "pending-verify";
+        case ESP_OTA_IMG_VALID:
+            return "valid";
+        case ESP_OTA_IMG_INVALID:
+            return "invalid";
+        case ESP_OTA_IMG_ABORTED:
+            return "aborted";
+        case ESP_OTA_IMG_UNDEFINED:
+        default:
+            return "undefined";
+    }
+}
+
+static const esp_partition_t *iotmd_v3_running_partition(void) {
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running == NULL) {
+        mp_raise_msg(
+            &mp_type_RuntimeError,
+            MP_ERROR_TEXT("running OTA partition is unavailable")
+        );
+    }
+    return running;
+}
+
+static void iotmd_v3_require_running_label(const esp_partition_t *running,
+        mp_obj_t expected_in) {
+    size_t length = 0;
+    const char *expected = mp_obj_str_get_data(expected_in, &length);
+    size_t actual_length = strlen(running->label);
+    if (length != actual_length ||
+            memcmp(expected, running->label, actual_length) != 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("running OTA partition changed"));
+    }
+}
+
+static mp_obj_t iotmd_platform_v3_update_snapshot(void) {
+    const esp_partition_t *running = iotmd_v3_running_partition();
+    const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    esp_err_t error = esp_ota_get_state_partition(running, &state);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) {
+        mp_raise_OSError(error);
+    }
+    const char *state_name = iotmd_v3_ota_state_name(state);
+    mp_obj_t result = mp_obj_new_dict(6);
+    iotmd_v3_dict_store(
+        result, MP_QSTR_running_label,
+        mp_obj_new_str(running->label, strlen(running->label))
+    );
+    iotmd_v3_dict_store(
+        result, MP_QSTR_running_state,
+        mp_obj_new_str(state_name, strlen(state_name))
+    );
+    iotmd_v3_dict_store(
+        result, MP_QSTR_next_label,
+        next == NULL ? mp_const_none :
+        mp_obj_new_str(next->label, strlen(next->label))
+    );
+    iotmd_v3_dict_store(
+        result, MP_QSTR_pending_verify,
+        mp_obj_new_bool(state == ESP_OTA_IMG_PENDING_VERIFY)
+    );
+    iotmd_v3_dict_store(
+        result, MP_QSTR_can_confirm,
+        mp_obj_new_bool(state == ESP_OTA_IMG_PENDING_VERIFY)
+    );
+    iotmd_v3_dict_store(
+        result, MP_QSTR_can_rollback,
+        mp_obj_new_bool(
+            state == ESP_OTA_IMG_PENDING_VERIFY &&
+            esp_ota_check_rollback_is_possible()
+        )
+    );
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(
+    iotmd_platform_v3_update_snapshot_obj,
+    iotmd_platform_v3_update_snapshot
+);
+
+static mp_obj_t iotmd_platform_v3_update_confirm(mp_obj_t expected_in) {
+    const esp_partition_t *running = iotmd_v3_running_partition();
+    iotmd_v3_require_running_label(running, expected_in);
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    esp_err_t error = esp_ota_get_state_partition(running, &state);
+    if (error != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY) {
+        mp_raise_msg(
+            &mp_type_RuntimeError,
+            MP_ERROR_TEXT("running OTA partition is not pending verification")
+        );
+    }
+    error = esp_ota_mark_app_valid_cancel_rollback();
+    if (error != ESP_OK) {
+        mp_raise_OSError(error);
+    }
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    iotmd_platform_v3_update_confirm_obj,
+    iotmd_platform_v3_update_confirm
+);
+
+static mp_obj_t iotmd_platform_v3_update_rollback(mp_obj_t expected_in) {
+    const esp_partition_t *running = iotmd_v3_running_partition();
+    iotmd_v3_require_running_label(running, expected_in);
+    esp_ota_img_states_t state = ESP_OTA_IMG_UNDEFINED;
+    esp_err_t error = esp_ota_get_state_partition(running, &state);
+    if (error != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY ||
+            !esp_ota_check_rollback_is_possible()) {
+        mp_raise_msg(
+            &mp_type_RuntimeError,
+            MP_ERROR_TEXT("running OTA partition cannot roll back")
+        );
+    }
+    error = esp_ota_mark_app_invalid_rollback_and_reboot();
+    if (error != ESP_OK) {
+        mp_raise_OSError(error);
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    iotmd_platform_v3_update_rollback_obj,
+    iotmd_platform_v3_update_rollback
+);
+
+static mp_obj_t iotmd_platform_v3_recovery_boot_begin(void) {
+    nvs_handle_t nvs;
+    esp_err_t error = nvs_open("v3recovery", NVS_READWRITE, &nvs);
+    if (error != ESP_OK) {
+        mp_raise_OSError(error);
+    }
+    uint32_t boots = 0;
+    uint32_t failures = 0;
+    uint8_t pending = 0;
+    nvs_get_u32(nvs, "boots", &boots);
+    nvs_get_u32(nvs, "failures", &failures);
+    nvs_get_u8(nvs, "pending", &pending);
+    if (pending && failures < UINT32_MAX) {
+        ++failures;
+    }
+    if (boots < UINT32_MAX) {
+        ++boots;
+    }
+    if ((error = nvs_set_u32(nvs, "boots", boots)) == ESP_OK &&
+            (error = nvs_set_u32(nvs, "failures", failures)) == ESP_OK &&
+            (error = nvs_set_u8(nvs, "pending", 1)) == ESP_OK) {
+        error = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (error != ESP_OK) {
+        mp_raise_OSError(error);
+    }
+    return mp_obj_new_int_from_uint(failures);
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(
+    iotmd_platform_v3_recovery_boot_begin_obj,
+    iotmd_platform_v3_recovery_boot_begin
+);
+
+static mp_obj_t iotmd_platform_v3_recovery_snapshot(void) {
+    nvs_handle_t nvs;
+    esp_err_t error = nvs_open("v3recovery", NVS_READONLY, &nvs);
+    uint8_t requested = 0;
+    uint8_t pending = 0;
+    uint32_t boots = 0;
+    uint32_t failures = 0;
+    char reason[IOTMD_V3_RECOVERY_REASON_BYTES + 1] = {0};
+    if (error == ESP_OK) {
+        size_t reason_length = sizeof(reason);
+        nvs_get_u8(nvs, "request", &requested);
+        nvs_get_u8(nvs, "pending", &pending);
+        nvs_get_u32(nvs, "boots", &boots);
+        nvs_get_u32(nvs, "failures", &failures);
+        if (nvs_get_str(nvs, "reason", reason, &reason_length) != ESP_OK) {
+            reason[0] = '\0';
+        }
+        nvs_close(nvs);
+    } else if (error != ESP_ERR_NVS_NOT_FOUND) {
+        mp_raise_OSError(error);
+    }
+    mp_obj_t result = mp_obj_new_dict(6);
+    iotmd_v3_dict_store(
+        result, MP_QSTR_requested, mp_obj_new_bool(requested != 0)
+    );
+    iotmd_v3_dict_store(
+        result, MP_QSTR_reason, mp_obj_new_str(reason, strlen(reason))
+    );
+    iotmd_v3_dict_store(result, MP_QSTR_boot_pending,
+        mp_obj_new_bool(pending != 0));
+    iotmd_v3_dict_store(result, MP_QSTR_boot_count,
+        mp_obj_new_int_from_uint(boots));
+    iotmd_v3_dict_store(result, MP_QSTR_failed_boots,
+        mp_obj_new_int_from_uint(failures));
+    iotmd_v3_dict_store(result, MP_QSTR_reset_reason,
+        MP_OBJ_NEW_SMALL_INT(esp_reset_reason()));
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(
+    iotmd_platform_v3_recovery_snapshot_obj,
+    iotmd_platform_v3_recovery_snapshot
+);
+
+static mp_obj_t iotmd_platform_v3_recovery_request(mp_obj_t reason_in) {
+    size_t length = 0;
+    const char *reason = mp_obj_str_get_data(reason_in, &length);
+    if (length == 0 || length > IOTMD_V3_RECOVERY_REASON_BYTES) {
+        mp_raise_ValueError(MP_ERROR_TEXT("recovery reason is invalid"));
+    }
+    char bounded[IOTMD_V3_RECOVERY_REASON_BYTES + 1];
+    iotmd_v3_copy_text(bounded, sizeof(bounded), reason, length);
+    esp_err_t error = iotmd_v3_recovery_write(true, bounded);
+    if (error != ESP_OK) {
+        mp_raise_OSError(error);
+    }
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(
+    iotmd_platform_v3_recovery_request_obj,
+    iotmd_platform_v3_recovery_request
+);
+
+static mp_obj_t iotmd_platform_v3_recovery_mark_healthy(void) {
+    nvs_handle_t nvs;
+    esp_err_t error = nvs_open("v3recovery", NVS_READWRITE, &nvs);
+    if (error != ESP_OK) {
+        mp_raise_OSError(error);
+    }
+    if ((error = nvs_set_u8(nvs, "pending", 0)) == ESP_OK &&
+            (error = nvs_set_u32(nvs, "failures", 0)) == ESP_OK) {
+        error = nvs_commit(nvs);
+    }
+    nvs_close(nvs);
+    if (error != ESP_OK) {
+        mp_raise_OSError(error);
+    }
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(
+    iotmd_platform_v3_recovery_mark_healthy_obj,
+    iotmd_platform_v3_recovery_mark_healthy
+);
+
+static mp_obj_t iotmd_platform_v3_recovery_clear(void) {
+    esp_err_t error = iotmd_v3_recovery_write(false, "");
+    if (error != ESP_OK) {
+        mp_raise_OSError(error);
+    }
+    iotmd_platform_v3_recovery_mark_healthy();
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(
+    iotmd_platform_v3_recovery_clear_obj,
+    iotmd_platform_v3_recovery_clear
+);
+
+static mp_obj_t iotmd_platform_v3_job_submit(mp_obj_t kind_in,
+        mp_obj_t argument_in) {
+    size_t kind_length = 0;
+    size_t argument_length = 0;
+    const char *kind = mp_obj_str_get_data(kind_in, &kind_length);
+    const char *argument = mp_obj_str_get_data(
+        argument_in, &argument_length
+    );
+    if (kind_length == 0 || kind_length > IOTMD_V3_JOB_KIND_BYTES ||
+            argument_length == 0 ||
+            argument_length > IOTMD_V3_JOB_ARGUMENT_BYTES) {
+        mp_raise_ValueError(MP_ERROR_TEXT("native job request is invalid"));
+    }
+    bool supported = (
+        (kind_length == sizeof("recovery-request") - 1 &&
+         memcmp(kind, "recovery-request", kind_length) == 0) ||
+        (kind_length == sizeof("update-confirm") - 1 &&
+         memcmp(kind, "update-confirm", kind_length) == 0) ||
+        (kind_length == sizeof("update-rollback") - 1 &&
+         memcmp(kind, "update-rollback", kind_length) == 0)
+    );
+    if (!supported) {
+        mp_raise_ValueError(MP_ERROR_TEXT("native job kind is unsupported"));
+    }
+    iotmd_v3_job_system_start();
+    iotmd_v3_job_t job;
+    memset(&job, 0, sizeof(job));
+    portENTER_CRITICAL(&iotmd_v3_job_lock);
+    job.identifier = iotmd_v3_next_job_identifier++;
+    if (iotmd_v3_next_job_identifier == 0) {
+        iotmd_v3_next_job_identifier = 1;
+    }
+    portEXIT_CRITICAL(&iotmd_v3_job_lock);
+    iotmd_v3_copy_text(job.kind, sizeof(job.kind), kind, kind_length);
+    iotmd_v3_copy_text(
+        job.argument, sizeof(job.argument), argument, argument_length
+    );
+    if (xQueueSend(iotmd_v3_job_queue, &job, 0) != pdTRUE) {
+        mp_raise_OSError(MP_EAGAIN);
+    }
+    return mp_obj_new_int_from_uint(job.identifier);
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(
+    iotmd_platform_v3_job_submit_obj,
+    iotmd_platform_v3_job_submit
+);
+
+static mp_obj_t iotmd_platform_v3_event_poll(void) {
+    iotmd_v3_job_system_start();
+    iotmd_v3_event_t event;
+    if (xQueueReceive(iotmd_v3_event_queue, &event, 0) != pdTRUE) {
+        return mp_const_none;
+    }
+    mp_obj_t result = mp_obj_new_dict(6);
+    iotmd_v3_dict_store(result, MP_QSTR_id,
+        mp_obj_new_int_from_uint(event.identifier));
+    iotmd_v3_dict_store(result, MP_QSTR_kind,
+        mp_obj_new_str(event.kind, strlen(event.kind)));
+    iotmd_v3_dict_store(result, MP_QSTR_status,
+        mp_obj_new_str(event.status, strlen(event.status)));
+    iotmd_v3_dict_store(result, MP_QSTR_error,
+        mp_obj_new_int(event.error));
+    iotmd_v3_dict_store(result, MP_QSTR_retryable,
+        mp_obj_new_bool(iotmd_v3_error_is_retryable(event.error)));
+    iotmd_v3_dict_store(result, MP_QSTR_detail,
+        mp_obj_new_str(event.detail, strlen(event.detail)));
+    return result;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(
+    iotmd_platform_v3_event_poll_obj,
+    iotmd_platform_v3_event_poll
+);
 
 static uint32_t iotmd_v3_u32_read(const uint8_t *value) {
     return ((uint32_t)value[0]) | ((uint32_t)value[1] << 8) |
@@ -513,10 +1033,31 @@ static mp_obj_t iotmd_platform_v3_capabilities(void) {
         MP_OBJ_NEW_SMALL_INT(IOTMD_V3_STORAGE_MAX_PAYLOAD)
     );
 
-    mp_obj_t updates = mp_obj_new_dict(3);
+    mp_obj_t updates = mp_obj_new_dict(5);
     iotmd_v3_dict_store(updates, MP_QSTR_paired_manifest, mp_const_true);
+    iotmd_v3_dict_store(updates, MP_QSTR_native_trial_observation, mp_const_true);
+    iotmd_v3_dict_store(updates, MP_QSTR_native_trial_control, mp_const_true);
+    // The mechanisms exist in ABI 4, but qualification remains a separate
+    // physical gate. Never advertise a production claim merely because the
+    // entry points compiled successfully.
     iotmd_v3_dict_store(updates, MP_QSTR_paired_trial, mp_const_false);
     iotmd_v3_dict_store(updates, MP_QSTR_native_rollback, mp_const_false);
+
+    mp_obj_t recovery = mp_obj_new_dict(4);
+    iotmd_v3_dict_store(recovery, MP_QSTR_native_state, mp_const_true);
+    iotmd_v3_dict_store(recovery, MP_QSTR_product_independent, mp_const_true);
+    iotmd_v3_dict_store(recovery, MP_QSTR_signed_release, mp_const_true);
+    iotmd_v3_dict_store(recovery, MP_QSTR_qualified, mp_const_false);
+
+    mp_obj_t jobs = mp_obj_new_dict(5);
+    iotmd_v3_dict_store(jobs, MP_QSTR_async_worker, mp_const_true);
+    iotmd_v3_dict_store(jobs, MP_QSTR_max_pending,
+        MP_OBJ_NEW_SMALL_INT(IOTMD_V3_JOB_QUEUE_DEPTH));
+    iotmd_v3_dict_store(jobs, MP_QSTR_max_events,
+        MP_OBJ_NEW_SMALL_INT(IOTMD_V3_EVENT_QUEUE_DEPTH));
+    iotmd_v3_dict_store(jobs, MP_QSTR_timeout_ms,
+        MP_OBJ_NEW_SMALL_INT(IOTMD_V3_JOB_TIMEOUT_MS));
+    iotmd_v3_dict_store(jobs, MP_QSTR_qualified, mp_const_false);
 
     mp_obj_t resource_kinds_items[] = {
         mp_obj_new_str("adc", sizeof("adc") - 1),
@@ -538,7 +1079,7 @@ static mp_obj_t iotmd_platform_v3_capabilities(void) {
         )
     );
 
-    mp_obj_t result = mp_obj_new_dict(9);
+    mp_obj_t result = mp_obj_new_dict(11);
     iotmd_v3_dict_store(
         result, MP_QSTR_abi_version,
         MP_OBJ_NEW_SMALL_INT(IOTMD_PLATFORM_V3_ABI_VERSION)
@@ -550,6 +1091,8 @@ static mp_obj_t iotmd_platform_v3_capabilities(void) {
     iotmd_v3_dict_store(result, MP_QSTR_interfaces, interfaces);
     iotmd_v3_dict_store(result, MP_QSTR_storage, storage);
     iotmd_v3_dict_store(result, MP_QSTR_updates, updates);
+    iotmd_v3_dict_store(result, MP_QSTR_recovery, recovery);
+    iotmd_v3_dict_store(result, MP_QSTR_jobs, jobs);
     iotmd_v3_dict_store(result, MP_QSTR_resources, resources);
     return result;
 }
@@ -581,6 +1124,26 @@ static const mp_rom_map_elem_t iotmd_platform_v3_module_globals_table[] = {
       MP_ROM_PTR(&iotmd_platform_v3_resource_release_owner_obj) },
     { MP_ROM_QSTR(MP_QSTR_resource_snapshot),
       MP_ROM_PTR(&iotmd_platform_v3_resource_snapshot_obj) },
+    { MP_ROM_QSTR(MP_QSTR_update_snapshot),
+      MP_ROM_PTR(&iotmd_platform_v3_update_snapshot_obj) },
+    { MP_ROM_QSTR(MP_QSTR_update_confirm),
+      MP_ROM_PTR(&iotmd_platform_v3_update_confirm_obj) },
+    { MP_ROM_QSTR(MP_QSTR_update_rollback),
+      MP_ROM_PTR(&iotmd_platform_v3_update_rollback_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recovery_boot_begin),
+      MP_ROM_PTR(&iotmd_platform_v3_recovery_boot_begin_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recovery_snapshot),
+      MP_ROM_PTR(&iotmd_platform_v3_recovery_snapshot_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recovery_request),
+      MP_ROM_PTR(&iotmd_platform_v3_recovery_request_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recovery_mark_healthy),
+      MP_ROM_PTR(&iotmd_platform_v3_recovery_mark_healthy_obj) },
+    { MP_ROM_QSTR(MP_QSTR_recovery_clear),
+      MP_ROM_PTR(&iotmd_platform_v3_recovery_clear_obj) },
+    { MP_ROM_QSTR(MP_QSTR_job_submit),
+      MP_ROM_PTR(&iotmd_platform_v3_job_submit_obj) },
+    { MP_ROM_QSTR(MP_QSTR_event_poll),
+      MP_ROM_PTR(&iotmd_platform_v3_event_poll_obj) },
 };
 static MP_DEFINE_CONST_DICT(
     iotmd_platform_v3_module_globals,
@@ -592,7 +1155,6 @@ const mp_obj_module_t iotmd_platform_v3_user_cmodule = {
     .globals = (mp_obj_dict_t *)&iotmd_platform_v3_module_globals,
 };
 
-MP_REGISTER_MODULE(
-    MP_QSTR__iotmd_platform_v3,
-    iotmd_platform_v3_user_cmodule
-);
+// Keep the registration on one line: MicroPython's module-definition scanner
+// discovers this source declaration before the C compiler handles it.
+MP_REGISTER_MODULE(MP_QSTR__iotmd_platform_v3, iotmd_platform_v3_user_cmodule);

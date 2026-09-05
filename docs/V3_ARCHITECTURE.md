@@ -57,8 +57,10 @@ extract keys or keep raw native pointers.
 ## Platform ABI
 
 ABI 1 established capability discovery. ABI 2 added bounded encrypted-storage
-handles and atomic whole-namespace snapshots. ABI 3 adds owner-scoped logical
-resource claims and bounded resource inventory. The ABI follows these rules:
+handles and atomic whole-namespace snapshots. ABI 3 added owner-scoped logical
+resource claims and bounded resource inventory. ABI 4 adds guarded OTA trial
+observation/control, encrypted native boot/recovery state, and a fixed-capacity
+native job/event queue. The ABI follows these rules:
 
 - primitive values only: bounded strings, integers, booleans, bytes and maps;
 - explicit maximum size and timeout for every call;
@@ -78,6 +80,14 @@ bytes and native handles—not ESP-IDF NVS objects—cross the boundary.
 The checked-in JSON schemas are executable documentation for host tooling. The
 native module and runtime adapter will share generated constants or one source
 definition where practical.
+
+ABI 4 job submission never waits for queue capacity. The worker accepts a
+bounded allow-list of recovery and OTA trial operations, holds no MicroPython
+object across its FreeRTOS boundary, and returns fixed-size events containing an
+identifier, state, numeric error, retryability and diagnostic detail. Queue
+saturation fails immediately; an unconsumed event queue drops its oldest
+diagnostic rather than blocking a platform operation. The capability contract
+declares a five-second operation bound.
 
 ## Application kernel
 
@@ -135,7 +145,7 @@ so these snapshots cannot become an accidental secret-export path.
 
 ## Integration cutover and qualification
 
-Alpha 6 introduces one persistent cutover coordinator rather than allowing a
+Alpha 6 introduced one persistent cutover coordinator rather than allowing a
 build flag to select the greenfield runtime. Compatibility is the durable
 default. Shadow mode starts the compatibility path and an isolated v3 kernel;
 active mode starts only v3, but is rejected unless the platform reports native
@@ -153,6 +163,15 @@ period. Unexecuted tests remain `not-run`; observed failures are sticky until
 an explicit campaign reset. USB NCM is not a promotion dependency while the
 ESP32-S3 MicroPython integration remains unsupported.
 
+Alpha 7 moves recovery intent and incomplete-boot counting into encrypted NVS
+and advances that record from the frozen boot supervisor before importing the
+replaceable product. An explicit factory reset retains precedence. Three
+consecutive boots which fail to reach the health marker enter the signed frozen
+recovery path; a healthy application clears the pending marker. This is
+product-independent recovery, not recovery independent of the signed
+MicroPython core. A corrupted confirmed core still depends on bootloader A/B
+behavior or USB disaster recovery.
+
 ## Release and recovery model
 
 Users install one universal release containing independently signed platform
@@ -166,10 +185,12 @@ component artifacts remain available for factory and recovery workflows, not as
 the ordinary operator upgrade sequence.
 
 The paired state contract distinguishes `staging`, `ready`, `trial`,
-`confirmed` and `rollback`. Alpha 2 persists and validates this state but does
-not yet delegate OTA partition selection or rollback to the new native ABI;
-those capabilities remain false until hardware interruption testing proves the
-complete mechanism.
+`confirmed` and `rollback`. ABI 4 can observe the running OTA state and perform
+a confirm or rollback only when the caller supplies the still-current running
+partition label and that partition remains pending verification. It does not
+yet make application-slot and core-partition confirmation one atomic native
+transaction; paired-trial and rollback capabilities therefore remain false
+until the interruption matrix proves the complete mechanism.
 
 ## Configuration migration
 

@@ -53,6 +53,53 @@ class AlphaQualificationTests(unittest.TestCase):
         self.assertEqual(status['summary'], 'Unavailable')
         self.assertIn('no platform', status['error'])
 
+    def test_missing_native_core_has_actionable_error(self):
+        service = AlphaQualificationService(
+            'device', lambda: {}, lambda: 1,
+            lambda *args: (_ for _ in ()).throw(
+                RuntimeError('native v3 platform is unavailable')
+            )
+        )
+        status = service.status()
+        self.assertIn('install the universal release', status['error'])
+
+    def test_native_update_state_distinguishes_mechanism_and_qualification(self):
+        class Platform:
+            def capabilities(self):
+                return {
+                    'updates': {
+                        'native_trial_observation': True,
+                        'native_trial_control': True,
+                        'paired_trial': False,
+                        'native_rollback': False,
+                    },
+                    'recovery': {
+                        'product_independent': True, 'qualified': False,
+                    },
+                    'jobs': {'async_worker': True, 'qualified': False},
+                }
+
+            def update_snapshot(self):
+                return {
+                    'running_label': 'ota_0', 'running_state': 'valid',
+                    'next_label': 'ota_1', 'pending_verify': False,
+                    'can_confirm': False, 'can_rollback': False,
+                }
+
+            def recovery_snapshot(self):
+                return {'requested': False, 'failed_boots': 0}
+
+        service = AlphaQualificationService(
+            'device', lambda: {}, lambda: 1, lambda *args: Recorder()
+        )
+        service.platform = Platform()
+        native = service.status()['native_update']
+        self.assertTrue(native['control_available'])
+        self.assertFalse(native['paired_trial_qualified'])
+        self.assertTrue(native['recovery_available'])
+        self.assertTrue(native['jobs_available'])
+        self.assertEqual(native['snapshot']['running_label'], 'ota_0')
+
     def test_missing_storage_is_not_reported_as_zero_free_bytes(self):
         value = AlphaQualificationService.observation('', False, {}, False)
         self.assertIsNone(value['storage_free_bytes'])

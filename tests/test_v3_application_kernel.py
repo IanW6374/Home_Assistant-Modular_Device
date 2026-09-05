@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KernelProvider:
-    ABI_VERSION = 3
+    ABI_VERSION = 4
 
     def __init__(self):
         self.resources = {}
@@ -70,6 +70,27 @@ class KernelProvider:
 
     def resource_snapshot(self):
         return [dict(self.resources[key]) for key in sorted(self.resources)]
+
+    def update_snapshot(self):
+        return {
+            'running_label': 'ota_0', 'running_state': 'valid',
+            'next_label': 'ota_1', 'pending_verify': False,
+            'can_confirm': False, 'can_rollback': False,
+        }
+
+    def update_confirm(self, expected): return True
+
+    def update_rollback(self, expected): return None
+
+    def recovery_boot_begin(self): return 0
+    def recovery_snapshot(self):
+        return {'requested': False, 'reason': '', 'boot_pending': False,
+                'boot_count': 1, 'failed_boots': 0, 'reset_reason': 1}
+    def recovery_request(self, reason): return True
+    def recovery_mark_healthy(self): return True
+    def recovery_clear(self): return True
+    def job_submit(self, kind, argument): return 1
+    def event_poll(self): return None
 
 
 def configuration():
@@ -204,7 +225,7 @@ class V3ApplicationKernelTests(unittest.TestCase):
         ).read_text())
         Draft202012Validator(schema).validate(snapshot)
         support = kernel.support_snapshot()
-        self.assertEqual(support['platform_abi'], 3)
+        self.assertEqual(support['platform_abi'], 4)
         self.assertNotIn('settings', json.dumps(support).lower())
 
 

@@ -23,6 +23,40 @@ MAX_NORMAL_UNHEALTHY_BOOTS = 3
 _trial_timer = None
 
 
+def _native_platform():
+    try:
+        import _iotmd_platform_v3
+        if getattr(_iotmd_platform_v3, 'ABI_VERSION', 0) >= 4:
+            return _iotmd_platform_v3
+    except Exception:
+        pass
+    return None
+
+
+def _begin_native_recovery_state():
+    """Advance native boot state before the replaceable product is loaded."""
+    platform = _native_platform()
+    if platform is None:
+        return ''
+    try:
+        failures = int(platform.recovery_boot_begin())
+        state = platform.recovery_snapshot()
+        if state.get('requested'):
+            return str(state.get('reason') or 'Native recovery requested')[:240]
+        if failures >= MAX_NORMAL_UNHEALTHY_BOOTS:
+            reason = (
+                'Native boot did not reach its health marker after ' +
+                str(failures) + ' boots'
+            )
+            platform.recovery_request(reason)
+            return reason
+    except Exception as exc:
+        # The established frozen recovery path remains available if an older
+        # or damaged native ABI cannot update its diagnostic record.
+        print('Native recovery state unavailable: ' + str(exc))
+    return ''
+
+
 def _reset():
     try:
         import machine
@@ -83,11 +117,19 @@ def _write_recovery_state(state):
 
 
 def clear_recovery_request():
+    cleared = False
     try:
         os.remove(RECOVERY_STATE_PATH)
-        return True
+        cleared = True
     except OSError:
-        return False
+        pass
+    platform = _native_platform()
+    if platform is not None:
+        try:
+            cleared = bool(platform.recovery_clear()) or cleared
+        except Exception:
+            pass
+    return cleared
 
 
 def request_recovery(reason='Application startup failed'):
@@ -103,6 +145,12 @@ def request_recovery(reason='Application startup failed'):
         boot_state.store().fail(reason, safe=True)
     except Exception:
         pass
+    platform = _native_platform()
+    if platform is not None:
+        try:
+            platform.recovery_request(str(reason)[:160])
+        except Exception:
+            pass
     return True
 
 
@@ -152,6 +200,12 @@ def mark_application_healthy():
         boot_state.store().confirm_health()
     except Exception:
         pass
+    platform = _native_platform()
+    if platform is not None:
+        try:
+            platform.recovery_mark_healthy()
+        except Exception:
+            pass
     clear_recovery_request()
     return cancel_trial_deadline_if_healthy()
 
@@ -326,6 +380,17 @@ def run():
         app_update, certificate_manager, credential_store, firmware_update
     ):
         _run_initial_setup()
+        return
+
+    # An explicit factory reset wins. Otherwise advance the native recovery
+    # record before importing or executing any replaceable product code.
+    native_recovery_reason = _begin_native_recovery_state()
+    if native_recovery_reason:
+        if credential_store.is_provisioned():
+            _run_core_recovery(native_recovery_reason)
+        else:
+            print(native_recovery_reason)
+            _run_initial_setup()
         return
 
     capability_failures = hardware_platform.required_capability_failures(

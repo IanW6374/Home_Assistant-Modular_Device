@@ -42,13 +42,21 @@ unreachable probe as a health or storage observation. The beta profile also
 requires sustained observation counts rather than accepting one late sample as
 evidence for the complete soak.
 
+Alpha 7 advances the native platform contract to ABI 4. OTA snapshots report
+the running and next partitions as bounded labels and expose guarded confirm or
+rollback eligibility. Native recovery records an explicit request, reason,
+incomplete-boot count and reset reason in encrypted NVS before replaceable
+product code loads. A fixed-capacity worker accepts only declared recovery and
+OTA job kinds; completion events include a bounded identifier, state, numeric
+error, retryability and diagnostic detail. The capability record separates
+implemented mechanisms from HIL-qualified production claims.
+
 Later platform milestones will add:
 
-- platform events and native job completion;
 - native-backed credential, certificate and migration handles;
 - network-interface lifecycle;
-- native update staging, trial and rollback operations; and
-- native platform event and boot-health snapshots.
+- native update staging and atomic paired platform/runtime ownership; and
+- richer native watchdog and boot-health event snapshots.
 
 Schema files document values for host tools and tests. The native module and
 MicroPython adapter will use generated/shared constants where practical rather

@@ -468,12 +468,49 @@ def render_release_qualification_page(token, status=None):
                 '<small>' + html_escape(gate.get('observed', 0)) + ' / ' +
                 html_escape(gate.get('required', 0)) + '</small></div>'
             )
+        native = status.get('native_update') or {}
+        snapshot = native.get('snapshot') or {}
+        native_content = ''
+        if native:
+            native_content = (
+                '<h3>Native paired-update boundary</h3><div class="metrics">'
+                '<div class="metric"><span>Running partition</span><strong>' +
+                html_escape(snapshot.get('running_label', 'unavailable')) +
+                '</strong><small>' +
+                html_escape(snapshot.get('running_state', 'unknown')) +
+                '</small></div><div class="metric' +
+                (' good' if native.get('control_available') else ' warn') +
+                '"><span>Trial control</span><strong>' +
+                ('Available' if native.get('control_available') else 'Unavailable') +
+                '</strong><small>Mechanism only; qualification is separate</small>'
+                '</div><div class="metric' +
+                (' good' if native.get('paired_trial_qualified') else ' warn') +
+                '"><span>Paired trial</span><strong>' +
+                ('Qualified' if native.get('paired_trial_qualified') else 'Not qualified') +
+                '</strong></div><div class="metric' +
+                (' good' if native.get('native_rollback_qualified') else ' warn') +
+                '"><span>Native rollback</span><strong>' +
+                ('Qualified' if native.get('native_rollback_qualified') else 'Not qualified') +
+                '</strong></div><div class="metric' +
+                (' good' if native.get('recovery_qualified') else ' warn') +
+                '"><span>Independent recovery</span><strong>' +
+                ('Qualified' if native.get('recovery_qualified') else
+                 ('Available' if native.get('recovery_available') else 'Unavailable')) +
+                '</strong><small>Qualification remains separate</small></div>'
+                '<div class="metric' +
+                (' good' if native.get('jobs_qualified') else ' warn') +
+                '"><span>Native job queue</span><strong>' +
+                ('Qualified' if native.get('jobs_qualified') else
+                 ('Available' if native.get('jobs_available') else 'Unavailable')) +
+                '</strong><small>Bounded asynchronous worker and events</small>'
+                '</div></div>'
+            )
         content = (
             '<div class="notice"><strong>' +
             html_escape(status.get('summary', 'Not started')) +
             '</strong> — promotion remains closed until every gate has observed '
             'evidence and passes.</div><div class="metrics">' +
-            ''.join(rows) + '</div>'
+            ''.join(rows) + '</div>' + native_content
         )
     body = (
         portal_ui.page_heading(

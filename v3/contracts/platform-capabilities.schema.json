@@ -12,10 +12,12 @@
     "interfaces",
     "storage",
     "updates",
+    "recovery",
+    "jobs",
     "resources"
   ],
   "properties": {
-    "abi_version": {"const": 3},
+    "abi_version": {"const": 4},
     "board": {
       "type": "object",
       "required": ["target", "revision"],
@@ -31,7 +33,7 @@
       "properties": {
         "engine": {"const": "micropython"},
         "version": {"type": "string", "minLength": 1, "maxLength": 32},
-        "platform_abi": {"const": 3}
+        "platform_abi": {"const": 4}
       },
       "additionalProperties": false
     },
@@ -81,11 +83,36 @@
     },
     "updates": {
       "type": "object",
-      "required": ["paired_manifest", "paired_trial", "native_rollback"],
+      "required": ["paired_manifest", "native_trial_observation", "native_trial_control", "paired_trial", "native_rollback"],
       "properties": {
         "paired_manifest": {"type": "boolean"},
+        "native_trial_observation": {"type": "boolean"},
+        "native_trial_control": {"type": "boolean"},
         "paired_trial": {"type": "boolean"},
         "native_rollback": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "recovery": {
+      "type": "object",
+      "required": ["native_state", "product_independent", "signed_release", "qualified"],
+      "properties": {
+        "native_state": {"type": "boolean"},
+        "product_independent": {"type": "boolean"},
+        "signed_release": {"type": "boolean"},
+        "qualified": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    },
+    "jobs": {
+      "type": "object",
+      "required": ["async_worker", "max_pending", "max_events", "timeout_ms", "qualified"],
+      "properties": {
+        "async_worker": {"type": "boolean"},
+        "max_pending": {"type": "integer", "minimum": 1, "maximum": 32},
+        "max_events": {"type": "integer", "minimum": 1, "maximum": 32},
+        "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 60000},
+        "qualified": {"type": "boolean"}
       },
       "additionalProperties": false
     },

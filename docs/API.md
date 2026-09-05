@@ -102,6 +102,10 @@ Wi-Fi/MQTT passwords, private keys, certificate payloads or password verifiers.
 USB diagnostics distinguish `usb_device`, `usb_ncm_hardware`,
 `usb_ncm_runtime` and `usb_ncm_available`; clients must use the last value for
 effective availability rather than inferring support from the runtime symbol.
+Alpha 7 additionally shows the native ABI 4 update, recovery and bounded-job
+mechanisms in the on-device Release Qualification view. Mechanism availability
+and HIL qualification are separate values; clients must not treat an exported
+entry point as proof that rollback or recovery qualification passed.
 Alpha 6 reports each release-qualification gate as a bounded name/status pair;
 full measurements remain in the on-device Maintenance view and qualification
 evidence file rather than expanding routine API polling payloads.

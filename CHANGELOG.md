@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 3.0.0-alpha.7 - 2026-09-05
+
+- Register the native v3 platform module in MicroPython's generated import
+  table, restoring the Alpha release-qualification recorder on hardware.
+- Reject production core builds unless all three native IoT-MD modules are
+  both compiled and registered as importable modules.
+- Yield briefly after displaying the sign-in verification status so Safari
+  paints it consistently before the password request is submitted.
+- Advance the native platform boundary to ABI 4 with guarded OTA trial
+  observation, confirmation and rollback mechanisms. Production paired-trial
+  and rollback claims remain disabled until hardware qualification passes.
+- Persist boot attempts and explicit recovery requests in encrypted native NVS
+  before loading replaceable product code, so repeated incomplete boots enter
+  the frozen signed-recovery path with bounded reset diagnostics.
+- Add a fixed-capacity native job and event boundary for recovery and OTA trial
+  operations, including structured error codes, retryability, a declared
+  operation timeout and non-blocking queue-full behavior.
+
 ## 3.0.0-alpha.6 - 2026-09-05
 
 - Keep universal core-firmware upload progress terminology stable between

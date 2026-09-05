@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KernelProvider:
-    ABI_VERSION = 3
+    ABI_VERSION = 4
 
     def capabilities(self):
         return json.loads((
@@ -54,6 +54,27 @@ class KernelProvider:
 
     def resource_snapshot(self):
         return []
+
+    def update_snapshot(self):
+        return {
+            'running_label': 'ota_0', 'running_state': 'valid',
+            'next_label': 'ota_1', 'pending_verify': False,
+            'can_confirm': False, 'can_rollback': False,
+        }
+
+    def update_confirm(self, expected): return True
+
+    def update_rollback(self, expected): return None
+
+    def recovery_boot_begin(self): return 0
+    def recovery_snapshot(self):
+        return {'requested': False, 'reason': '', 'boot_pending': False,
+                'boot_count': 1, 'failed_boots': 0, 'reset_reason': 1}
+    def recovery_request(self, reason): return True
+    def recovery_mark_healthy(self): return True
+    def recovery_clear(self): return True
+    def job_submit(self, kind, argument): return 1
+    def event_poll(self): return None
 
 
 class Adapter:

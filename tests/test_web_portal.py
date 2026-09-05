@@ -89,6 +89,17 @@ class WebPortalTests(unittest.TestCase):
         page = web_portal.render_release_qualification_page('csrf', {
             'available': True,
             'summary': 'In progress',
+            'native_update': {
+                'available': True, 'control_available': True,
+                'paired_trial_qualified': False,
+                'native_rollback_qualified': False,
+                'recovery_available': True, 'recovery_qualified': False,
+                'jobs_available': True, 'jobs_qualified': False,
+                'snapshot': {
+                    'running_label': 'ota_1',
+                    'running_state': 'pending-verify',
+                },
+            },
             'evidence': {'gates': [{
                 'name': 'power-recovery', 'status': 'not-run',
                 'observed': 0, 'required': 3,
@@ -97,6 +108,11 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Release qualification', page)
         self.assertIn('power recovery', page)
         self.assertIn('not-run', page)
+        self.assertIn('Native paired-update boundary', page)
+        self.assertIn('ota_1', page)
+        self.assertIn('Mechanism only; qualification is separate', page)
+        self.assertIn('Independent recovery', page)
+        self.assertIn('Native job queue', page)
         self.assertIn('/release-qualification', portal_ui.navigation(
             'release_qualification', 'csrf'
         ))
@@ -415,6 +431,9 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('value="portal-admin"', html)
         self.assertIn('Invalid username or password.', html)
         self.assertIn('Signing in…', html)
+        self.assertIn('if(e&&e.preventDefault)e.preventDefault()', html)
+        self.assertIn('setTimeout(function(){f.submit();},80)', html)
+        self.assertIn('data-submitting', html)
 
     def test_login_page_does_not_prepopulate_administrator_username(self):
         html = render_login_page()

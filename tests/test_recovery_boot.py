@@ -198,6 +198,41 @@ class RecoveryBootTests(unittest.TestCase):
         recovery.assert_called_once_with('manual recovery test')
         self.assertEqual(values['prepared'], 0)
 
+    def test_native_recovery_request_is_honoured_before_product_load(self):
+        class Native:
+            ABI_VERSION = 4
+            def recovery_boot_begin(self): return 1
+            def recovery_snapshot(self):
+                return {'requested': True, 'reason': 'native watchdog loop'}
+
+        values, app, firmware = self.fake_modules(
+            'raise AssertionError("application must not run")\n',
+            app_status='idle'
+        )
+        with patch.dict(sys.modules, {
+            'app_update': app, 'firmware_update': firmware,
+        }), patch.object(
+            recovery_boot, '_native_platform', return_value=Native()
+        ), patch.object(recovery_boot, '_run_core_recovery') as recovery:
+            recovery_boot.run()
+
+        recovery.assert_called_once_with('native watchdog loop')
+        self.assertEqual(values['prepared'], 0)
+
+    def test_native_failed_boot_threshold_requests_recovery(self):
+        class Native:
+            ABI_VERSION = 4
+            def __init__(self): self.reasons = []
+            def recovery_boot_begin(self): return 3
+            def recovery_snapshot(self): return {'requested': False}
+            def recovery_request(self, reason): self.reasons.append(reason)
+
+        native = Native()
+        with patch.object(recovery_boot, '_native_platform', return_value=native):
+            reason = recovery_boot._begin_native_recovery_state()
+        self.assertIn('after 3 boots', reason)
+        self.assertEqual(native.reasons, [reason])
+
     def test_unprovisioned_device_starts_first_boot_wizard(self):
         values, app, firmware = self.fake_modules(
             'raise AssertionError("application must not run")\n', app_status='idle'

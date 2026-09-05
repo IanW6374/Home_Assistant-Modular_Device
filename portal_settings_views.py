@@ -59,9 +59,13 @@ def render_login_page(username='', error=''):
         '</form></section>'
     )
     script = (
-        'document.getElementById("login-form").onsubmit=function(){var b=document.getElementById('
-        '"login-button");b.disabled=true;b.textContent="Signing in…";document.getElementById('
-        '"auth-status").textContent="Securely verifying your password…";};'
+        'var f=document.getElementById("login-form");f.onsubmit=function(e){'
+        'if(f.getAttribute("data-submitting")==="1")return false;'
+        'if(e&&e.preventDefault)e.preventDefault();f.setAttribute("data-submitting","1");'
+        'var b=document.getElementById("login-button");b.disabled=true;'
+        'b.textContent="Signing in…";document.getElementById("auth-status").textContent='
+        '"Securely verifying your password…";setTimeout(function(){f.submit();},80);'
+        'return false;};'
     )
     return portal_ui.shell(
         'IoT-MD login', '', body, script=script, authenticated=False

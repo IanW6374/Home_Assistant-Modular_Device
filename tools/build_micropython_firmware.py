@@ -44,6 +44,12 @@ FORBIDDEN_PRODUCTION_SDKCONFIG = (
     'CONFIG_ETH_USE_SPI_ETHERNET=y',
 )
 
+REQUIRED_NATIVE_MODULES = (
+    '_iotmd_crypto',
+    '_iotmd_platform',
+    '_iotmd_platform_v3',
+)
+
 
 def validate_ota_headroom(image_bytes, lock):
     partition_bytes = int(lock['ota_partition_bytes'])
@@ -85,6 +91,20 @@ def validate_linked_component_policy(map_text, lock):
     if linked:
         raise ValueError(
             'production firmware links forbidden components: ' + ', '.join(linked)
+        )
+
+
+def validate_native_module_registrations(moduledefs):
+    """Reject a core where native sources compiled but are not importable."""
+    text = str(moduledefs)
+    missing = [
+        name for name in REQUIRED_NATIVE_MODULES
+        if 'MP_QSTR_' + name not in text
+    ]
+    if missing:
+        raise ValueError(
+            'native MicroPython modules are not registered: ' +
+            ', '.join(missing)
         )
 
 
@@ -357,7 +377,9 @@ def main():
             compile_commands.read_text() if compile_commands.is_file() else ''
         )
         missing_native_sources = [
-            source for source in ('iotmd_crypto.c', 'iotmd_platform.c')
+            source for source in (
+                'iotmd_crypto.c', 'iotmd_platform.c', 'iotmd_platform_v3.c'
+            )
             if source not in compiled_sources
         ]
         if missing_native_sources:
@@ -368,6 +390,10 @@ def main():
         sdkconfig = (port / build_dir / 'sdkconfig').read_text()
         try:
             validate_production_sdkconfig(sdkconfig)
+            moduledefs_path = port / build_dir / 'genhdr' / 'moduledefs.h'
+            if not moduledefs_path.is_file():
+                raise ValueError('native module registration table is unavailable')
+            validate_native_module_registrations(moduledefs_path.read_text())
             map_path = port / build_dir / 'micropython.map'
             if not map_path.is_file():
                 raise ValueError('firmware linker map is unavailable')

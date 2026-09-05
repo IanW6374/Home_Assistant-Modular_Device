@@ -10,7 +10,14 @@ The runtime owns product behavior:
 - fleet, audit, support and operational diagnostics; and
 - transport-neutral request, response and event models.
 
-Alpha 6 adds a persistent operational qualification service and the
+Alpha 7 consumes native platform ABI 4. The frozen boot supervisor advances a
+native boot record before importing replaceable product code and can enter the
+existing signed recovery path after an explicit request or three incomplete
+boots. The runtime can observe and guard OTA trial operations, submit bounded
+native recovery/update jobs and consume structured completion events without
+exposing partitions, NVS objects or FreeRTOS handles.
+
+Alpha 6 added a persistent operational qualification service and the
 compatibility/shadow/active cutover coordinator. Active ownership is refused
 unless native paired trial and rollback capabilities are available and all 15
 qualification gates contain passing observed evidence. A v3 boot or health
@@ -26,7 +33,7 @@ bounded kernel snapshots remain the composition base. Alpha 2's fail-closed
 transactional-storage and paired-release adapters remain in place. The paired
 coordinator may describe and reconcile a pair, but cannot select partitions or
 claim native rollback; those mechanisms remain platform-owned and
-capability-gated off.
+capability-gated off for production use until Alpha 7 HIL qualification.
 
 Runtime code consumes only the versioned platform ABI. It may request a
 platform operation but cannot access partitions, raw encrypted storage, native

@@ -10,6 +10,7 @@ class AlphaQualificationService:
         self.clock = clock
         self.recorder_factory = recorder_factory
         self.recorder = None
+        self.platform = None
         self.error = ''
 
     def start(self):
@@ -20,7 +21,8 @@ class AlphaQualificationService:
                 from v3.runtime.iotmd_next.platform import Platform
                 from v3.runtime.iotmd_next.storage import TransactionalNamespace
                 from v3.runtime.iotmd_next.qualification import OperationalQualification
-                namespace = TransactionalNamespace(Platform(), 'v3qual')
+                self.platform = Platform()
+                namespace = TransactionalNamespace(self.platform, 'v3qual')
                 self.recorder = OperationalQualification(
                     namespace, self.clock, self.device_id, self.release_getter
                 )
@@ -33,7 +35,14 @@ class AlphaQualificationService:
             return True
         except Exception as exc:
             self.recorder = None
-            self.error = str(exc)[:160] or exc.__class__.__name__
+            self.platform = None
+            detail = str(exc)[:160] or exc.__class__.__name__
+            if detail == 'native v3 platform is unavailable':
+                detail = (
+                    'matching v3 core firmware is unavailable; install the '
+                    'universal release, not the application-only package'
+                )
+            self.error = detail
             return False
 
     def observe(self, health_state, storage_free_bytes, network_up,
@@ -89,7 +98,45 @@ class AlphaQualificationService:
         return {
             'available': True, 'summary': summary, 'error': '',
             'counts': counts, 'evidence': evidence,
+            'native_update': self._native_update_status(),
         }
+
+    def _native_update_status(self):
+        if self.platform is None:
+            return None
+        try:
+            capabilities = self.platform.capabilities()
+            updates = capabilities['updates']
+            snapshot = self.platform.update_snapshot()
+            return {
+                'available': bool(updates['native_trial_observation']),
+                'control_available': bool(
+                    updates['native_trial_control']
+                ),
+                'paired_trial_qualified': bool(
+                    updates['paired_trial']
+                ),
+                'native_rollback_qualified': bool(
+                    updates['native_rollback']
+                ),
+                'recovery_available': bool(
+                    capabilities['recovery']['product_independent']
+                ),
+                'recovery_qualified': bool(
+                    capabilities['recovery']['qualified']
+                ),
+                'jobs_available': bool(
+                    capabilities['jobs']['async_worker']
+                ),
+                'jobs_qualified': bool(capabilities['jobs']['qualified']),
+                'snapshot': snapshot,
+                'recovery': self.platform.recovery_snapshot(),
+            }
+        except Exception as exc:
+            return {
+                'available': False, 'error':
+                (str(exc)[:160] or exc.__class__.__name__),
+            }
 
     async def monitor(self, health_getter, storage_getter, network_getter,
                       canary_getter, sleep, interval_s=60):

@@ -6,7 +6,8 @@ from pathlib import Path
 from tools.build_firmware_update import build_firmware_bundle
 from tools.build_micropython_firmware import (
     REQUIRED_PRODUCTION_SDKCONFIG, clear_module_registration_cache,
-    validate_linked_component_policy, validate_ota_headroom,
+    validate_linked_component_policy, validate_native_module_registrations,
+    validate_ota_headroom,
     validate_production_sdkconfig, write_core_metadata,
 )
 from tools.build_update import build_bundle
@@ -112,6 +113,18 @@ class ReleaseProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'libbt.a'):
             validate_linked_component_policy(
                 'esp-idf/bt/libbt.a(nimble.c.obj)', lock
+            )
+
+    def test_core_requires_every_native_module_registration(self):
+        registrations = '\n'.join((
+            'MP_QSTR__iotmd_crypto',
+            'MP_QSTR__iotmd_platform',
+            'MP_QSTR__iotmd_platform_v3',
+        ))
+        validate_native_module_registrations(registrations)
+        with self.assertRaisesRegex(ValueError, '_iotmd_platform_v3'):
+            validate_native_module_registrations(
+                registrations.replace('MP_QSTR__iotmd_platform_v3', '')
             )
 
     def test_module_registration_cache_is_cleared_for_board_changes(self):

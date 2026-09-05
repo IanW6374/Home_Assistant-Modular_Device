@@ -18,8 +18,11 @@ block are represented as jobs and publish completion through the platform event
 queue. Secret key material is referred to by opaque handles and is never
 returned to MicroPython.
 
-ABI 3 publishes the capability contract, retains Alpha 2's encrypted
-transactional namespace mechanism, and adds bounded owner-scoped logical
-resource claims. It does not yet construct physical peripherals or claim
-completion of native paired rollback; those capabilities require their HIL
-qualification gates.
+ABI 4 retains encrypted transactional namespaces and owner-scoped resource
+claims, then adds guarded OTA trial observation/control, encrypted native boot
+and recovery state, and a fixed four-job/eight-event worker boundary. Jobs are
+non-blocking at submission, expose structured error/retryability information and
+declare a five-second operation limit. The mechanisms compile into the secure
+core, but paired trial, rollback, recovery and job qualification remain false
+until the applicable HIL gates pass. Recovery is independent of replaceable
+product code; it still relies on the signed frozen MicroPython core.

@@ -42,6 +42,14 @@ that region undefined, so its magic, format and CRC are always validated. An
 atomic `.boot-state.json` checkpoint is retained as the fallback and durable
 record.
 
+V3 platform ABI 4 also stores a separate bounded recovery record in encrypted
+NVS. The frozen supervisor advances it after handling any explicit factory
+reset and before importing replaceable product code. The record contains only
+request state, a bounded reason, boot/failure counters, a pending-health marker
+and the ESP-IDF reset reason. Reaching application health clears the pending
+marker and failure count; three consecutive incomplete normal boots select the
+signed frozen recovery path.
+
 ## Device states
 
 The transport-neutral lifecycle reports one of:

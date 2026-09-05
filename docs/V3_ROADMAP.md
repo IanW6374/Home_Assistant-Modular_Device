@@ -116,6 +116,29 @@ installed portal/API/support projections, host campaign runner and cutover
 coordinator. Active-v3 remains correctly blocked because native paired trial
 and rollback are not yet qualified and the hardware campaign is not yet run.
 
+## Alpha 7 — native recovery and job boundary
+
+- Observe and guard native OTA trial confirmation and rollback by the expected
+  running partition.
+- Persist native boot attempts and recovery requests before replaceable product
+  code is loaded, while preserving explicit factory-reset precedence.
+- Add a fixed-capacity asynchronous native job/event boundary for recovery and
+  OTA trial operations with bounded arguments, errors and diagnostics.
+- Make module registration a build invariant and surface native mechanism and
+  qualification state separately in Release Qualification.
+
+Exit: signed universal installation exposes ABI 4 on hardware; corrupt/missing
+product, repeated incomplete boot, watchdog and OTA trial tests recover through
+the frozen core; queue saturation remains bounded; and controlled confirm and
+rollback tests produce correct events without selecting the wrong partition.
+
+Current status: `3.0.0-alpha.7` implements these mechanisms and host contracts.
+The `paired_trial`, `native_rollback`, native recovery and native job
+qualification flags intentionally remain false pending the Alpha 7 HIL matrix.
+This release does not claim bare-ESP-IDF recovery from a corrupted confirmed
+MicroPython core; bootloader A/B rollback and USB disaster recovery remain the
+lower-level safeguards.
+
 ## Beta — operational qualification
 
 - Multi-day soak, storage pressure, certificate renewal and network fault tests.
