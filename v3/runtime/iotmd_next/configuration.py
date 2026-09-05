@@ -1,6 +1,6 @@
 """Versioned, bounded configuration contract for the v3 application kernel."""
 
-CONTRACT_VERSION = 3
+CONTRACT_VERSION = 4
 MAX_MODULES = 8
 MAX_SETTINGS = 12
 MAX_TRANSPORTS = 8
@@ -10,6 +10,22 @@ IDENTITY_METHODS = (
     'self-signed', 'automatic-iot-ca', 'iot-ca-authorization',
     'private-ca-acme', 'manual-package',
 )
+RESOURCE_PARAMETERS = {
+    'gpio': {
+        'mode': (0, 2), 'pull': (0, 2), 'level': (0, 1),
+        'interrupt': (0, 3),
+    },
+    'adc': {'attenuation': (0, 12), 'bitwidth': (0, 13)},
+    'uart': {
+        'tx': (-1, 48), 'rx': (-1, 48), 'baudrate': (300, 3000000),
+        'rx_buffer': (128, 4096),
+    },
+    'i2c': {'sda': (0, 48), 'scl': (0, 48), 'frequency': (10000, 1000000)},
+    'spi': {
+        'sck': (0, 48), 'mosi': (-1, 48), 'miso': (-1, 48),
+        'dma_channel': (0, 3),
+    },
+}
 
 
 class ConfigurationError(ValueError):
@@ -78,10 +94,47 @@ def _validate_settings(settings, label):
 
 
 def _resource(value, label):
+    resource = _exact(value, label, (
+        'kind', 'identifier', 'shared', 'signature', 'parameters',
+    ))
+    _name(resource['kind'], label + ' kind', 12)
+    if resource['kind'] not in RESOURCE_PARAMETERS:
+        raise ConfigurationError(label + ' kind is unsupported')
+    _name(resource['identifier'], label + ' identifier', 32)
+    _boolean(resource['shared'], label + ' shared')
+    if (not isinstance(resource['signature'], str) or
+            len(resource['signature']) > 64):
+        raise ConfigurationError(label + ' signature is invalid')
+    if resource['shared'] and not resource['signature']:
+        raise ConfigurationError(label + ' shared signature is required')
+    if resource['shared'] and resource['kind'] not in ('i2c', 'spi'):
+        raise ConfigurationError(label + ' resource cannot be shared')
+    if not resource['shared'] and resource['signature']:
+        raise ConfigurationError(label + ' exclusive signature must be empty')
+    parameters = resource['parameters']
+    if not isinstance(parameters, dict):
+        raise ConfigurationError(label + ' parameters are invalid')
+    rules = RESOURCE_PARAMETERS[resource['kind']]
+    if any(key not in rules for key in parameters):
+        raise ConfigurationError(label + ' parameter is unsupported')
+    for key, value in parameters.items():
+        minimum, maximum = rules[key]
+        _integer(value, label + ' parameter ' + key, minimum, maximum)
+    return resource
+
+
+def _legacy_resource(value, label):
     resource = _exact(value, label, ('kind', 'identifier'))
     _name(resource['kind'], label + ' kind', 12)
     _name(resource['identifier'], label + ' identifier', 32)
     return resource
+
+
+def _upgrade_resource(value):
+    return {
+        'kind': value['kind'], 'identifier': value['identifier'],
+        'shared': False, 'signature': '', 'parameters': {},
+    }
 
 
 def _validate_v1_modules(modules, identifiers=None):
@@ -97,7 +150,7 @@ def _validate_v1_modules(modules, identifiers=None):
         identifiers.add(identifier)
         _name(module['driver'], label + ' driver', 32)
         _boolean(module['enabled'], label + ' enabled')
-        _resource(module['resource'], label + ' resource')
+        _legacy_resource(module['resource'], label + ' resource')
         _validate_settings(module['settings'], label)
     return identifiers
 
@@ -160,6 +213,43 @@ def _validate_v2(value):
     identifiers = set()
     _validate_transports(transports, known, identifiers)
     _validate_v1_modules(value['modules'], identifiers)
+    return value
+
+
+def _validate_v3_shape(value):
+    """Reject unknown legacy-v3 fields before translating its resources."""
+    _exact(value, 'configuration', (
+        'contract_version', 'device', 'services', 'transports', 'identity',
+        'fleet', 'modules',
+    ))
+    if value['contract_version'] != 3:
+        raise ConfigurationError('configuration version is unsupported')
+    _validate_common(value)
+    _exact(value['identity'], 'identity', (
+        'enabled', 'method', 'critical', 'dependencies', 'renewal_check_s',
+    ))
+    _exact(value['fleet'], 'fleet', (
+        'enabled', 'critical', 'dependencies', 'cohort', 'poll_interval_s',
+    ))
+    if not isinstance(value['transports'], list):
+        raise ConfigurationError('transports are invalid')
+    for index, transport in enumerate(value['transports']):
+        _exact(transport, 'transport ' + str(index), (
+            'id', 'adapter', 'enabled', 'critical', 'dependencies', 'settings',
+        ))
+    if not isinstance(value['modules'], list):
+        raise ConfigurationError('modules are invalid')
+    for index, module in enumerate(value['modules']):
+        label = 'module ' + str(index)
+        _exact(module, label, (
+            'id', 'driver', 'enabled', 'resources', 'settings',
+        ))
+        if not isinstance(module['resources'], list):
+            raise ConfigurationError(label + ' resources are invalid')
+        for resource_index, resource in enumerate(module['resources']):
+            _legacy_resource(
+                resource, label + ' resource ' + str(resource_index)
+            )
     return value
 
 
@@ -264,7 +354,7 @@ def _copy_transport(item):
     }
 
 
-def _copy_v3(value):
+def _copy_current(value):
     return {
         'contract_version': CONTRACT_VERSION,
         'device': dict(value['device']),
@@ -303,7 +393,7 @@ def _v1_from_v0(value):
     }
     for item in value['modules']:
         _exact(item, 'legacy module', ('name', 'driver', 'resource', 'settings'))
-        resource = _resource(item['resource'], 'legacy module resource')
+        resource = _legacy_resource(item['resource'], 'legacy module resource')
         previous['modules'].append({
             'id': item['name'], 'driver': item['driver'], 'enabled': True,
             'resource': dict(resource), 'settings': dict(item['settings']),
@@ -337,7 +427,25 @@ def migrate_configuration(value):
         raise ConfigurationError('configuration must be a mapping')
     source_version = value.get('contract_version', value.get('version'))
     if source_version == CONTRACT_VERSION:
-        migrated = _copy_v3(validate_configuration(value))
+        migrated = _copy_current(validate_configuration(value))
+    elif source_version == 3:
+        previous = _validate_v3_shape(value)
+        migrated = {
+            'contract_version': CONTRACT_VERSION,
+            'device': dict(previous['device']),
+            'services': dict(previous['services']),
+            'transports': [_copy_transport(item) for item in previous['transports']],
+            'identity': dict(previous['identity']),
+            'fleet': dict(previous['fleet']),
+            'modules': [{
+                'id': item['id'], 'driver': item['driver'],
+                'enabled': item['enabled'],
+                'resources': [_upgrade_resource(resource)
+                              for resource in item['resources']],
+                'settings': dict(item['settings']),
+            } for item in previous['modules']],
+        }
+        validate_configuration(migrated)
     elif source_version in (0, 1, 2):
         previous = _v2_from_earlier(value, source_version)
         migrated = {
@@ -356,7 +464,7 @@ def migrate_configuration(value):
             'modules': [{
                 'id': item['id'], 'driver': item['driver'],
                 'enabled': item['enabled'],
-                'resources': [dict(item['resource'])],
+                'resources': [_upgrade_resource(item['resource'])],
                 'settings': dict(item['settings']),
             } for item in previous['modules']],
         }

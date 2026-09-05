@@ -18,11 +18,15 @@ block are represented as jobs and publish completion through the platform event
 queue. Secret key material is referred to by opaque handles and is never
 returned to MicroPython.
 
-ABI 4 retains encrypted transactional namespaces and owner-scoped resource
-claims, then adds guarded OTA trial observation/control, encrypted native boot
-and recovery state, and a fixed four-job/eight-event worker boundary. Jobs are
-non-blocking at submission, expose structured error/retryability information and
-declare a five-second operation limit. The mechanisms compile into the secure
-core, but paired trial, rollback, recovery and job qualification remain false
-until the applicable HIL gates pass. Recovery is independent of replaceable
-product code; it still relies on the signed frozen MicroPython core.
+ABI 5 retains ABI 4's guarded OTA controls, encrypted native boot/recovery state
+and fixed four-job/eight-event worker, and turns logical resource claims into
+physical peripheral lifecycles. The native platform constructs GPIO, ADC,
+UART, I2C and SPI resources, shares only identically configured I2C/SPI buses,
+removes GPIO interrupt handlers during cleanup, and can rebuild a failed
+peripheral or clear stale claims after a MicroPython restart without exposing an
+ESP-IDF handle to MicroPython. Interrupts enter
+the same bounded event queue and never block the ISR. Resource qualification
+remains false until the board/driver HIL matrix passes. Paired trial, rollback,
+recovery and job qualification likewise remain false pending their own HIL
+gates. Recovery is independent of replaceable product code; it still relies on
+the signed frozen MicroPython core.

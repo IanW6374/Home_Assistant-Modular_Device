@@ -8,12 +8,14 @@ native/runtime boundaries are qualified. Use the release-specific test note,
 including its monotonically increasing sequence and open HIL gates, before
 installing one.
 
-Alpha 7 requires a universal install because it advances the frozen native
-platform to ABI 4 and repairs Alpha 6's missing native-module registration. It
-adds guarded OTA trial controls, native boot/recovery state and a bounded native
-job/event boundary. These mechanisms are visible under **Maintenance > Release
-qualification**, but remain explicitly unqualified until the Alpha 7 HIL matrix
-passes. Alpha 6 added the release-bound 15-gate evidence record and remains on
+Alpha 9 requires a universal install because it advances the frozen native
+platform to ABI 5 and runtime configuration to version 4. It adds physical
+resource construction/recovery plus production transport and identity bridges.
+These mechanisms are visible under **Maintenance > Release qualification**, but
+remain explicitly unqualified until the Alpha 9 HIL and interoperability matrix
+passes. Alpha 7's guarded OTA trial controls, native recovery state and bounded
+job/event boundary also remain unqualified pending their HIL matrix. Alpha 6
+added the release-bound 15-gate evidence record and remains on
 the compatibility runtime until native paired rollback and every recorded gate
 pass. Alpha 5 can preview an already
 authenticated/decrypted v2 complete backup and
@@ -195,18 +197,18 @@ For the v3 campaign, initialise or inspect a persistent host record with:
 
 ```sh
 python3 v3/host/qualification_runner.py \
-  --state .qualification/alpha7.state.json \
-  --evidence .qualification/alpha7.evidence.json \
-  --device-id iot-md-001 --version 3.0.0-alpha.8 --sequence 2713 status
+  --state .qualification/alpha9.state.json \
+  --evidence .qualification/alpha9.evidence.json \
+  --device-id iot-md-001 --version 3.0.0-alpha.9 --sequence 2714 status
 ```
 
 Monitor health over the mTLS Device API using the applicable JSON field paths:
 
 ```sh
 python3 v3/host/qualification_runner.py \
-  --state .qualification/alpha7.state.json \
-  --evidence .qualification/alpha7.evidence.json \
-  --device-id iot-md-001 --version 3.0.0-alpha.8 --sequence 2713 monitor \
+  --state .qualification/alpha9.state.json \
+  --evidence .qualification/alpha9.evidence.json \
+  --device-id iot-md-001 --version 3.0.0-alpha.9 --sequence 2714 monitor \
   --url https://iot-md-001.local:8444/api/v2/device \
   --ca-file home-iot-ca.pem --cert-file client.pem --key-file client-key.pem \
   --health-path device.qualification_observation.health_state \

@@ -45,10 +45,13 @@ class DriverService:
     def start(self):
         try:
             for resource in self._configuration['resources']:
-                self._handles.append(self._resources.claim(
+                handle = self._resources.claim(
                     resource['kind'], resource['identifier'],
-                    self._configuration['id']
-                ))
+                    self._configuration['id'], resource['shared'],
+                    resource['signature']
+                )
+                self._resources.construct(handle, resource['parameters'])
+                self._handles.append(handle)
             self._backend.start(
                 tuple(self._handles), dict(self._configuration['settings'])
             )
@@ -65,7 +68,12 @@ class DriverService:
             self._handles = []
 
     def poll(self):
-        self._backend.poll()
+        try:
+            self._backend.poll()
+        except Exception:
+            for handle in self._handles:
+                self._resources.recover(handle)
+            raise
         self._polls += 1
 
     def snapshot(self):

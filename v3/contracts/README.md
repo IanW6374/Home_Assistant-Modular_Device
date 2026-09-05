@@ -51,9 +51,21 @@ OTA job kinds; completion events include a bounded identifier, state, numeric
 error, retryability and diagnostic detail. The capability record separates
 implemented mechanisms from HIL-qualified production claims.
 
+Alpha 9 advances the native platform contract to ABI 5 and runtime
+configuration to version 4. Resource claims declare exclusive or shared
+ownership, a bounded compatibility signature and physical construction
+parameters. Only I2C and SPI may be shared; the native implementation also
+compares their effective pin, frequency and DMA parameters before reusing a
+physical bus. Resource snapshots report constructed state, and GPIO interrupt
+observations use the existing bounded event contract. `resource_reset()`
+removes stale native ownership before a reconstructed MicroPython runtime starts
+claiming peripherals. Production identity
+records continue to expose metadata and opaque integers only; the adapter's
+locator mapping is held in encrypted transactional storage.
+
 Later platform milestones will add:
 
-- native-backed credential, certificate and migration handles;
+- native-owned credential and migration activation handles;
 - network-interface lifecycle;
 - native update staging and atomic paired platform/runtime ownership; and
 - richer native watchdog and boot-health event snapshots.

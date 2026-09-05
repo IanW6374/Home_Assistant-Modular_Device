@@ -188,10 +188,16 @@ class ResourceManager:
     def __init__(self):
         self.claimed = []
 
-    def claim(self, kind, identifier, owner):
+    def claim(self, kind, identifier, owner, shared=False, signature=''):
         handle = len(self.claimed) + 1
         self.claimed.append((handle, kind, identifier, owner))
         return handle
+
+    def construct(self, handle, parameters):
+        return {'handle': handle, 'kind': 'gpio', 'state': 'constructed'}
+
+    def recover(self, handle):
+        return True
 
     def release_owner(self, owner):
         before = len(self.claimed)
@@ -244,13 +250,19 @@ class NoResourcePlatform:
     def capabilities(self):
         return {
             'resources': {
-                'managed': True, 'max_claims': 32,
+                'managed': True, 'physical': True, 'shared_buses': True,
+                'interrupt_cleanup': True, 'soft_restart_cleanup': True,
+                'recovery': True,
+                'qualified': False, 'max_claims': 32,
                 'kinds': ['adc', 'gpio', 'i2c', 'spi', 'uart'],
             },
         }
 
     def resource_snapshot(self):
         return []
+
+    def resource_reset(self):
+        return 0
 
 
 class APIAdapter:
@@ -278,11 +290,15 @@ class V3IdentityFleetMigrationTests(unittest.TestCase):
         del previous['identity']
         del previous['fleet']
         for module in previous['modules']:
-            module['resource'] = module.pop('resources')[0]
+            resource = module.pop('resources')[0]
+            module['resource'] = {
+                'kind': resource['kind'],
+                'identifier': resource['identifier'],
+            }
         original = copy.deepcopy(previous)
         plan = migrate_configuration(previous)
         self.assertEqual(previous, original)
-        self.assertEqual(plan['to_version'], 3)
+        self.assertEqual(plan['to_version'], 4)
         self.assertFalse(plan['configuration']['fleet']['enabled'])
         self.assertEqual(len(plan['configuration']['modules'][0]['resources']), 1)
 
@@ -510,8 +526,10 @@ class V3IdentityFleetMigrationTests(unittest.TestCase):
         service = DriverService(resources, {
             'id': 'modbus-1', 'driver': 'modbus_transport', 'enabled': True,
             'resources': [
-                {'kind': 'uart', 'identifier': 'uart:1'},
-                {'kind': 'gpio', 'identifier': 'gpio:4'},
+                {'kind': 'uart', 'identifier': 'uart:1', 'shared': False,
+                 'signature': '', 'parameters': {'tx': 5, 'rx': 6}},
+                {'kind': 'gpio', 'identifier': 'gpio:4', 'shared': False,
+                 'signature': '', 'parameters': {'mode': 1}},
             ],
             'settings': {},
         }, backend)

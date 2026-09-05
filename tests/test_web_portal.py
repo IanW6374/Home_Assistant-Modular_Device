@@ -95,6 +95,8 @@ class WebPortalTests(unittest.TestCase):
                 'native_rollback_qualified': False,
                 'recovery_available': True, 'recovery_qualified': False,
                 'jobs_available': True, 'jobs_qualified': False,
+                'resources_available': True, 'resources_qualified': False,
+                'resource_kinds': ('adc', 'gpio', 'i2c', 'spi', 'uart'),
                 'snapshot': {
                     'running_label': 'ota_1',
                     'running_state': 'pending-verify',
@@ -113,6 +115,8 @@ class WebPortalTests(unittest.TestCase):
         self.assertIn('Mechanism only; qualification is separate', page)
         self.assertIn('Independent recovery', page)
         self.assertIn('Native job queue', page)
+        self.assertIn('Physical resources', page)
+        self.assertIn('adc, gpio, i2c, spi, uart', page)
         self.assertIn('/release-qualification', portal_ui.navigation(
             'release_qualification', 'csrf'
         ))

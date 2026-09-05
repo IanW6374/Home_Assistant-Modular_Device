@@ -10,7 +10,16 @@ The runtime owns product behavior:
 - fleet, audit, support and operational diagnostics; and
 - transport-neutral request, response and event models.
 
-Alpha 7 consumes native platform ABI 4. The frozen boot supervisor advances a
+Alpha 9 consumes native platform ABI 5 and configuration contract version 4.
+Module resource declarations now carry bounded physical parameters and explicit
+shared-bus signatures. Production lifecycle bridges adapt Wi-Fi, MQTT, HTTPS,
+mTLS Device API and syslog implementations to the transport-independent v3
+services. The identity bridge reads the installed certificate inventory,
+persists stable opaque certificate/key handles in encrypted transactional NVS,
+dispatches every managed enrollment/renewal method and generation-guards trust
+removal. Paths and key material never appear in the identity contract.
+
+Alpha 7 introduced the frozen boot supervisor, which advances a
 native boot record before importing replaceable product code and can enter the
 existing signed recovery path after an explicit request or three incomplete
 boots. The runtime can observe and guard OTA trial operations, submit bounded
@@ -26,7 +35,7 @@ declarative identity and fleet services, opaque certificate and
 migration handles, signed policy/canary reporting, previewed v2 backup
 migration and the complete v2.5 driver catalog over multi-resource claims
 remain in place.
-Alpha 4's bounded Wi-Fi/MQTT/portal/mTLS API adapters, shared portal metadata
+Alpha 4's bounded Wi-Fi/MQTT/portal/mTLS API services, shared portal metadata
 and unified connectivity diagnostics remain transport adapters around those
 domains. Alpha 3's service registry, resource adapter, reference sensor and
 bounded kernel snapshots remain the composition base. Alpha 2's fail-closed

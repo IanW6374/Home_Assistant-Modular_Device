@@ -115,6 +115,36 @@ class MQTTService:
         return value
 
 
+class SyslogService:
+    """Bounded remote-log transport using the same service lifecycle."""
+
+    def __init__(self, adapter):
+        self._adapter = _adapter(
+            adapter, ('start', 'stop', 'poll', 'emit', 'status')
+        )
+        self._emitted = 0
+
+    def start(self):
+        self._adapter.start()
+
+    def stop(self):
+        self._adapter.stop()
+
+    def poll(self):
+        self._adapter.poll()
+
+    def emit(self, timestamp, message, severity='INFO', audit=False):
+        if self._adapter.emit(timestamp, message, severity, bool(audit)):
+            self._emitted += 1
+            return True
+        return False
+
+    def snapshot(self):
+        value = _safe_adapter_status(self._adapter)
+        value['emitted'] = self._emitted
+        return value
+
+
 class PortalService:
     def __init__(self, adapter, snapshot_getter, connectivity_getter,
                  connectivity_runner=None, identity_getter=None,
@@ -407,10 +437,13 @@ def build_service_factories(adapters, snapshot_getter, connectivity,
             connectivity.diagnostics, identity, fleet, qualification
         )
 
+    def syslog(unused):
+        return SyslogService(adapters.get('syslog'))
+
     return {
         'wifi': wifi,
         'mqtt': mqtt,
         'portal': portal,
-        'device-api': device_api,
+        'device-api': device_api, 'syslog': syslog,
         'connectivity': lambda unused: connectivity,
     }

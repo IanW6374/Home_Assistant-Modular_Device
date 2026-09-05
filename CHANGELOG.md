@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 3.0.0-alpha.9 - 2026-09-05
+
+- Advance the native platform boundary to ABI 5 with physical GPIO, ADC, UART,
+  I2C and SPI construction, deterministic release and peripheral recovery.
+- Permit only identically configured I2C/SPI buses to share a physical native
+  instance; retain exclusive ownership for GPIO, ADC and UART.
+- Route native GPIO edges through the bounded platform event queue and remove
+  interrupt ownership during resource cleanup.
+- Advance runtime configuration to version 4 with physical resource parameters,
+  explicit shared-bus signatures and fail-closed migration from version 3.
+- Add production lifecycle bridges for Wi-Fi/reconnection, MQTT/Home Assistant,
+  HTTPS portal, mTLS Device API and syslog without coupling domain services to
+  sockets or compatibility-runtime objects.
+- Add a production certificate/trust bridge with encrypted transactional opaque
+  handle mappings, all managed enrollment/renewal methods and generation-safe
+  trust removal. Physical resources, adapters and identity remain unqualified
+  until their HIL and interoperability evidence passes.
+
 ## 3.0.0-alpha.8 - 2026-09-05
 
 - Add separate current-stage and overall manual-upgrade progress, with workflow-specific

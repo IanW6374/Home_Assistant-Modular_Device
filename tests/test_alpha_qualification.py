@@ -77,6 +77,13 @@ class AlphaQualificationTests(unittest.TestCase):
                         'product_independent': True, 'qualified': False,
                     },
                     'jobs': {'async_worker': True, 'qualified': False},
+                    'resources': {
+                        'managed': True, 'physical': True,
+                        'shared_buses': True, 'interrupt_cleanup': True,
+                        'soft_restart_cleanup': True, 'recovery': True,
+                        'qualified': False,
+                        'kinds': ['adc', 'gpio', 'i2c', 'spi', 'uart'],
+                    },
                 }
 
             def update_snapshot(self):
@@ -98,6 +105,8 @@ class AlphaQualificationTests(unittest.TestCase):
         self.assertFalse(native['paired_trial_qualified'])
         self.assertTrue(native['recovery_available'])
         self.assertTrue(native['jobs_available'])
+        self.assertTrue(native['resources_available'])
+        self.assertFalse(native['resources_qualified'])
         self.assertEqual(native['snapshot']['running_label'], 'ota_0')
 
     def test_missing_storage_is_not_reported_as_zero_free_bytes(self):

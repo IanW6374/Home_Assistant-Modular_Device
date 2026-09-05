@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MemoryProvider:
-    ABI_VERSION = 4
+    ABI_VERSION = 5
 
     def __init__(self):
         self.namespaces = {}
@@ -60,7 +60,7 @@ class MemoryProvider:
             raise OSError(errno.EIO)
         return generation + 1
 
-    def resource_claim(self, kind, identifier, owner):
+    def resource_claim(self, kind, identifier, owner, shared=False, signature=''):
         for handle, item in self.resources.items():
             if item[:2] == (kind, identifier):
                 if item[2] == owner:
@@ -68,8 +68,16 @@ class MemoryProvider:
                 raise OSError(errno.EBUSY)
         handle = self.next_resource_handle
         self.next_resource_handle += 1
-        self.resources[handle] = (kind, identifier, owner)
+        self.resources[handle] = (kind, identifier, owner, shared, signature, False)
         return handle
+
+    def resource_construct(self, handle, parameters):
+        item = self.resources[handle]
+        self.resources[handle] = item[:5] + (True,)
+        return {'handle': handle, 'kind': item[0],
+                'state': 'shared' if item[3] else 'constructed'}
+
+    def resource_recover(self, handle): return handle in self.resources
 
     def resource_release(self, handle):
         del self.resources[handle]
@@ -83,10 +91,16 @@ class MemoryProvider:
             del self.resources[handle]
         return len(handles)
 
+    def resource_reset(self):
+        released = len(self.resources)
+        self.resources.clear()
+        return released
+
     def resource_snapshot(self):
         return [
             {'handle': handle, 'kind': item[0], 'identifier': item[1],
-             'owner': item[2]}
+             'owner': item[2], 'shared': item[3], 'signature': item[4],
+             'constructed': item[5]}
             for handle, item in sorted(self.resources.items())
         ]
 

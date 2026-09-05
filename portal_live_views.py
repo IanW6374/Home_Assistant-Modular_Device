@@ -503,6 +503,14 @@ def render_release_qualification_page(token, status=None):
                 ('Qualified' if native.get('jobs_qualified') else
                  ('Available' if native.get('jobs_available') else 'Unavailable')) +
                 '</strong><small>Bounded asynchronous worker and events</small>'
+                '</div><div class="metric' +
+                (' good' if native.get('resources_qualified') else ' warn') +
+                '"><span>Physical resources</span><strong>' +
+                ('Qualified' if native.get('resources_qualified') else
+                 ('Available' if native.get('resources_available') else 'Unavailable')) +
+                '</strong><small>' + html_escape(', '.join(
+                    native.get('resource_kinds') or ())) +
+                '; qualification remains separate</small>'
                 '</div></div>'
             )
         content = (

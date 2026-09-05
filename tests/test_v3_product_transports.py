@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class KernelProvider:
-    ABI_VERSION = 4
+    ABI_VERSION = 5
 
     def capabilities(self):
         return json.loads((
@@ -43,13 +43,21 @@ class KernelProvider:
     def storage_commit(self, handle, generation, payload):
         return generation + 1
 
-    def resource_claim(self, kind, identifier, owner):
+    def resource_claim(self, kind, identifier, owner, shared=False, signature=''):
         return 1
+
+    def resource_construct(self, handle, parameters):
+        return {'handle': handle, 'kind': 'adc', 'state': 'constructed'}
+
+    def resource_recover(self, handle): return True
 
     def resource_release(self, handle):
         return None
 
     def resource_release_owner(self, owner):
+        return 0
+
+    def resource_reset(self):
         return 0
 
     def resource_snapshot(self):
@@ -141,15 +149,32 @@ class V3ProductTransportTests(unittest.TestCase):
         del previous['identity']
         del previous['fleet']
         for module in previous['modules']:
-            module['resource'] = module.pop('resources')[0]
+            resource = module.pop('resources')[0]
+            module['resource'] = {
+                'kind': resource['kind'],
+                'identifier': resource['identifier'],
+            }
         original = copy.deepcopy(previous)
         plan = migrate_configuration(previous)
         self.assertEqual(previous, original)
         self.assertEqual(plan['from_version'], 1)
-        self.assertEqual(plan['to_version'], 3)
+        self.assertEqual(plan['to_version'], 4)
         self.assertEqual(plan['configuration']['transports'], [])
         self.assertFalse(plan['configuration']['identity']['enabled'])
         self.assertFalse(plan['configuration']['fleet']['enabled'])
+
+    def test_alpha5_resource_declarations_migrate_to_physical_contract(self):
+        previous = configuration()
+        previous['contract_version'] = 3
+        for module in previous['modules']:
+            module['resources'] = [{
+                'kind': item['kind'], 'identifier': item['identifier']
+            } for item in module['resources']]
+        plan = migrate_configuration(previous)
+        self.assertEqual(plan['to_version'], 4)
+        resource = plan['configuration']['modules'][0]['resources'][0]
+        self.assertEqual(resource['parameters'], {})
+        self.assertFalse(resource['shared'])
 
     def test_transport_dependencies_start_before_product_services(self):
         value = configuration()
@@ -370,7 +395,7 @@ class V3ProductTransportTests(unittest.TestCase):
         )
         self.assertEqual(
             set(factories),
-            {'wifi', 'mqtt', 'portal', 'device-api', 'connectivity'},
+            {'wifi', 'mqtt', 'portal', 'device-api', 'syslog', 'connectivity'},
         )
         mqtt = factories['mqtt']({'settings': {'topic_prefix': 'iot-md/test'}})
         mqtt.start()

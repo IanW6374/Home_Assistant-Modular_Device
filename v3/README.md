@@ -4,13 +4,15 @@ This directory is the isolated starting point for the v3 architecture rewrite.
 Stable v2.5 maintenance continues from `main`; v3 development continues on
 `alpha/v3-platform-rewrite` until its own promotion gates pass.
 
-Version `3.0.0-alpha.8` retains the native ABI 4 boundary and improves the
-manual upgrade and Wi-Fi selection experience. Alpha 7 added guarded
-OTA trial controls, native boot/recovery state ahead of the replaceable product,
-and a fixed-capacity asynchronous job/event boundary. These are implemented
-mechanisms, not completed qualification claims: paired trial, native rollback,
-recovery and job qualification remain false until their hardware tests pass.
-The proven v2.5 product runtime remains the active compatibility payload.
+Version `3.0.0-alpha.9` advances the native boundary to ABI 5 and the runtime
+configuration contract to version 4. It adds physical GPIO, ADC, UART, I2C and
+SPI construction, safe shared-bus rules, interrupt cleanup and peripheral
+recovery; production bridges for Wi-Fi, MQTT, HTTPS, mTLS API and syslog; and a
+real certificate/trust inventory bridge with persistent opaque handles. These
+are implemented mechanisms, not completed qualification claims. Physical
+resources, production adapters and identity integration remain gated pending
+hardware and interoperability evidence, and the proven v2.5 product runtime
+remains the active compatibility payload.
 
 The rewrite keeps the proven product requirements while establishing the
 native ESP-IDF platform and MicroPython application boundary before porting
@@ -45,8 +47,9 @@ wholesale.
 Read the [target architecture](../docs/V3_ARCHITECTURE.md),
 [requirements](../docs/V3_REQUIREMENTS.md) and
 [roadmap](../docs/V3_ROADMAP.md) before adding implementation code. The
-[Alpha 7 test note](../docs/V3_ALPHA7.md) defines its exact scope and safe test
-procedure. The [Alpha 6 note](../docs/V3_ALPHA6.md),
+[Alpha 9 test note](../docs/V3_ALPHA9.md) defines its exact scope and safe test
+procedure. The [Alpha 8 note](../docs/V3_ALPHA8.md),
+[Alpha 7 note](../docs/V3_ALPHA7.md), [Alpha 6 note](../docs/V3_ALPHA6.md),
 [Alpha 5 note](../docs/V3_ALPHA5.md),
 [Alpha 4 note](../docs/V3_ALPHA4.md),
 [Alpha 3 note](../docs/V3_ALPHA3.md),

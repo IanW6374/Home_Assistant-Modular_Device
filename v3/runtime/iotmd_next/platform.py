@@ -1,6 +1,6 @@
 """Validated MicroPython adapter for the versioned native v3 platform ABI."""
 
-EXPECTED_ABI_VERSION = 4
+EXPECTED_ABI_VERSION = 5
 
 
 class PlatformContractError(RuntimeError):
@@ -153,9 +153,20 @@ def validate_capabilities(value):
         raise PlatformContractError('native job capability is inconsistent')
 
     resources = _exact_keys(
-        value['resources'], 'resources', ('managed', 'max_claims', 'kinds')
+        value['resources'], 'resources', (
+            'managed', 'physical', 'shared_buses', 'interrupt_cleanup',
+            'soft_restart_cleanup', 'recovery', 'qualified', 'max_claims',
+            'kinds',
+        )
     )
-    _boolean(resources['managed'], 'resources.managed')
+    for key in ('managed', 'physical', 'shared_buses', 'interrupt_cleanup',
+                'soft_restart_cleanup', 'recovery', 'qualified'):
+        _boolean(resources[key], 'resources.' + key)
+    if resources['qualified'] and not all(
+            resources[key] for key in (
+                'managed', 'physical', 'shared_buses', 'interrupt_cleanup',
+                'soft_restart_cleanup', 'recovery')):
+        raise PlatformContractError('physical resource capability is inconsistent')
     maximum = resources['max_claims']
     if (not isinstance(maximum, int) or isinstance(maximum, bool) or
             maximum < 1 or maximum > 32):
@@ -190,8 +201,10 @@ class Platform:
                 raise PlatformContractError(
                     'native transactional storage provider is incomplete'
                 )
-        for operation in ('resource_claim', 'resource_release',
-                          'resource_release_owner', 'resource_snapshot'):
+        for operation in ('resource_claim', 'resource_construct',
+                          'resource_recover', 'resource_release',
+                          'resource_release_owner', 'resource_reset',
+                          'resource_snapshot'):
             if not hasattr(provider, operation):
                 raise PlatformContractError(
                     'native resource provider is incomplete'
@@ -299,7 +312,8 @@ class Platform:
                 value['id'] < 1):
             raise PlatformContractError('native job event identifier is invalid')
         _bounded_string(value['kind'], 'native job event kind', 24)
-        if value['status'] not in ('running', 'completed', 'failed', 'restarting'):
+        if value['status'] not in (
+                'running', 'completed', 'failed', 'restarting', 'observed'):
             raise PlatformContractError('native job event status is invalid')
         if not isinstance(value['error'], int) or isinstance(value['error'], bool):
             raise PlatformContractError('native job event error is invalid')

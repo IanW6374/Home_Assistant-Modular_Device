@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["contract_version", "device", "services", "transports", "identity", "fleet", "modules"],
   "properties": {
-    "contract_version": {"const": 3},
+    "contract_version": {"const": 4},
     "device": {
       "type": "object", "required": ["name"],
       "properties": {"name": {"$ref": "#/$defs/name"}},
@@ -78,12 +78,74 @@
     "name": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[A-Za-z0-9_.:-]+$"},
     "dependencies": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/name"}},
     "resource": {
-      "type": "object", "required": ["kind", "identifier"],
+      "type": "object", "required": ["kind", "identifier", "shared", "signature", "parameters"],
       "properties": {
-        "kind": {"type": "string", "minLength": 1, "maxLength": 12, "pattern": "^[A-Za-z0-9_.:-]+$"},
-        "identifier": {"$ref": "#/$defs/name"}
+        "kind": {"type": "string", "enum": ["adc", "gpio", "i2c", "spi", "uart"]},
+        "identifier": {"$ref": "#/$defs/name"},
+        "shared": {"type": "boolean"},
+        "signature": {"type": "string", "maxLength": 64},
+        "parameters": {"$ref": "#/$defs/settings"}
       },
+      "allOf": [
+        {
+          "if": {"properties": {"shared": {"const": true}}},
+          "then": {
+            "properties": {
+              "kind": {"enum": ["i2c", "spi"]},
+              "signature": {"minLength": 1}
+            }
+          },
+          "else": {"properties": {"signature": {"maxLength": 0}}}
+        },
+        {"if": {"properties": {"kind": {"const": "gpio"}}}, "then": {"properties": {"parameters": {"$ref": "#/$defs/gpioParameters"}}}},
+        {"if": {"properties": {"kind": {"const": "adc"}}}, "then": {"properties": {"parameters": {"$ref": "#/$defs/adcParameters"}}}},
+        {"if": {"properties": {"kind": {"const": "uart"}}}, "then": {"properties": {"parameters": {"$ref": "#/$defs/uartParameters"}}}},
+        {"if": {"properties": {"kind": {"const": "i2c"}}}, "then": {"properties": {"parameters": {"$ref": "#/$defs/i2cParameters"}}}},
+        {"if": {"properties": {"kind": {"const": "spi"}}}, "then": {"properties": {"parameters": {"$ref": "#/$defs/spiParameters"}}}}
+      ],
       "additionalProperties": false
+    },
+    "gpioParameters": {
+      "type": "object", "maxProperties": 4,
+      "properties": {
+        "mode": {"type": "integer", "minimum": 0, "maximum": 2},
+        "pull": {"type": "integer", "minimum": 0, "maximum": 2},
+        "level": {"type": "integer", "minimum": 0, "maximum": 1},
+        "interrupt": {"type": "integer", "minimum": 0, "maximum": 3}
+      }, "additionalProperties": false
+    },
+    "adcParameters": {
+      "type": "object", "maxProperties": 2,
+      "properties": {
+        "attenuation": {"type": "integer", "minimum": 0, "maximum": 12},
+        "bitwidth": {"type": "integer", "minimum": 0, "maximum": 13}
+      }, "additionalProperties": false
+    },
+    "uartParameters": {
+      "type": "object", "maxProperties": 4,
+      "properties": {
+        "tx": {"type": "integer", "minimum": -1, "maximum": 48},
+        "rx": {"type": "integer", "minimum": -1, "maximum": 48},
+        "baudrate": {"type": "integer", "minimum": 300, "maximum": 3000000},
+        "rx_buffer": {"type": "integer", "minimum": 128, "maximum": 4096}
+      }, "additionalProperties": false
+    },
+    "i2cParameters": {
+      "type": "object", "maxProperties": 3,
+      "properties": {
+        "sda": {"type": "integer", "minimum": 0, "maximum": 48},
+        "scl": {"type": "integer", "minimum": 0, "maximum": 48},
+        "frequency": {"type": "integer", "minimum": 10000, "maximum": 1000000}
+      }, "additionalProperties": false
+    },
+    "spiParameters": {
+      "type": "object", "maxProperties": 4,
+      "properties": {
+        "sck": {"type": "integer", "minimum": 0, "maximum": 48},
+        "mosi": {"type": "integer", "minimum": -1, "maximum": 48},
+        "miso": {"type": "integer", "minimum": -1, "maximum": 48},
+        "dma_channel": {"type": "integer", "minimum": 0, "maximum": 3}
+      }, "additionalProperties": false
     },
     "settings": {
       "type": "object", "maxProperties": 12,

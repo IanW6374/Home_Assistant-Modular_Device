@@ -106,6 +106,10 @@ Alpha 7 additionally shows the native ABI 4 update, recovery and bounded-job
 mechanisms in the on-device Release Qualification view. Mechanism availability
 and HIL qualification are separate values; clients must not treat an exported
 entry point as proof that rollback or recovery qualification passed.
+Alpha 9 advances this report to ABI 5 and adds physical resource mechanism and
+qualification fields. Resource inventory exposes only bounded claim metadata,
+sharing configuration and constructed state; ESP-IDF pointers and physical
+credential locators never enter the API.
 Alpha 6 reports each release-qualification gate as a bounded name/status pair;
 full measurements remain in the on-device Maintenance view and qualification
 evidence file rather than expanding routine API polling payloads.

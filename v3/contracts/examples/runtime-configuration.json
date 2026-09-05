@@ -1,5 +1,5 @@
 {
-  "contract_version": 3,
+  "contract_version": 4,
   "device": {"name": "iot-md-001"},
   "services": {"poll_interval_ms": 1000, "max_failures": 3},
   "transports": [
@@ -12,6 +12,6 @@
   "identity": {"enabled": false, "method": "self-signed", "critical": true, "dependencies": [], "renewal_check_s": 3600},
   "fleet": {"enabled": false, "critical": false, "dependencies": [], "cohort": "default", "poll_interval_s": 300},
   "modules": [
-    {"id": "reference-1", "driver": "reference-sensor", "enabled": true, "resources": [{"kind": "adc", "identifier": "adc:1"}], "settings": {"scale": 1, "offset": 0}}
+    {"id": "reference-1", "driver": "reference-sensor", "enabled": true, "resources": [{"kind": "adc", "identifier": "adc:1", "shared": false, "signature": "", "parameters": {"attenuation": 12, "bitwidth": 0}}], "settings": {"scale": 1, "offset": 0}}
   ]
 }

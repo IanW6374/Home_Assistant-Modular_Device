@@ -42,7 +42,7 @@ that region undefined, so its magic, format and CRC are always validated. An
 atomic `.boot-state.json` checkpoint is retained as the fallback and durable
 record.
 
-V3 platform ABI 4 also stores a separate bounded recovery record in encrypted
+V3 platform ABI 5 retains ABI 4's separate bounded recovery record in encrypted
 NVS. The frozen supervisor advances it after handling any explicit factory
 reset and before importing replaceable product code. The record contains only
 request state, a bounded reason, boot/failure counters, a pending-health marker

@@ -12,13 +12,14 @@ from v3.runtime.iotmd_next.configuration import (
 from v3.runtime.iotmd_next.kernel import ApplicationKernel, EventJournal
 from v3.runtime.iotmd_next.platform import Platform
 from v3.runtime.iotmd_next.reference_sensor import ReferenceSensor
+from v3.runtime.iotmd_next.resources import ResourceConflict, ResourceManager
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class KernelProvider:
-    ABI_VERSION = 4
+    ABI_VERSION = 5
 
     def __init__(self):
         self.resources = {}
@@ -42,7 +43,7 @@ class KernelProvider:
     def storage_commit(self, handle, generation, payload):
         return generation + 1
 
-    def resource_claim(self, kind, identifier, owner):
+    def resource_claim(self, kind, identifier, owner, shared=False, signature=''):
         for handle, item in self.resources.items():
             if item['kind'] == kind and item['identifier'] == identifier:
                 if item['owner'] == owner:
@@ -52,9 +53,19 @@ class KernelProvider:
         self.next_handle += 1
         self.resources[handle] = {
             'handle': handle, 'kind': kind, 'identifier': identifier,
-            'owner': owner,
+            'owner': owner, 'shared': bool(shared),
+            'signature': signature, 'constructed': False,
         }
         return handle
+
+    def resource_construct(self, handle, parameters):
+        self.resources[handle]['constructed'] = True
+        self.resources[handle]['parameters'] = dict(parameters)
+        return {'handle': handle, 'kind': self.resources[handle]['kind'],
+                'state': 'shared' if self.resources[handle]['shared'] else 'constructed'}
+
+    def resource_recover(self, handle):
+        return handle in self.resources
 
     def resource_release(self, handle):
         del self.resources[handle]
@@ -68,8 +79,14 @@ class KernelProvider:
             del self.resources[handle]
         return len(handles)
 
+    def resource_reset(self):
+        released = len(self.resources)
+        self.resources.clear()
+        return released
+
     def resource_snapshot(self):
-        return [dict(self.resources[key]) for key in sorted(self.resources)]
+        return [{key: value for key, value in self.resources[item].items()
+                 if key != 'parameters'} for item in sorted(self.resources)]
 
     def update_snapshot(self):
         return {
@@ -122,11 +139,12 @@ class V3ApplicationKernelTests(unittest.TestCase):
         plan = migrate_configuration(source)
         self.assertEqual(source, original)
         self.assertTrue(plan['changed'])
-        self.assertEqual(plan['configuration']['contract_version'], 3)
+        self.assertEqual(plan['configuration']['contract_version'], 4)
         self.assertEqual(plan['configuration']['transports'], [])
         self.assertEqual(
             plan['configuration']['modules'][0]['resources'],
-            [{'kind': 'adc', 'identifier': 'adc:1'}],
+            [{'kind': 'adc', 'identifier': 'adc:1', 'shared': False,
+              'signature': '', 'parameters': {}}],
         )
 
     def test_unknown_or_duplicate_configuration_fails_before_claiming(self):
@@ -137,6 +155,61 @@ class V3ApplicationKernelTests(unittest.TestCase):
             kernel.boot(value)
         self.assertEqual(kernel.snapshot()['kernel_state'], 'recovery')
         self.assertEqual(self.provider.resources, {})
+
+    def test_only_bus_resources_can_be_shared(self):
+        value = configuration()
+        resource = value['modules'][0]['resources'][0]
+        resource.update({'shared': True, 'signature': 'adc-shared'})
+        with self.assertRaisesRegex(ConfigurationError, 'cannot be shared'):
+            ApplicationKernel(self.platform).boot(value)
+
+        value = configuration()
+        resource = value['modules'][0]['resources'][0]
+        resource.update({
+            'kind': 'i2c', 'identifier': 'i2c:0', 'shared': True,
+            'signature': 'i2c0-sda8-scl9-400k',
+            'parameters': {'sda': 8, 'scl': 9, 'frequency': 400000},
+        })
+        ApplicationKernel(self.platform).boot(value)
+        self.assertTrue(next(iter(self.provider.resources.values()))['shared'])
+
+    def test_physical_parameters_are_kind_specific_and_bounded(self):
+        value = configuration()
+        value['modules'][0]['resources'][0]['parameters']['frequency'] = 400000
+        with self.assertRaisesRegex(ConfigurationError, 'unsupported'):
+            ApplicationKernel(self.platform).boot(value)
+
+        value = configuration()
+        value['modules'][0]['resources'][0]['parameters']['attenuation'] = 99
+        with self.assertRaisesRegex(ConfigurationError, 'invalid'):
+            ApplicationKernel(self.platform).boot(value)
+
+    def test_idempotent_claim_rejects_changed_sharing_contract(self):
+        resources = ResourceManager(self.platform)
+        resources.claim('i2c', 'i2c:0', 'module-1', True, 'bus-a')
+        with self.assertRaisesRegex(ResourceConflict, 'configuration changed'):
+            resources.claim('i2c', 'i2c:0', 'module-1', True, 'bus-b')
+
+    def test_resource_manager_clears_stale_native_claims_on_reconstruction(self):
+        self.provider.resources[7] = {
+            'handle': 7, 'kind': 'gpio', 'identifier': 'gpio:4',
+            'owner': 'stale-module', 'shared': False, 'signature': '',
+            'constructed': True,
+        }
+        ResourceManager(self.platform)
+        self.assertEqual(self.provider.resources, {})
+
+    def test_v3_migration_rejects_unknown_fields_before_translation(self):
+        value = configuration()
+        value['contract_version'] = 3
+        for module in value['modules']:
+            module['resources'] = [
+                {'kind': item['kind'], 'identifier': item['identifier']}
+                for item in module['resources']
+            ]
+        value['modules'][0]['resources'][0]['unsafe'] = True
+        with self.assertRaisesRegex(ConfigurationError, 'invalid fields'):
+            migrate_configuration(value)
 
         value = configuration()
         value['modules'].append(copy.deepcopy(value['modules'][0]))
@@ -225,7 +298,7 @@ class V3ApplicationKernelTests(unittest.TestCase):
         ).read_text())
         Draft202012Validator(schema).validate(snapshot)
         support = kernel.support_snapshot()
-        self.assertEqual(support['platform_abi'], 4)
+        self.assertEqual(support['platform_abi'], 5)
         self.assertNotIn('settings', json.dumps(support).lower())
 
 

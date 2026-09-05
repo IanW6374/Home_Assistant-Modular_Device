@@ -24,7 +24,7 @@ class V3PlatformContractTests(unittest.TestCase):
 
     def test_provider_must_match_versioned_native_abi(self):
         class Provider:
-            ABI_VERSION = 4
+            ABI_VERSION = 5
 
             def storage_open(self, namespace):
                 return 1
@@ -38,14 +38,20 @@ class V3PlatformContractTests(unittest.TestCase):
             def storage_commit(self, handle, generation, payload):
                 return generation + 1
 
-            def resource_claim(self, kind, identifier, owner):
+            def resource_claim(self, kind, identifier, owner, shared=False, signature=''):
                 return 1
+
+            def resource_construct(self, handle, parameters):
+                return {'handle': handle, 'kind': 'adc', 'state': 'constructed'}
+            def resource_recover(self, handle): return True
 
             def resource_release(self, handle):
                 return None
 
             def resource_release_owner(self, owner):
                 return 0
+
+            def resource_reset(self): return 0
 
             def resource_snapshot(self):
                 return []
@@ -79,7 +85,7 @@ class V3PlatformContractTests(unittest.TestCase):
                 return V3PlatformContractTests().example()
 
         platform = Platform(Provider())
-        self.assertEqual(platform.capabilities()['abi_version'], 4)
+        self.assertEqual(platform.capabilities()['abi_version'], 5)
         self.assertEqual(platform.update_snapshot()['running_label'], 'ota_1')
         Provider.ABI_VERSION = 3
         with self.assertRaisesRegex(PlatformContractError, 'ABI'):
@@ -99,7 +105,7 @@ class V3PlatformContractTests(unittest.TestCase):
 
     def test_native_storage_must_be_complete(self):
         class Provider:
-            ABI_VERSION = 4
+            ABI_VERSION = 5
 
             def capabilities(self):
                 return V3PlatformContractTests().example()
@@ -125,9 +131,16 @@ class V3PlatformContractTests(unittest.TestCase):
         with self.assertRaisesRegex(PlatformContractError, 'timeout'):
             validate_capabilities(value)
 
+    def test_resource_qualification_requires_every_physical_mechanism(self):
+        value = self.example()
+        value['resources']['qualified'] = True
+        value['resources']['interrupt_cleanup'] = False
+        with self.assertRaisesRegex(PlatformContractError, 'resource'):
+            validate_capabilities(value)
+
     def test_native_update_snapshot_fails_closed_on_inconsistent_state(self):
         class Provider:
-            ABI_VERSION = 4
+            ABI_VERSION = 5
 
             def capabilities(self):
                 return V3PlatformContractTests().example()
@@ -137,9 +150,13 @@ class V3PlatformContractTests(unittest.TestCase):
             def storage_snapshot(self, handle):
                 return {'generation': 0, 'payload': b''}
             def storage_commit(self, handle, generation, payload): return 1
-            def resource_claim(self, kind, identifier, owner): return 1
+            def resource_claim(self, kind, identifier, owner, shared=False, signature=''): return 1
+            def resource_construct(self, handle, parameters):
+                return {'handle': handle, 'kind': 'adc', 'state': 'constructed'}
+            def resource_recover(self, handle): return True
             def resource_release(self, handle): return None
             def resource_release_owner(self, owner): return 0
+            def resource_reset(self): return 0
             def resource_snapshot(self): return []
             def update_snapshot(self):
                 return {
@@ -166,15 +183,19 @@ class V3PlatformContractTests(unittest.TestCase):
 
     def test_recovery_and_native_jobs_are_bounded(self):
         class Provider:
-            ABI_VERSION = 4
+            ABI_VERSION = 5
             def capabilities(self): return V3PlatformContractTests().example()
             def storage_open(self, namespace): return 1
             def storage_close(self, handle): return None
             def storage_snapshot(self, handle): return {'generation': 0, 'payload': b''}
             def storage_commit(self, handle, generation, payload): return 1
-            def resource_claim(self, kind, identifier, owner): return 1
+            def resource_claim(self, kind, identifier, owner, shared=False, signature=''): return 1
+            def resource_construct(self, handle, parameters):
+                return {'handle': handle, 'kind': 'adc', 'state': 'constructed'}
+            def resource_recover(self, handle): return True
             def resource_release(self, handle): return None
             def resource_release_owner(self, owner): return 0
+            def resource_reset(self): return 0
             def resource_snapshot(self): return []
             def update_snapshot(self):
                 return {'running_label': 'ota_0', 'running_state': 'valid',
@@ -204,6 +225,12 @@ class V3PlatformContractTests(unittest.TestCase):
         event = platform.poll_event()
         self.assertEqual(event['status'], 'completed')
         self.assertFalse(event['retryable'])
+
+        Provider.event_poll = lambda self: {
+            'id': 3, 'kind': 'resource-interrupt', 'status': 'observed',
+            'error': 0, 'retryable': False, 'detail': 'gpio edge',
+        }
+        self.assertEqual(platform.poll_event()['kind'], 'resource-interrupt')
 
 
 if __name__ == '__main__':

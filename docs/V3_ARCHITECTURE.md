@@ -60,7 +60,9 @@ ABI 1 established capability discovery. ABI 2 added bounded encrypted-storage
 handles and atomic whole-namespace snapshots. ABI 3 added owner-scoped logical
 resource claims and bounded resource inventory. ABI 4 adds guarded OTA trial
 observation/control, encrypted native boot/recovery state, and a fixed-capacity
-native job/event queue. The ABI follows these rules:
+native job/event queue. ABI 5 adds physical resource construction, safe bus
+sharing, interrupt ownership and peripheral recovery. The ABI follows these
+rules:
 
 - primitive values only: bounded strings, integers, booleans, bytes and maps;
 - explicit maximum size and timeout for every call;
@@ -88,6 +90,16 @@ identifier, state, numeric error, retryability and diagnostic detail. Queue
 saturation fails immediately; an unconsumed event queue drops its oldest
 diagnostic rather than blocking a platform operation. The capability contract
 declares a five-second operation bound.
+
+ABI 5 accepts only explicit physical parameters from configuration contract
+version 4. GPIO, ADC, UART, I2C and SPI constructors stay native; MicroPython
+receives opaque claim handles. GPIO, ADC and UART are exclusive. I2C and SPI
+may be shared only when the claim signature and effective pin, frequency and
+DMA parameters match. Cleanup removes interrupt handlers and releases the
+ESP-IDF driver. Recovery tears down and rebuilds the physical instance, while
+GPIO edge observations enter the existing fixed-capacity event queue. Runtime
+resource-manager construction first invokes a native reset so a prior abrupt
+MicroPython restart cannot retain stale claims or peripheral drivers.
 
 ## Application kernel
 
@@ -130,6 +142,16 @@ enrollment methods, checks renewal only with a synchronized clock and never
 renews a manual package. Trust anchors are purpose-labelled and removed using
 their observed generation so a stale page cannot delete a replacement anchor.
 Neither snapshots nor API responses contain certificate or private-key bytes.
+
+Alpha 9 connects these contracts to production-facing adapters. Wi-Fi owns
+station activation and bounded reconnect scheduling; MQTT and syslog bridge
+their asynchronous clients; HTTPS portal and mTLS Device API listeners share a
+lifecycle adapter while retaining different authentication policy. The
+identity bridge reads the installed flash-encrypted certificate files, maps
+their internal locators to stable opaque integers in encrypted transactional
+NVS, dispatches the established enrollment/renewal implementations and applies
+generation checks before trust removal. This is a shadow/integration boundary,
+not active-v3 cutover or a claim that private-key bytes have moved into NVS.
 
 The fleet service accepts only signed P-256 policy targeted to the device or
 its configured cohort. It rejects unknown fields, invalid time windows, replayed
@@ -215,18 +237,23 @@ policy while the native platform owns physical GPIO, ADC, UART, I2C, SPI and
 interrupt allocation. Compatible shared buses use one native instance; unsafe
 conflicts fail before a driver starts.
 
-ABI 3 implements the exclusive ownership ledger for ADC, GPIO, I2C, SPI and
-UART identities. Claims use opaque integer handles, are idempotent for the same
-owner, conflict across different owners, and can be released individually or
-by owner after a failed start or MicroPython soft restart. Physical peripheral
-construction and explicitly shared-bus policy remain later platform work.
+ABI 3 introduced the ownership ledger for ADC, GPIO, I2C, SPI and UART
+identities. ABI 5 now constructs those physical resources, owns GPIO interrupt
+registration and cleanup, and provides bounded recovery after driver failure
+or a MicroPython service restart. Claims use opaque integer handles, are
+idempotent for the same owner, conflict across different owners, and can be
+released individually or by owner. I2C/SPI sharing requires both an identical
+configuration signature and identical effective native parameters; other
+resource kinds cannot be shared.
 
 Alpha 5 permits each module to declare up to eight resources and adds a static
 catalog matching all supported v2.5 driver backends and module type variants.
 A driver claims the complete set before starting its injected hardware backend;
 failed start and stop release the whole owner scope. Dynamic unsigned driver
 loading remains out of scope, and the catalog is a compatibility declaration—not
-evidence that every physical backend has passed v3 HIL qualification.
+evidence that every physical backend has passed v3 HIL qualification. The ABI
+5 constructors are likewise advertised as implemented but `qualified: false`
+until that complete matrix passes.
 
 The initial target remains ESP32-S3 N8R8. A future production board should
 prefer 16 MB flash and 8 MB PSRAM, but larger hardware must not become an alpha

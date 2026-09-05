@@ -132,12 +132,35 @@ product, repeated incomplete boot, watchdog and OTA trial tests recover through
 the frozen core; queue saturation remains bounded; and controlled confirm and
 rollback tests produce correct events without selecting the wrong partition.
 
-Current status: `3.0.0-alpha.8` implements these mechanisms and host contracts.
+Current status: `3.0.0-alpha.9` retains these mechanisms and host contracts.
 The `paired_trial`, `native_rollback`, native recovery and native job
 qualification flags intentionally remain false pending the Alpha 7 HIL matrix.
 This release does not claim bare-ESP-IDF recovery from a corrupted confirmed
 MicroPython core; bootloader A/B rollback and USB disaster recovery remain the
 lower-level safeguards.
+
+## Alpha 9 — physical resources, production transports and identity
+
+- Advance the native boundary to ABI 5 with GPIO, ADC, UART, I2C and SPI
+  construction, safe I2C/SPI sharing, interrupt cleanup and peripheral rebuild.
+- Advance runtime configuration to version 4 with bounded physical parameters,
+  explicit sharing and non-mutating migration from version 3.
+- Bridge Wi-Fi, MQTT/Home Assistant, HTTPS portal, mTLS Device API and syslog
+  implementations into the transport-independent v3 services.
+- Bridge the installed certificate/trust stores and managed enrollment methods
+  into v3 identity records backed by persistent opaque handles.
+
+Exit: the complete physical-driver matrix passes conflict, shared-bus,
+interrupt, failure and soft-restart tests; network fault tests establish service
+parity; and every enrollment/renewal/trust method passes recovery and
+interoperability tests without exposing key material.
+
+Current status: `3.0.0-alpha.9` implements and host-tests the mechanisms and
+compiles ABI 5 into the production-secure ESP32-S3 core. Resource,
+transport-adapter and identity qualification remain open until HIL and shadow
+parity evidence is recorded. The v2.5 compatibility runtime therefore remains
+active, and none of these mechanisms change the still-unqualified Alpha 1–2
+paired-update or independent-recovery gates.
 
 ## Beta — operational qualification
 

@@ -17,7 +17,7 @@
     "resources"
   ],
   "properties": {
-    "abi_version": {"const": 4},
+    "abi_version": {"const": 5},
     "board": {
       "type": "object",
       "required": ["target", "revision"],
@@ -33,7 +33,7 @@
       "properties": {
         "engine": {"const": "micropython"},
         "version": {"type": "string", "minLength": 1, "maxLength": 32},
-        "platform_abi": {"const": 4}
+        "platform_abi": {"const": 5}
       },
       "additionalProperties": false
     },
@@ -118,9 +118,15 @@
     },
     "resources": {
       "type": "object",
-      "required": ["managed", "max_claims", "kinds"],
+      "required": ["managed", "physical", "shared_buses", "interrupt_cleanup", "soft_restart_cleanup", "recovery", "qualified", "max_claims", "kinds"],
       "properties": {
         "managed": {"type": "boolean"},
+        "physical": {"type": "boolean"},
+        "shared_buses": {"type": "boolean"},
+        "interrupt_cleanup": {"type": "boolean"},
+        "soft_restart_cleanup": {"type": "boolean"},
+        "recovery": {"type": "boolean"},
+        "qualified": {"type": "boolean"},
         "max_claims": {"type": "integer", "minimum": 1, "maximum": 32},
         "kinds": {
           "type": "array",

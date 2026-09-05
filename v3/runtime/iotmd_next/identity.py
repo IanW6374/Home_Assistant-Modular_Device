@@ -147,6 +147,12 @@ class IdentityLifecycleService:
 
     def poll(self):
         self._adapter.poll()
+        refreshed = validate_identity_state(self._adapter.identity_state())
+        if refreshed['method'] != self._configuration['method']:
+            raise IdentityError(
+                'configured identity method does not match installed state'
+            )
+        self._state = refreshed
         now = int(self._now())
         if now < self._next_check:
             return
@@ -156,7 +162,8 @@ class IdentityLifecycleService:
         if not self._clock_synchronised():
             return
         due_at = self._state['renewal']['due_at']
-        if due_at and now >= due_at:
+        if (due_at and now >= due_at and
+                self._state['renewal']['state'] != 'renewing'):
             self._state = validate_identity_state(self._adapter.renew())
             self._renewals += 1
 

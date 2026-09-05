@@ -93,6 +93,8 @@ V3_ALPHA_FILES = (
     'v3/runtime/iotmd_next/platform.py',
     'v3/runtime/iotmd_next/presentation.py',
     'v3/runtime/iotmd_next/product_transports.py',
+    'v3/runtime/iotmd_next/production_adapters.py',
+    'v3/runtime/iotmd_next/production_identity.py',
     'v3/runtime/iotmd_next/qualification.py',
     'v3/runtime/iotmd_next/reference_sensor.py',
     'v3/runtime/iotmd_next/resources.py',

@@ -19,7 +19,7 @@
     }
   ],
   "resources": [
-    {"handle": 1, "kind": "adc", "identifier": "adc:1", "owner": "reference-1"}
+    {"handle": 1, "kind": "adc", "identifier": "adc:1", "owner": "reference-1", "shared": false, "signature": "", "constructed": true}
   ],
   "events": [
     {"sequence": 1, "code": "service_started", "source": "reference-1", "severity": "info"},

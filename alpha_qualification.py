@@ -107,6 +107,7 @@ class AlphaQualificationService:
         try:
             capabilities = self.platform.capabilities()
             updates = capabilities['updates']
+            resources = capabilities['resources']
             snapshot = self.platform.update_snapshot()
             return {
                 'available': bool(updates['native_trial_observation']),
@@ -129,6 +130,15 @@ class AlphaQualificationService:
                     capabilities['jobs']['async_worker']
                 ),
                 'jobs_qualified': bool(capabilities['jobs']['qualified']),
+                'resources_available': bool(
+                    resources['managed'] and resources['physical'] and
+                    resources['shared_buses'] and
+                    resources['interrupt_cleanup'] and
+                    resources['soft_restart_cleanup'] and
+                    resources['recovery']
+                ),
+                'resources_qualified': bool(resources['qualified']),
+                'resource_kinds': tuple(resources['kinds']),
                 'snapshot': snapshot,
                 'recovery': self.platform.recovery_snapshot(),
             }
