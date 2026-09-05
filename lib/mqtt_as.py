@@ -567,7 +567,7 @@ class MQTTClient(MQTT_base):
 
             esp.sleep_type(0)  # Improve connection integrity at cost of power consumption.
 
-    async def wifi_connect(self, quick=False):
+    async def wifi_connect(self, quick=False, timeout_s=60):
         s = self._sta_if
         if ESP8266:
             if s.isconnected():  # 1st attempt, already connected.
@@ -594,7 +594,7 @@ class MQTTClient(MQTT_base):
         else:
             s.active(True)
             s.connect(self._ssid, self._wifi_pw)
-            for _ in range(60):  # Break out on fail or success. Check once per sec.
+            for _ in range(max(1, int(timeout_s))):  # Break out on fail or success. Check once per sec.
                 await asyncio.sleep(1)
                 # Loop while connecting or no IP
                 if s.isconnected():
@@ -611,7 +611,12 @@ class MQTTClient(MQTT_base):
                 s.disconnect()
                 await asyncio.sleep(1)
 
-        if not s.isconnected():  # Timed out
+        if not s.isconnected():  # Timed out or failed before the timeout.
+            try:
+                s.disconnect()
+            except Exception:
+                pass
+            await asyncio.sleep(1)
             raise OSError("Wi-Fi connect timed out")
         if not quick:  # Skip on first connection only if power saving
             # Ensure connection stays up for a few secs.

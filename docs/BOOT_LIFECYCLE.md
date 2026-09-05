@@ -93,6 +93,13 @@ recovery console. Application exceptions, capability failures and health-gate
 failures preserve the last stage, heap and bounded reason for USB, portal and
 support-bundle diagnosis.
 
+Startup Wi-Fi uses three bounded 20-second association attempts with two- and
+five-second backoff. Each failed attempt resets the station association and is
+logged. Only exhaustion of all three attempts latches the frozen recovery
+request, so a single transient radio or access-point delay after a power cycle
+does not strand an otherwise healthy remote device in recovery. A pending
+network-settings trial retains its rollback behavior if all attempts fail.
+
 Universal activation is firmware-first, so the new recovery core must boot
 while the previous application generation is still mounted. Every
 project-local module imported by the frozen recovery layer is therefore part

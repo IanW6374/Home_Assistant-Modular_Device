@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 3.0.0-alpha.8 - 2026-09-05
+
+- Add separate current-stage and overall manual-upgrade progress, with workflow-specific
+  steps for application, core and universal bundles and a persistent completed-stage trail.
+- Count browser upload bytes even when Safari does not mark its progress event as length
+  computable, and yield between acknowledged chunks so intermediate percentages can paint.
+- Replace the filtered SSID datalist with an unfiltered detected-network selector and an
+  in-place manual-entry mode in both first-boot setup and Device > Network.
+- Retry startup Wi-Fi three times within approximately the prior connection budget before
+  latching frozen recovery, cleaning the station between failed attempts and logging each
+  bounded retry. This prevents one transient association timeout after a power cycle from
+  immediately stranding a remote device in recovery.
+
 ## 3.0.0-alpha.7 - 2026-09-05
 
 - Register the native v3 platform module in MicroPython's generated import

@@ -1,7 +1,8 @@
+import asyncio
 import unittest
 
 from services.messaging_service import MessagingService
-from services.network_service import NetworkService
+from services.network_service import NetworkService, connect_with_retries
 from services.portal_service import PortalService
 from services.update_service import UpdateService
 from services.event_sinks import LegacyLogSink
@@ -26,6 +27,46 @@ class ServiceBoundaryTests(unittest.TestCase):
         messaging = MessagingService(lambda *args: sent.append(args))
         messaging.publish('state/topic', 'on', True, 1)
         self.assertEqual(sent[0], ('state/topic', 'on', True, 1))
+
+    def test_startup_network_retries_before_recovery_escalation(self):
+        attempts = []
+        delays = []
+        retries = []
+
+        async def connector(quick=False):
+            attempts.append(quick)
+            if len(attempts) < 3:
+                raise OSError('temporary Wi-Fi failure')
+
+        async def sleeper(delay):
+            delays.append(delay)
+
+        used = asyncio.run(connect_with_retries(
+            connector, sleeper, attempts=3, backoff=(2, 5),
+            on_retry=lambda completed, total, delay, error: retries.append(
+                (completed, total, delay, str(error))
+            ),
+        ))
+
+        self.assertEqual(used, 3)
+        self.assertEqual(attempts, [True, True, True])
+        self.assertEqual(delays, [2, 5])
+        self.assertEqual(retries, [
+            (1, 3, 2, 'temporary Wi-Fi failure'),
+            (2, 3, 5, 'temporary Wi-Fi failure'),
+        ])
+
+    def test_startup_network_raises_after_bounded_attempts(self):
+        async def connector(quick=False):
+            raise OSError('offline')
+
+        async def sleeper(_delay):
+            return None
+
+        with self.assertRaisesRegex(OSError, 'offline'):
+            asyncio.run(connect_with_retries(
+                connector, sleeper, attempts=2, backoff=(0,),
+            ))
 
     def test_update_service_selects_only_declared_receivers(self):
         class Store:

@@ -4,7 +4,8 @@ This directory is the isolated starting point for the v3 architecture rewrite.
 Stable v2.5 maintenance continues from `main`; v3 development continues on
 `alpha/v3-platform-rewrite` until its own promotion gates pass.
 
-Version `3.0.0-alpha.7` advances the native boundary to ABI 4. It adds guarded
+Version `3.0.0-alpha.8` retains the native ABI 4 boundary and improves the
+manual upgrade and Wi-Fi selection experience. Alpha 7 added guarded
 OTA trial controls, native boot/recovery state ahead of the replaceable product,
 and a fixed-capacity asynchronous job/event boundary. These are implemented
 mechanisms, not completed qualification claims: paired trial, native rollback,

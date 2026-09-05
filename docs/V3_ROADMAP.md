@@ -132,7 +132,7 @@ product, repeated incomplete boot, watchdog and OTA trial tests recover through
 the frozen core; queue saturation remains bounded; and controlled confirm and
 rollback tests produce correct events without selecting the wrong partition.
 
-Current status: `3.0.0-alpha.7` implements these mechanisms and host contracts.
+Current status: `3.0.0-alpha.8` implements these mechanisms and host contracts.
 The `paired_trial`, `native_rollback`, native recovery and native job
 qualification flags intentionally remain false pending the Alpha 7 HIL matrix.
 This release does not claim bare-ESP-IDF recovery from a corrupted confirmed

@@ -2,7 +2,7 @@
   "contract_version": 1,
   "profile": "v3-beta",
   "device_id": "iot-md-001",
-  "release": {"version": "3.0.0-alpha.7", "sequence": 2712, "confirmed": true},
+  "release": {"version": "3.0.0-alpha.8", "sequence": 2713, "confirmed": true},
   "started_at": 1799078400,
   "observed_at": 1799251200,
   "elapsed_s": 172800,

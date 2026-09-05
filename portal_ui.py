@@ -1,7 +1,7 @@
 """Shared, dependency-free UI shell for setup and the authenticated portal."""
 
 
-ASSET_VERSION = '10'
+ASSET_VERSION = '11'
 
 
 PORTAL_CSS = (
@@ -53,6 +53,8 @@ PORTAL_CSS = (
     'font:inherit;border-radius:9px}input,select,textarea{width:100%;padding:10px 12px;'
     'color:var(--ink);background:var(--bg);border:1px solid var(--line);outline:none}'
     'input:not([type="checkbox"]):not([type="radio"]),select{min-height:46px}'
+    '.wifi-ssid-control{display:block}.wifi-ssid-manual{display:grid;grid-template-columns:1fr auto;'
+    'gap:8px;align-items:center}.wifi-ssid-manual[hidden]{display:none}'
     '.field[hidden],.conditional-fields[hidden]{display:none}'
     'input:focus,select:focus,textarea:focus{border-color:var(--accent);'
     'box-shadow:0 0 0 3px rgba(8,126,139,.18)}'

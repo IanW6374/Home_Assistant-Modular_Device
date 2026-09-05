@@ -62,7 +62,7 @@ from message_broker import BoundedPublishQueue, ModuleBroker
 from services.event_service import EventService
 from services.event_sinks import LegacyLogSink
 from services.module_runtime import ModuleRuntime
-from services.network_service import NetworkService
+from services.network_service import NetworkService, STARTUP_WIFI_TIMEOUT_S, connect_with_retries
 from services.messaging_service import MessagingService
 from services.home_assistant_service import HomeAssistantService
 from services.portal_service import PortalService
@@ -2960,7 +2960,11 @@ async def main(client):
 
     try:
         logOutput('MQTT', 'Connect', {'log': 'Connect WiFi before NTP sync'}, 'INFO')
-        await client.wifi_connect(quick=True)
+        await connect_with_retries(
+            lambda quick=False: client.wifi_connect(quick=quick, timeout_s=STARTUP_WIFI_TIMEOUT_S), asyncio.sleep,
+            on_retry=lambda done, total, delay, exc: logOutput('WiFi', 'Connect', {'log':
+                'Attempt %d of %d failed: %s; retrying in %d seconds' % (done, total, exc, delay)}, 'WARNING'),
+        )
         application_context.lifecycle.transition('network-ready')
         application_context.state.set('network', 'online')
         boot_tracker.stage('network', device_state='initialising', durable=True)
